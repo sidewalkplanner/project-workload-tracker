@@ -13,19 +13,22 @@ Open both links first. If either says you need access, request it before going o
 2. Click **Untitled project** at the top and name it **Zone 5 Project Workload Tracker**.
 3. Click the gear (**Project Settings**) and tick **Show "appsscript.json" manifest file in editor**.
 
-## 2. Copy the files in
+## 2. Let GitHub upload the files
 
-For each file in this repository's `webapp/` folder, make a file of the same name in the editor and paste its contents over whatever is there.
+This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Google with a key you make once, uploads `webapp/`, and publishes it. Everything is done in the browser.
 
-| In GitHub | In the editor |
-|---|---|
-| `Config.gs`, `Pipeline.gs`, `Data.gs`, `Api.gs`, `Setup.gs`, `Web.gs` | **+** › **Script**, type the name without `.gs` (rename the starting `Code.gs` to `Config`) |
-| `Index.html`, `Styles.html`, `JsCore.html`, `JsApp.html` | **+** › **HTML**, type the name without `.html` |
-| `appsscript.json` | already there; replace its contents |
+1. Turn the **Google Apps Script API** **On** at <https://script.google.com/home/usersettings>.
+2. In the Apps Script editor, open **Project Settings** (gear) and copy the **Script ID**.
+3. Make the sign-in key in **Google Cloud Shell** (<https://shell.cloud.google.com>, nothing to install):
+   1. Run `npx --yes @google/clasp@2.4.2 login`.
+   2. Open the link it prints, sign in with your GSA account and choose **Allow**.
+   3. The browser then goes to a `http://localhost:…` page that doesn't load. Copy that whole address, open a second Cloud Shell tab (**+**), and run `curl '<the address>'`. The first tab says you're logged in.
+   4. Run `cat ~/.clasprc.json` and copy everything it prints.
 
-To copy a file from GitHub: open it, click the **Copy raw file** button (two overlapping squares, top right of the file), then paste.
-
-Click **Save** (the disk icon).
+   Already made this key for the NEH BA61 dash with the same account and still have the text? You can reuse it. GitHub can't show a saved secret again, so if you don't have it, make a new one (the old one keeps working).
+4. In GitHub, open this repo's **Settings › Secrets and variables › Actions › New repository secret**. Name it `CLASPRC_JSON`, paste the whole key, and click **Add secret**. Then in Cloud Shell run `npx @google/clasp@2.4.2 logout` (GitHub keeps its own copy).
+5. In GitHub, open `.github/workflows/apps-script.yml`, click the pencil, put the Script ID between the quotes after `SCRIPT_ID:`, and **Commit changes** to `main`. (Or send the Script ID to Claude to do it.)
+6. Open **Actions › Upload to Apps Script › Run workflow** (if committing the Script ID didn't already start it). When it shows a green check, reload the Apps Script editor: all the files are there.
 
 ## 3. Run setup once
 
@@ -42,25 +45,25 @@ If it says it can't open a document, your account can't open one of the two shee
 3. **Execute as: Me**. Viewers then see the data through your access and don't need access to the sheets themselves.
 4. **Who has access: Anyone within GSA** (your Google Workspace domain).
 5. **Deploy**, then copy the **Web app URL**. That is the link to share.
+6. Open **Deploy › Manage deployments**, copy the **Deployment ID**, and put it between the quotes after `DEPLOYMENT_ID:` in `.github/workflows/apps-script.yml` (or send it to Claude). From then on every change merged to `main` is published on this same link.
 
 ## 5. Check it
 
 Open the link. You should see the Overview for all of Zone 5, or your own office if you are one of its Field Office Managers. Try clicking a field office row, a stage bar, and a name on the Workload tab.
 
-## Updating later
+## Automatic updates from GitHub
 
-### By hand
+The workflow in `.github/workflows/apps-script.yml` runs whenever a change to `webapp/` reaches `main`, for example when a pull request is merged. It:
 
-Paste the changed files over the old ones, save, then **Deploy** › **Manage deployments** › pencil icon › **Version: New version** › **Deploy**. The link stays the same.
+1. runs the tests (`node dev/test.js`) and stops if any fail,
+2. uploads every file in `webapp/` to the Apps Script project (the same as pasting each file and clicking **Save**; a file that's in Apps Script but not in `webapp/` is removed),
+3. publishes a new version on the existing deployment, so the link stays the same.
 
-### Automatic updates from GitHub (optional)
+Pull requests only run the tests. People see a change after a reload. Each run is listed under the repo's **Actions** tab, and **Run workflow** there starts one by hand (for example after fixing the sign-in).
 
-`.github/workflows/apps-script.yml` runs the tests on every push and pull request. Once the settings below exist, each merge to `main` that changes `webapp/` is also uploaded to Apps Script and published on the same link.
+The key belongs to the account that made it. If that person leaves, or uploads start failing with `invalid_grant` (the sign-in expired or was revoked), repeat steps 3–4 of section 2. Anyone who can change this repo's workflows can use the key, so keep write access to the repo limited.
 
-1. In the Apps Script editor: **Project Settings** › copy the **Script ID**. Then **Deploy** › **Manage deployments** › copy the **Deployment ID** of the web app.
-2. In GitHub: **Settings** › **Secrets and variables** › **Actions** › **Variables** tab › add `SCRIPT_ID` and `DEPLOYMENT_ID`.
-3. Turn on the Apps Script API for your account at https://script.google.com/home/usersettings.
-4. On any computer with Node: run `npx @google/clasp@2.4.2 login`, sign in, then open the file `~/.clasprc.json` it creates and copy all of it. In GitHub **Secrets** tab, add a secret named `CLASPRC_JSON` with that text. It is a sign-in token for your account: don't share it anywhere else.
+If the repo is ever made private, nothing changes: the workflow runs inside GitHub with its own access.
 
 ## Settings
 
