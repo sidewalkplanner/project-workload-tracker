@@ -33,7 +33,7 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to Zone 5 Project Workload Tracker**, **Allow**. The app asks only to *read* spreadsheets, to schedule its refresh, and to see the email of whoever opens it.
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to Zone 5 Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh and to see the email of whoever opens it.
 3. The log shows something like *"Set up: 874 Zone 5 PRs across 12 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
 If it says it can't open a document, your account can't open one of the two sheets (see the top of this page).
