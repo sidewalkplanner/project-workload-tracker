@@ -7,7 +7,7 @@ name: Upload to Apps Script
 on:
   push:
     branches: [main]
-    paths: ['webapp/**']
+    paths: ['webapp/**', '.github/**']
   pull_request:
   workflow_dispatch:
 
@@ -30,9 +30,9 @@ jobs:
   upload:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -48,12 +48,7 @@ jobs:
             echo "::error::SCRIPT_ID is blank in .github/workflows/apps-script.yml. See docs/DEPLOYMENT.md, 'Automatic updates from GitHub'."
             exit 1
           fi
-          if [ -z "$CLASPRC_JSON" ]; then
-            echo "::error::The CLASPRC_JSON secret is missing. See docs/DEPLOYMENT.md, 'Automatic updates from GitHub'."
-            exit 1
-          fi
-          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
-          chmod 600 "$HOME/.clasprc.json"
+          node .github/scripts/clasprc.js
 
       - name: Upload webapp/ (same as pasting every file and saving)
         if: github.event_name != 'pull_request'
