@@ -83,6 +83,7 @@ function applyRoute(r) {
   }
   if (r.status && STATUS_OPTIONS.some(function (s) { return s.key === r.status; })) f.status = r.status;
   if (r.fy && /^\d{4}$/.test(r.fy)) f.fy = r.fy;
+  if (r.type && TYPE_OPTIONS.some(function (t) { return t.key === r.type; })) f.type = r.type;
   if (r.q) f.q = r.q;
   if (r.role) S.workload.role = r.role;
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
@@ -110,6 +111,7 @@ function syncUrl() {
     if (f.programs.length < PROGRAM_LABELS.length) p.program = f.programs.join(',');
     if (f.status !== 'open') p.status = f.status;
     if (f.fy) p.fy = f.fy;
+    if (f.type !== 'projects') p.type = f.type;
     if (f.q) p.q = f.q;
     if (f.person) { p.person = f.person.email; p.role = f.person.role; }
     else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
@@ -218,6 +220,8 @@ function filterBar() {
   var fySel = h('select', { 'aria-label': 'Fiscal year' }, h('option', { value: '' }, 'All years'),
     Object.keys(years).sort().reverse().map(function (y) { return h('option', { value: y, selected: String(f.fy) === y }, 'FY' + y.slice(2)); }));
   fySel.addEventListener('change', function () { f.fy = fySel.value; rerender(); });
+  var typeSel = h('select', { 'aria-label': 'Type' }, TYPE_OPTIONS.map(function (t) { return h('option', { value: t.key, selected: f.type === t.key }, t.label); }));
+  typeSel.addEventListener('change', function () { f.type = typeSel.value; rerender(); });
   var search = h('input', { type: 'search', placeholder: 'PR, title, building, person, vendor…', value: f.q, 'aria-label': 'Search' });
   var timer = null;
   search.addEventListener('input', function () {
@@ -245,9 +249,9 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person;
+  var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects';
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: function () {
-    S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null };
+    S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects' };
     S.scopeNote = '';
     rerender();
   } }, 'Reset filters') : null;
@@ -259,6 +263,7 @@ function filterBar() {
       h('div', { class: 'field' }, h('span', null, 'Program'), programs),
       h('div', { class: 'field' }, h('span', null, 'EASi status'), status),
       h('label', { class: 'field' }, h('span', null, 'PR fiscal year'), fySel),
+      h('label', { class: 'field', title: 'Service contracts (custodial, O&M, snow removal, utilities, option years) are not projects and are hidden unless you ask for them.' }, h('span', null, 'Type'), typeSel),
       h('label', { class: 'field' }, h('span', null, 'Search'), search)),
     (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null);
 }
@@ -526,7 +531,7 @@ function projectRow(p) {
   };
   var tr = h('tr', { class: 'clickable' },
     h('td', null, h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', onClick: function (e) { e.stopPropagation(); } }, p.pr)),
-    h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title)),
+    h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title), p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null),
     h('td', null, programTags(p)),
     h('td', null, stageBadge(p)),
     h('td', null, officeLabel(p)),
@@ -642,7 +647,7 @@ function openDrawer(p) {
     h('div', { class: 'drawer-head' }, h('div', null,
       h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener' }, p.pr + ' · open in EASi ↗'),
       h('h2', null, p.title),
-      h('div', null, programTags(p), ' ', stageBadge(p))), close),
+      h('div', null, programTags(p), ' ', stageBadge(p), p.service ? [' ', h('span', { class: 'tag' }, 'Service contract')] : null)), close),
     h('div', { class: 'money-row' },
       h('div', null, h('div', { class: 'label' }, 'Committed'), h('div', { class: 'value' }, fmtMoney(p.committed))),
       h('div', null, h('div', { class: 'label' }, 'Obligated'), h('div', { class: 'value' }, fmtMoney(p.obligated))),
@@ -661,6 +666,8 @@ function openDrawer(p) {
       item('Vendor', p.vendor),
       item('Award type', p.awardType),
       item('Category', p.category),
+      item('Procurement category', p.procurementCategory),
+      p.service ? item('Service contract', p.service + '. Service contracts are hidden unless Type includes them.') : null,
       item('PR fiscal year', p.fy ? 'FY' + p.fy : '')),
     h('div', { class: 'section-title' }, 'Location'),
     h('dl', { class: 'dl' },
@@ -701,7 +708,7 @@ function footnote() {
   return h('p', { class: 'footnote' },
     'Source: the EASi BA61 Pipeline report (' + fmtInt(c.pipelineRows) + ' PRs nationwide, generated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : 'date unknown') + '), matched to Zone ' + d.zone +
     ' field offices through the buildings on each PR and the OFM Building Assignments sheet' + (d.directoryUpdated ? ' (updated ' + d.directoryUpdated + ')' : '') + '. ' +
-    fmtInt(c.zonePrs) + ' PRs are on Zone ' + d.zone + ' buildings. PRs without a building (national contracts, broker leases) are not shown. ' +
+    fmtInt(c.zonePrs) + ' PRs are on Zone ' + d.zone + ' buildings, ' + fmtInt(d.prs.filter(function (p) { return p.service; }).length) + ' of them service contracts (custodial, O&M, snow removal, utilities, option years), which are hidden unless Type includes them. PRs without a building (national contracts, broker leases) are not shown. ' +
     '“Fully expended” means Pegasys shows the whole obligation spent. Snapshot built ' + fmtDateTime(d.builtAt) + '.');
 }
 

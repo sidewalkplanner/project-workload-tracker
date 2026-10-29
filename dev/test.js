@@ -101,6 +101,35 @@ test('program codes come from the title when EASi has none yet', () => {
   assert.ok(d.prs.every((p) => JSON.stringify(p.lead) === JSON.stringify(p.cor.length ? p.cor : p.requestor)));
 });
 
+test('service contracts are flagged; repairs and multi-project R&A stay projects', () => {
+  const src = demoSources(3);
+  const H = src.pipeline[0];
+  const row = (n, title, category, proc) => {
+    const r = src.pipeline[1].slice();
+    r[H.indexOf('PR_Number')] = n; r[H.indexOf('PR_Title')] = title;
+    r[H.indexOf('Category_Code')] = category; r[H.indexOf('Procurement_Category')] = proc;
+    return r;
+  };
+  const bpa = 'Services,Task Order.BPA Call (Single Award IDV) ,$0 to $ SAT';
+  src.pipeline.push(
+    row('S1', 'Building-56 Custodial Services', 'Services', 'IDV or BPA for 5yr Service Contracts'),
+    row('S2', 'MN0087ZZ Snow Removal St Paul', 'Services', bpa),
+    row('S3', 'MO0050ZZ_Custodial & Related Services Follow On Contract_Kansas City, MO', 'n/a', 'Other'),
+    row('S4', 'Option 6 Full Facilities Aspinall', 'Services', bpa),
+    row('S5', 'Chilled Water Service- Burger Federal Building', 'Services', 'Utilities-Stand Alone Contract'),
+    row('P1', 'Building 56 - CO0533AA, Building 67 - CO627AA Multi-Project O&M R&A', 'Services', bpa),
+    row('P2', 'Hatch court house Janitor closet Galvanize Nipples Leaking and corrosion replacement', 'Services', bpa),
+    row('P3', 'MO0039ZZ For Bid PR, Bannister FB ATS replacement project After hours O&M services', 'Construction', 'Construction or DB, Task Order, >$ SAT to <$ Prospectus'),
+    row('P4', 'PG55, Oklahoma City POB RA, CMa-CxA Services Option 3&4', 'Services', 'Services, Task Order/BPA Call, >$ SAT'),
+    row('P5', 'UT0032ZZ Landscape Pipe Leak', 'Services', bpa));
+  const d = load(runtimeWith(src)).data;
+  const get = (n) => d.prs.find((p) => p.pr === n);
+  ['S1', 'S2', 'S3', 'S4', 'S5'].forEach((n) => assert.ok(get(n).service, n + ' is a service contract'));
+  ['P1', 'P2', 'P3', 'P4', 'P5'].forEach((n) => assert.strictEqual(get(n).service, '', n + ' is a project: ' + get(n).service));
+  assert.ok(/5yr Service Contracts/.test(get('S1').service));
+  assert.ok(/Snow Removal/.test(get('S2').service));
+});
+
 test('helpers: dates, money, names, emails', () => {
   const c = runtimeWith(demoSources(1)).ctx;
   assert.strictEqual(c.pipelineDate_('Tue Oct 20 2026 03:00:00 GMT-0400 (Eastern Daylight Time)'), '2026-10-20');

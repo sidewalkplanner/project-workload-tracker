@@ -7,6 +7,11 @@ var BOOT = window.__BOOT__ || { app: {}, route: {} };
 var PROGRAM_LABELS = ['BA61', 'BA80', 'BA54', 'Other'];
 var PROGRAM_COLORS = { BA61: 'var(--ba61)', BA80: 'var(--ba80)', BA54: 'var(--ba54)', Other: 'var(--other)' };
 var GROUP_COLORS = { preaward: 'var(--preaward)', awarded: 'var(--awarded)', closed: 'var(--expended)' };
+var TYPE_OPTIONS = [
+  { key: 'projects', label: 'Projects only' },
+  { key: 'all', label: 'Projects and service contracts' },
+  { key: 'service', label: 'Service contracts only' }
+];
 var STATUS_OPTIONS = [
   { key: 'open', label: 'Open', help: 'Everything not fully expended' },
   { key: 'preaward', label: 'Pre-award' },
@@ -19,7 +24,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400 },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -148,6 +153,8 @@ function filtered(skip) {
   var terms = q ? q.split(/\s+/) : [];
   var progs = f.programs;
   return S.data.prs.filter(function (p) {
+    if (f.type === 'projects' && p.service) return false;
+    if (f.type === 'service' && !p.service) return false;
     if (f.office && p.offices.indexOf(f.office) === -1) return false;
     if (!f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
     if (progs.length < PROGRAM_LABELS.length && !programLabels(p).some(function (l) { return progs.indexOf(l) !== -1; })) return false;

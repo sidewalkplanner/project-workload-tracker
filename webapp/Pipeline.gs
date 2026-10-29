@@ -227,9 +227,22 @@ function prFromRow_(get, number, title, place, directory) {
     b.manager.forEach(function (e) { if (pr.buildingManager.indexOf(e) === -1) pr.buildingManager.push(e); });
   });
   pr.lead = pr.cor.length ? pr.cor.slice() : pr.requestor.slice();
+  pr.service = serviceReason_(pr);
   pr.stage = stageOf_(pr);
   pr.remaining = Math.max(0, round2_(pr.obligated - pr.expended));
   return pr;
+}
+
+/** Why a PR is a service contract rather than a project ('' when it is a project). */
+function serviceReason_(pr) {
+  if (SERVICE_CATEGORY_RE.test(pr.procurementCategory)) return 'Procurement category: ' + pr.procurementCategory;
+  var title = pr.title.replace(/_/g, ' ');
+  if (!SERVICE_TITLE_CATEGORY_RE.test(pr.category) || PROJECT_WORK_RE.test(title)) return '';
+  for (var i = 0; i < SERVICE_TITLE_RES.length; i++) {
+    var m = SERVICE_TITLE_RES[i].exec(title);
+    if (m) return 'Title mentions "' + m[0] + '"';
+  }
+  return '';
 }
 
 /** The STAGES key for a PR, from EASi's acquisition, award and PR statuses and the Pegasys amounts. */

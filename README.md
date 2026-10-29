@@ -22,7 +22,7 @@ A Google Apps Script web app that shows the EASi status of every project in OFM 
 
 **Workload**: everyone ranked by how many projects they have, for the role you pick (project lead, COR, requestor, building manager, program manager, contracting officer, contract specialist), with pre-award vs awarded, BA61/80/54 counts, dollars and their oldest open fiscal year. Split by field office if you like. Click a person to see their projects. Export to CSV.
 
-**Filters** (shared by all three views, and kept in the page link so you can share a view): service center, field office, program (BA61 / BA80 / BA54 / Other), EASi status (open, pre-award, awarded, fully expended, all), PR fiscal year, and a search box that matches PR numbers, titles, buildings, people, vendors, RWA and BA61 portal numbers.
+**Filters** (shared by all three views, and kept in the page link so you can share a view): service center, field office, program (BA61 / BA80 / BA54 / Other), EASi status (open, pre-award, awarded, fully expended, all), PR fiscal year, type (projects only, or with service contracts), and a search box that matches PR numbers, titles, buildings, people, vendors, RWA and BA61 portal numbers.
 
 **Who sees what**: anyone at GSA with the link sees all of Zone 5. A Field Office Manager opens on their own office, and a Service Center Director on their service center (from the OFM Building Assignments sheet); one click shows the whole zone. Anyone listed on PRs gets a **My projects** link.
 
@@ -31,6 +31,7 @@ A Google Apps Script web app that shows the EASi status of every project in OFM 
 | Term | Meaning |
 |---|---|
 | Zone 5 PR | A PR with at least one Zone 5 building in `FE_Building_Code_List`. When EASi lists no building, building numbers in the PR title are used. A PR with only a Zone 5 OFM org code (P00MCF00, P00MCG00) is shown at service-center level. PRs with no building at all (national contracts, broker leases) are left out. |
+| Service contracts | Hidden by default (the **Type** filter brings them back), because they aren't projects. A PR is a service contract when its EASi procurement category is a 5- or 10-year service IDV/BPA, utilities, ESPC or a lease order, or, for Services/Other PRs, when its title reads like a recurring service: custodial or janitorial services, snow removal, groundskeeping, full maintenance, O&M or FE services, CFM, elevator maintenance, option years. A title that names building work (replace, repair, install, renovate, construction, CM) stays a project, so "Janitor closet … leaking" and "Multi-Project O&M R&A" count. The project's detail panel says why a PR was classed as a service contract. The rules are in `webapp/Config.gs`. |
 | Field office | From the building. A PR on buildings in two offices appears under both. |
 | Program | `FE_Program_Code_List`: PG61 = BA61, PG80 = BA80, PG54 = BA54, anything else = Other. A draft PR often has no code yet; then "BA61", "BA 80", "PG54" in the title, or a BA61 portal number (RM0028-092426), sets it. A PR funded from two programs counts in both. |
 | EASi status | From Acquisition Status, Award Status and PR Status. **Awarded · open** has money obligated and not all of it expended in Pegasys; **Fully expended** has it all expended (or nothing obligated). **Open** = everything except fully expended. |
@@ -38,7 +39,7 @@ A Google Apps Script web app that shows the EASi status of every project in OFM 
 | Committed / Obligated / Expended / Unexpended | `PR_Committed_Amount`, `Award_Obligated_Amount`, `Variance_Pegasys_Expended_Amount`, and obligated − expended. |
 | Building manager | The ServiceNow primary POC for the PR's buildings, from the OFM Building Assignments sheet. |
 
-On the October 29, 2026 report, 874 of the 10,294 PRs nationwide are on Zone 5 buildings; 688 of them are open.
+On the October 29, 2026 report, 874 of the 10,294 PRs nationwide are on Zone 5 buildings. 130 of those are service contracts; of the other 744 projects, 582 are open.
 
 ## How it works
 

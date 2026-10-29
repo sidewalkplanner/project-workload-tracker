@@ -74,6 +74,41 @@ var ROLES = [
   { key: 'cs', label: 'Contract specialist', short: 'CS' }
 ];
 
+/**
+ * Service contracts (custodial, O&M, snow removal, utilities, option years…) aren't projects;
+ * they are hidden unless the page's Type filter asks for them. A PR is a service contract
+ * when its procurement category is a long-term service vehicle, or its title reads like a
+ * recurring service. Repairs that only mention a service ("janitor closet leak", "landscape
+ * pipe leak", "O&M R&A") don't match.
+ */
+var SERVICE_CATEGORY_RE = /service contracts|^utilities|^espc\b|lease orders/i;
+var SERVICE_TITLE_RES = [
+  /\b(custodial|janitorial|cleaning)( and related| & related)? services?\b/i,
+  /\bcustodial (and|&) related\b/i,
+  /\bsnow( and ice| & ice)? removal\b/i,
+  /\blandscap\w* (services?|contract|maintenance)\b/i,
+  /\bgroundskeeping\b/i,
+  /\bfull (maintenance|facilities|services)\b/i,
+  /\bo&m (and related |& related )?services?\b/i,
+  /\bo&m (service )?bpa\b/i,
+  /\bo&m reprocurement\b/i,
+  /\bfe (services?|o&m)\b/i,
+  /\bfacilities eng\w* (services?|for|at)\b/i,
+  /\bfacilities engineering\b/i,
+  /\bfacilities management services\b/i,
+  /\boperations (and|&) maintenance\b(?! r&a)/i,
+  /\belevator maintenance\b/i,
+  /\b(option year|follow[- ]on (year|contract)|exercise option|oy ?\d)\b/i,
+  /\boption ([ivx]+|\d+)\b/i,
+  /\b(bird abatement|parking management|cafeteria|pest control|guard|security guard|fire & emergency) services?\b/i,
+  /\b(steam|chilled water|hot water) services?\b/i,
+  /\bcfm\b/i
+];
+/** A title that names building work is a project even if it also mentions a service. */
+var PROJECT_WORK_RE = /\b(replac\w*|repairs?|install\w*|renovat\w*|retrofit|upgrade|construction|abatement of|cma|cxa|cm)\b/i;
+/** Title rules only apply to these EASi categories (construction and A-E work stays a project). */
+var SERVICE_TITLE_CATEGORY_RE = /^(services|other|)$/i;
+
 /** Building numbers look like CO0026ZZ (state + 4 digits + 2 letters or digits). */
 var BUILDING_NUMBER_RE = /\b[A-Z]{2}\d{4}[A-Z0-9]{2}\b/g;
 /** NEH BA61 Project Portal numbers (RM0199-100726) that requesters put in PR titles. */

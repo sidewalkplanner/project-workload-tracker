@@ -17,6 +17,13 @@ const assert = require('assert');
   const count = async () => Number((await page.textContent('.kpi .value')).replace(/,/g, ''));
   const all = await count();
 
+  // Service contracts are hidden by default; the Type filter brings them back.
+  await page.selectOption('select[aria-label="Type"]', 'all');
+  const withService = await count();
+  assert.ok(withService >= all, 'including service contracts: ' + withService + ' >= ' + all);
+  await page.selectOption('select[aria-label="Type"]', 'projects');
+  assert.strictEqual(await count(), all);
+
   // Program chip narrows, the stage bar opens Projects on that stage.
   await page.click('.chip-toggle:has-text("BA80")');
   await page.click('.chip-toggle:has-text("BA54")');

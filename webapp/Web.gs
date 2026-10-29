@@ -5,7 +5,7 @@
  * URL parameters set the starting view and filters, for links people share:
  *   ?view=overview | projects | workload
  *   &office=<field office>  &sc=<service center>  &program=BA61,BA80  &status=open | preaward | awarded | expended | all
- *   &fy=2026  &role=cor  &person=<email>  &q=<search>
+ *   &fy=2026  &type=projects | all | service  &role=cor  &person=<email>  &q=<search>
  */
 
 function doGet(e) {
@@ -19,7 +19,7 @@ function doGet(e) {
 
 function routeFromParams_(params) {
   var route = {};
-  ['view', 'office', 'sc', 'program', 'status', 'fy', 'role', 'person', 'q', 'sort', 'group'].forEach(function (key) {
+  ['view', 'office', 'sc', 'program', 'status', 'fy', 'type', 'role', 'person', 'q', 'sort', 'group'].forEach(function (key) {
     var value = str_(params[key]).slice(0, 160);
     if (value && !/[\u0000-\u001f\u007f<>]/.test(value)) route[key] = value;
   });
