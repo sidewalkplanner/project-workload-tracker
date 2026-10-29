@@ -52,6 +52,32 @@ test('the signed-in Field Office Manager and Service Center Director are recogni
   assert.strictEqual(u.isAdmin, true);
 });
 
+test('the org code in the GSA display name picks the starting office', () => {
+  const src = demoSources();
+  const names = { 'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB', 'robin.center@gsa.gov': 'Robin Center (PMCG)', 'jo.budget@gsa.gov': 'Jo Budget - BCB', 'al.out@gsa.gov': 'Al Out - PMBEA' };
+  const as = (email) => JSON.parse(createRuntime({ quiet: true, user: email, sheets: sheetsFrom(src), directoryNames: names }).ctx.apiLoad()).user;
+  let u = as('pat.viewer@gsa.gov');
+  assert.strictEqual(u.orgCode, 'PMCFB');
+  assert.strictEqual(u.orgOffice, 'Iowa Field Office');
+  assert.strictEqual(u.orgSc, 'Heartland Service Center');
+  assert.strictEqual(u.name, 'Pat Viewer');
+  u = as('robin.center@gsa.gov');
+  assert.strictEqual(u.orgOffice, '');
+  assert.strictEqual(u.orgSc, 'Rocky Mountain Service Center');
+  u = as('jo.budget@gsa.gov');
+  assert.strictEqual(u.orgCode, 'BCB');
+  assert.strictEqual(u.orgOffice + u.orgSc, '');
+  u = as('al.out@gsa.gov');
+  assert.strictEqual(u.orgOffice + u.orgSc, '', 'an office outside the zone opens on the whole zone');
+  u = as('nobody@gsa.gov');
+  assert.strictEqual(u.orgCode, '');
+  const c = createRuntime({ quiet: true, sheets: sheetsFrom(src) }).ctx;
+  assert.strictEqual(c.parseOrgCode_('Robert Sells - PMCGC'), 'PMCGC');
+  assert.strictEqual(c.parseOrgCode_('Mary Smith'), '');
+  assert.strictEqual(c.parseOrgCode_('Mary SMITH'), '');
+  assert.strictEqual(c.cleanDisplayName_('Robert Sells - PMCGC'), 'Robert Sells');
+});
+
 test('the snapshot is cached in chunks and reused', () => {
   const rt = runtimeWith(demoSources(2500));
   load(rt);

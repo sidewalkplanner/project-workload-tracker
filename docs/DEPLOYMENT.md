@@ -33,7 +33,7 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to Zone 5 Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh and to see the email of whoever opens it.
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to Zone 5 Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
 3. The log shows something like *"Set up: 874 Zone 5 PRs across 12 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
 If it says it can't open a document, your account can't open one of the two sheets (see the top of this page).
@@ -48,6 +48,15 @@ If it says it can't open a document, your account can't open one of the two shee
 6. Open **Deploy › Manage deployments**, copy the **Deployment ID**, and put it between the quotes after `DEPLOYMENT_ID:` in `.github/workflows/apps-script.yml` (or send it to Claude). From then on every change merged to `main` is published on this same link.
 
 ## 5. Check it
+
+Run **`checkDirectoryLookup`** in the editor (pick it next to **Run**). It logs the GSA directory display name it finds for you, the org code, and the office you'll open on, for example:
+
+```
+robert.sells@gsa.gov -> display name "Robert Sells - PMCGC", org code PMCGC, opens on Denver Federal Center Field Office
+```
+
+If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on all of Zone 5.
+
 
 Open the link. You should see the Overview for all of Zone 5, or your own office if you are one of its Field Office Managers. Try clicking a field office row, a stage bar, and a name on the Workload tab.
 

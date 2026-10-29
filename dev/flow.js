@@ -79,6 +79,13 @@ const assert = require('assert');
   const banner = await page.$('.banner');
   if (banner) console.log('  banner: ' + (await banner.textContent()).trim());
 
+  // Someone whose GSA profile says PMCFB opens on Iowa (demo directory in dev/server.js).
+  await page.goto(base + '/?as=pat.viewer%40gsa.gov');
+  await page.waitForSelector('.kpi');
+  const orgBanner = await page.$('.banner');
+  if (orgBanner) console.log('  org banner: ' + (await orgBanner.textContent()).trim());
+  assert.strictEqual(await page.$eval('select[aria-label="Field office"]', (s) => s.value), 'Iowa Field Office');
+
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
   console.log('Flow OK: ' + all + ' open PRs, ' + ba61 + ' BA61, top person ' + top + ' projects.');

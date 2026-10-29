@@ -24,7 +24,7 @@ A Google Apps Script web app that shows the EASi status of every project in OFM 
 
 **Filters** (shared by all three views, and kept in the page link so you can share a view): service center, field office, program (BA61 / BA80 / BA54 / Other), EASi status (open, pre-award, awarded, fully expended, all), PR fiscal year, type (projects only, or with service contracts), and a search box that matches PR numbers, titles, buildings, people, vendors, RWA and BA61 portal numbers.
 
-**Who sees what**: anyone at GSA with the link sees all of Zone 5. A Field Office Manager opens on their own office, and a Service Center Director on their service center (from the OFM Building Assignments sheet); one click shows the whole zone. Anyone listed on PRs gets a **My projects** link.
+**Who sees what**: anyone at GSA with the link can see all of Zone 5, but each person opens on their own part of it, as in the NEH BA61 Project Portal: a Field Office Manager on the office they manage and a Service Center Director on their service center (both from the OFM Building Assignments sheet); everyone else on the office in their GSA profile's org code ("Robert Sells - **PMCGC**" → Denver Federal Center; a service-center code like PMCG → Rocky Mountain), or, without one, the office where they lead the most projects. A banner says why, and one click shows the whole zone. Anyone listed on PRs gets a **My projects** link.
 
 ## How the numbers work
 
@@ -50,6 +50,7 @@ The server reads both sheets, keeps only Zone 5, and stores the result in the sc
 | `webapp/Config.gs` | Sheet IDs, zone, programs, stages, roles. Any setting can be overridden in Script properties. |
 | `webapp/Pipeline.gs` | Turns the two sheets into the Zone 5 dataset (pure functions, tested in Node). |
 | `webapp/Data.gs` | Reads the sheets, caches the snapshot, works out who is signed in. |
+| `webapp/Directory.gs` | Reads the signed-in person's org code from the GSA directory (People API) to pick their starting office; `checkDirectoryLookup()` tests it. |
 | `webapp/Api.gs` | The two functions the page calls: `apiLoad`, `apiRefresh`. |
 | `webapp/Setup.gs` | `setup()` (run once) and the scheduled refresh. |
 | `webapp/Web.gs` | `doGet`, link parameters. |

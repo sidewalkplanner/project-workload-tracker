@@ -98,8 +98,19 @@ function applyDefaultsForUser() {
   if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
   if (!S.data.roles.some(function (r) { return r.key === S.workload.role; })) S.workload.role = 'lead';
   if (S.routeHadScope || !S.user) return;
-  if (S.user.manages.length === 1) { f.office = S.user.manages[0]; S.scopeNote = 'manager'; }
-  else if (S.user.directs.length === 1) { f.sc = S.user.directs[0]; S.scopeNote = 'director'; }
+  var u = S.user;
+  var lead = u.email && S.homeOffice.lead ? S.homeOffice.lead[u.email] : '';
+  var officeOf = function (name) { return S.data.offices.filter(function (o) { return o.name === name; })[0]; };
+  // Field Office Managers, then Service Center Directors, then the org code in the person's
+  // GSA profile (as in the NEH BA61 Project Portal), then where they lead the most projects.
+  if (u.manages.length === 1) S.scopeNote = { kind: 'manager', office: u.manages[0] };
+  else if (u.directs.length === 1) S.scopeNote = { kind: 'director', sc: u.directs[0] };
+  else if (u.orgOffice && officeOf(u.orgOffice)) S.scopeNote = { kind: 'org', office: u.orgOffice };
+  else if (u.orgSc) S.scopeNote = { kind: 'org', sc: u.orgSc };
+  else if (lead && officeOf(lead)) S.scopeNote = { kind: 'lead', office: lead };
+  else return;
+  if (S.scopeNote.office) { f.office = S.scopeNote.office; f.sc = officeOf(f.office).serviceCenter; }
+  else f.sc = S.scopeNote.sc;
 }
 
 function syncUrl() {
@@ -174,12 +185,16 @@ function topBar() {
 }
 
 function scopeBanner() {
-  if (!S.scopeNote || !S.user) return null;
+  var n = S.scopeNote;
+  if (!n || !S.user) return null;
   var f = S.filters;
-  var mine = S.scopeNote === 'manager' ? f.office : f.sc;
-  if (!mine || (S.scopeNote === 'manager' && f.office !== mine) || (S.scopeNote === 'director' && (f.sc !== mine || f.office))) return null;
+  if (n.office ? f.office !== n.office : (f.sc !== n.sc || f.office)) return null;
+  var why = n.kind === 'manager' ? ', the field office you manage.'
+    : n.kind === 'director' ? ', the service center you lead.'
+    : n.kind === 'org' ? (n.office ? ', your field office' : ', your service center') + (S.user.orgCode ? ' (' + S.user.orgCode + ' in your GSA profile).' : '.')
+    : ', where you lead the most projects.';
   return h('div', { class: 'banner', role: 'note' },
-    h('span', null, 'Showing ', h('strong', null, S.scopeNote === 'manager' ? officeShort(mine) : mine), S.scopeNote === 'manager' ? ', the field office you manage.' : ', the service center you lead.'),
+    h('span', null, 'Showing ', h('strong', null, n.office ? officeShort(n.office) : n.sc.replace(/ Service Center$/, '')), why),
     h('button', { class: 'link-btn', type: 'button', onClick: function () { f.office = ''; f.sc = ''; S.scopeNote = ''; rerender(); } }, 'Show all of Zone ' + S.data.zone));
 }
 
