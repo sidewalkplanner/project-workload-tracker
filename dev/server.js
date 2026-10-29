@@ -5,7 +5,8 @@
  *   node dev/server.js [--port 8080] [--sources sources.json]
  *
  * Without --sources it uses made-up demo data. Open http://localhost:8080/?as=<email>
- * to look as someone else (sam.foothills@gsa.gov manages the demo Denver FC office).
+ * to look as someone else (sam.foothills@gsa.gov manages the demo Denver FC office;
+ * pat.viewer@gsa.gov has org code PMCFB, Iowa, in the stand-in directory below).
  */
 'use strict';
 const http = require('http');
@@ -21,7 +22,13 @@ function arg(name, fallback) {
 const PORT = Number(arg('port', 8080));
 const file = arg('sources', null);
 const sources = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : demoSources();
-const rt = createRuntime({ quiet: true, owner: 'owner@gsa.gov', sheets: sheetsFrom(sources) });
+// A stand-in for the GSA directory: display names end in the person's org code.
+const directoryNames = {
+  'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB',
+  'robin.center@gsa.gov': 'Robin Center - PMCG',
+  'casey.denver@gsa.gov': 'Casey Denver - PMCGC'
+};
+const rt = createRuntime({ quiet: true, owner: 'owner@gsa.gov', sheets: sheetsFrom(sources), directoryNames });
 
 const SHIM = `
 <script>

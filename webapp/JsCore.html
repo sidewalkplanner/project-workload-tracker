@@ -8,17 +8,41 @@ var PROGRAM_LABELS = ['BA61', 'BA80', 'BA54', 'Other'];
 var PROGRAM_COLORS = { BA61: 'var(--ba61)', BA80: 'var(--ba80)', BA54: 'var(--ba54)', Other: 'var(--other)' };
 var GROUP_COLORS = { preaward: 'var(--preaward)', awarded: 'var(--awarded)', closed: 'var(--expended)' };
 var TYPE_OPTIONS = [
-  { key: 'projects', label: 'Projects only' },
-  { key: 'all', label: 'Projects and service contracts' },
-  { key: 'service', label: 'Service contracts only' }
+  { key: 'projects', label: 'Projects' },
+  { key: 'all', label: 'Projects + service contracts' },
+  { key: 'service', label: 'Service contracts' }
 ];
 var STATUS_OPTIONS = [
   { key: 'open', label: 'Open', help: 'Everything not fully expended' },
-  { key: 'preaward', label: 'Pre-award' },
-  { key: 'awarded', label: 'Awarded · open' },
-  { key: 'expended', label: 'Fully expended' },
+  { key: 'preaward', label: 'Pre-award', help: 'Not awarded yet: draft, review, awaiting assignment, with contracting, solicitation, award drafting' },
+  { key: 'awarded', label: 'Awarded', help: 'Awarded, with obligated money not yet fully expended' },
+  { key: 'expended', label: 'Expended', help: 'Awarded and fully expended in Pegasys' },
   { key: 'all', label: 'All' }
 ];
+var GROUP_LABELS = { preaward: 'Pre-award', awarded: 'Awarded · open', closed: 'Fully expended' };
+
+/** Small stroked icons (24-unit grid, 2px stroke), drawn inline so they follow the text color. */
+var ICON_PATHS = {
+  up: 'M7 14l5-5 5 5',
+  down: 'M7 10l5 5 5-5',
+  chevron: 'M6 9l6 6 6-6',
+  close: 'M6 6l12 12M18 6L6 18',
+  arrow: 'M5 12h14M13 6l6 6-6 6',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  info: 'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  filter: 'M4 6h16M7 12h10M10 18h4'
+};
+function icon(name, cls) {
+  var ns = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'icon' + (cls ? ' ' + cls : ''));
+  var path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', ICON_PATHS[name]);
+  svg.appendChild(path);
+  return svg;
+}
 
 var S = {
   data: null,
@@ -63,9 +87,11 @@ function fmtMoney(n) { return '$' + Math.round(n || 0).toLocaleString('en-US'); 
 function fmtMoneyShort(n) {
   n = n || 0;
   var a = Math.abs(n);
-  if (a >= 1e9) return '$' + (n / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
-  if (a >= 1e6) return '$' + (n / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace(/\.0+$/, '') + 'M';
-  if (a >= 1e4) return '$' + Math.round(n / 1e3) + 'K';
+  // One rule everywhere so a column of amounts reads at a glance: $1.37B, $84.6M, $8.9M, $686K, $7.2K, $950.
+  if (a >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (a >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+  if (a >= 1e5) return '$' + Math.round(n / 1e3) + 'K';
+  if (a >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
   return fmtMoney(n);
 }
 function fmtDate(iso) {
@@ -112,6 +138,7 @@ function prepareData(data) {
   data.prs.forEach(function (p) {
     p.stageOrder = S.stageIndex[p.stage] ? S.stageIndex[p.stage].order : 99;
     p._search = [p.pr, p.title, p.vendor, p.awardNumber, p.buildings.join(' '), p.buildingNames.join(' '), p.portalNumbers.join(' '),
+      (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join(' '),
       p.offices.join(' '), p.rwas.join(' '), p.projectCodes.join(' ')]
       .concat(['lead', 'cor', 'requestor', 'co', 'cs', 'programManager', 'buildingManager'].map(function (r) {
         return (p[r] || []).map(function (e) { return e + ' ' + (data.people[e] || ''); }).join(' ');
@@ -145,7 +172,7 @@ function matchesStatus(p, status) {
   return true;
 }
 
-/** The PRs that pass the filters. skip: { status: true } leaves the status/stage filter out. */
+/** The PRs that pass the filters. skip: { status, person, place: true } leaves that filter out. */
 function filtered(skip) {
   skip = skip || {};
   var f = S.filters;
@@ -155,8 +182,8 @@ function filtered(skip) {
   return S.data.prs.filter(function (p) {
     if (f.type === 'projects' && p.service) return false;
     if (f.type === 'service' && !p.service) return false;
-    if (f.office && p.offices.indexOf(f.office) === -1) return false;
-    if (!f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
+    if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
+    if (!skip.place && !f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
     if (progs.length < PROGRAM_LABELS.length && !programLabels(p).some(function (l) { return progs.indexOf(l) !== -1; })) return false;
     if (!skip.status) {
       if (f.stage) { if (p.stage !== f.stage) return false; }
@@ -182,14 +209,20 @@ function officesInScope() {
 function emptyTotals() {
   return { count: 0, open: 0, preaward: 0, awarded: 0, expended: 0, BA61: 0, BA80: 0, BA54: 0, Other: 0, committed: 0, obligated: 0, remaining: 0, expendedAmt: 0 };
 }
+/** How many projects a PR is: a multi-project PR counts each of its sub-projects. */
+function unitsOf(p) { return p.units || 1; }
+function countOf(list) { return list.reduce(function (s, p) { return s + unitsOf(p); }, 0); }
+
 function addTo(t, p) {
-  t.count++;
+  var n = unitsOf(p);
+  t.count += n;
+  t.prs = (t.prs || 0) + 1;
   var g = stageOf(p).group;
-  if (p.stage !== 'expended') t.open++;
-  if (g === 'preaward') t.preaward++;
-  if (p.stage === 'awarded') t.awarded++;
-  if (p.stage === 'expended') t.expended++;
-  programLabels(p).forEach(function (l) { t[l]++; });
+  if (p.stage !== 'expended') t.open += n;
+  if (g === 'preaward') t.preaward += n;
+  if (p.stage === 'awarded') t.awarded += n;
+  if (p.stage === 'expended') t.expended += n;
+  programLabels(p).forEach(function (l) { t[l] += n; });
   t.committed += p.committed;
   t.obligated += p.obligated;
   t.remaining += p.remaining;
@@ -265,13 +298,13 @@ function sortHeader(col, sorts, onSort) {
   var active = idx !== -1;
   var dir = active ? sorts[idx].dir : 0;
   var th = h('th', {
-    class: 'sortable' + (col.num ? ' num' : ''),
+    class: 'sortable' + (col.num ? ' num' : '') + (col.hideSm ? ' hide-sm' : ''),
     scope: 'col',
     tabindex: '0',
     title: 'Sort by ' + col.label + ' (Shift-click to add a second sort)',
     'aria-sort': idx === 0 ? (dir > 0 ? 'ascending' : 'descending') : 'none'
-  }, col.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, active ? (dir > 0 ? '▲' : '▼') : ''),
-    active && sorts.length > 1 ? h('span', { class: 'rank' }, String(idx + 1)) : null);
+  }, h('span', { class: 'th-inner' }, col.label, h('span', { class: 'arrow' }, active ? icon(dir > 0 ? 'up' : 'down') : null),
+    active && sorts.length > 1 ? h('span', { class: 'rank' }, String(idx + 1)) : null));
   var go = function (e) { onSort(col.key, e.shiftKey, col.dir || (col.num ? -1 : 1)); };
   th.addEventListener('click', go);
   th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); } });
@@ -334,14 +367,34 @@ function withTooltip(el, title, rowsFn) {
   return el;
 }
 
-/** A stacked bar of segments [{ value, color, label }] scaled to max. */
-function stackedBar(segments, max, cls) {
+/** A stacked bar of segments [{ value, color }] scaled to max; avg draws a reference line at that value. */
+function stackedBar(segments, max, cls, avg) {
   var bar = h('div', { class: cls || 'hbar-track' });
   segments.forEach(function (s) {
     if (!s.value) return;
     bar.appendChild(h('div', { class: 'seg-fill', style: { width: (max ? (s.value / max) * 100 : 0) + '%', background: s.color } }));
   });
+  if (avg && max) bar.appendChild(h('div', { class: 'avg-line', style: { left: Math.min(100, (avg / max) * 100) + '%' } }));
   return bar;
+}
+
+/** Stage-group segments for a totals row, skipping groups the current filters leave out. */
+function groupSegments(t) {
+  return [{ value: t.preaward, color: GROUP_COLORS.preaward }, { value: t.awarded, color: GROUP_COLORS.awarded }, { value: t.expended, color: GROUP_COLORS.closed }];
+}
+
+/** The legend for stage-group bars: only the groups the status filter can show, plus the average line when drawn. */
+function groupLegend(avgLabel) {
+  var f = S.filters;
+  var groups = f.stage ? [stageOf({ stage: f.stage }).group]
+    : f.status === 'open' ? ['preaward', 'awarded']
+    : f.status === 'preaward' ? ['preaward']
+    : f.status === 'awarded' ? ['awarded']
+    : f.status === 'expended' ? ['closed']
+    : ['preaward', 'awarded', 'closed'];
+  return h('div', { class: 'legend' }, groups.map(function (g) {
+    return h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS[g] } }), GROUP_LABELS[g]);
+  }), avgLabel ? h('span', null, h('span', { class: 'swatch-line' }), avgLabel) : null);
 }
 
 function stageBadge(p) {

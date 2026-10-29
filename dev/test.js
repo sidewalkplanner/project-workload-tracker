@@ -52,6 +52,32 @@ test('the signed-in Field Office Manager and Service Center Director are recogni
   assert.strictEqual(u.isAdmin, true);
 });
 
+test('the org code in the GSA display name picks the starting office', () => {
+  const src = demoSources();
+  const names = { 'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB', 'robin.center@gsa.gov': 'Robin Center (PMCG)', 'jo.budget@gsa.gov': 'Jo Budget - BCB', 'al.out@gsa.gov': 'Al Out - PMBEA' };
+  const as = (email) => JSON.parse(createRuntime({ quiet: true, user: email, sheets: sheetsFrom(src), directoryNames: names }).ctx.apiLoad()).user;
+  let u = as('pat.viewer@gsa.gov');
+  assert.strictEqual(u.orgCode, 'PMCFB');
+  assert.strictEqual(u.orgOffice, 'Iowa Field Office');
+  assert.strictEqual(u.orgSc, 'Heartland Service Center');
+  assert.strictEqual(u.name, 'Pat Viewer');
+  u = as('robin.center@gsa.gov');
+  assert.strictEqual(u.orgOffice, '');
+  assert.strictEqual(u.orgSc, 'Rocky Mountain Service Center');
+  u = as('jo.budget@gsa.gov');
+  assert.strictEqual(u.orgCode, 'BCB');
+  assert.strictEqual(u.orgOffice + u.orgSc, '');
+  u = as('al.out@gsa.gov');
+  assert.strictEqual(u.orgOffice + u.orgSc, '', 'an office outside the zone opens on the whole zone');
+  u = as('nobody@gsa.gov');
+  assert.strictEqual(u.orgCode, '');
+  const c = createRuntime({ quiet: true, sheets: sheetsFrom(src) }).ctx;
+  assert.strictEqual(c.parseOrgCode_('Robert Sells - PMCGC'), 'PMCGC');
+  assert.strictEqual(c.parseOrgCode_('Mary Smith'), '');
+  assert.strictEqual(c.parseOrgCode_('Mary SMITH'), '');
+  assert.strictEqual(c.cleanDisplayName_('Robert Sells - PMCGC'), 'Robert Sells');
+});
+
 test('the snapshot is cached in chunks and reused', () => {
   const rt = runtimeWith(demoSources(2500));
   load(rt);
@@ -128,6 +154,23 @@ test('service contracts are flagged; repairs and multi-project R&A stay projects
   ['P1', 'P2', 'P3', 'P4', 'P5'].forEach((n) => assert.strictEqual(get(n).service, '', n + ' is a project: ' + get(n).service));
   assert.ok(/5yr Service Contracts/.test(get('S1').service));
   assert.ok(/Snow Removal/.test(get('S2').service));
+});
+
+test('a multi-project PR carries its sub-projects', () => {
+  const src = demoSources(3);
+  const H = src.pipeline[0];
+  const r = src.pipeline[1].slice();
+  r[H.indexOf('PR_Number')] = 'EQPMBA-26-0272';
+  r[H.indexOf('PR_Title')] = 'Building 56 - CO0533AA, Building 67 - CO627AA Multi-Project O&M R&A';
+  r[H.indexOf('Category_Code')] = 'Services';
+  src.pipeline.push(r);
+  const d = load(runtimeWith(src)).data;
+  const p = d.prs.find((x) => x.pr === 'EQPMBA-26-0272');
+  assert.strictEqual(p.units, 8);
+  assert.strictEqual(p.subprojects[0].id, 'DWP26104');
+  assert.strictEqual(p.subprojects[7].id, 'DWP26104-7');
+  assert.strictEqual(p.service, '');
+  assert.ok(d.prs.filter((x) => x.pr !== 'EQPMBA-26-0272').every((x) => x.units === 1));
 });
 
 test('helpers: dates, money, names, emails', () => {

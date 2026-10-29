@@ -63,6 +63,15 @@ function createRuntime(opts) {
         };
       }
     },
+    People: {
+      People: {
+        searchDirectoryPeople(q) {
+          const names = opts.directoryNames || {};
+          const email = String(q.query).toLowerCase();
+          return names[email] ? { people: [{ names: [{ displayName: names[email] }], emailAddresses: [{ value: email }] }] } : { people: [] };
+        }
+      }
+    },
     LockService: { getScriptLock() { return { tryLock() { return true; }, releaseLock() {} }; } },
     Session: {
       getActiveUser() { return { getEmail() { return state.user; } }; },

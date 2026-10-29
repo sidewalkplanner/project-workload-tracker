@@ -102,10 +102,17 @@ function currentUser_(dataset) {
   var owner = '';
   try { owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) { owner = ''; }
   var admins = parseEmailList_(setting_('ADMIN_EMAILS'));
-  var user = { email: email, name: email ? nameFromEmail_(email) : '', isAdmin: !!email && (email === owner || admins.indexOf(email) !== -1), manages: [], directs: [] };
+  var user = { email: email, name: email ? nameFromEmail_(email) : '', isAdmin: !!email && (email === owner || admins.indexOf(email) !== -1), manages: [], directs: [],
+    orgCode: '', orgOffice: '', orgSc: '' };
   if (dataset && email) {
     dataset.offices.forEach(function (o) { if (o.manager === email) user.manages.push(o.name); });
     dataset.serviceCenters.forEach(function (s) { if (s.director === email) user.directs.push(s.name); });
+    var profile = directoryProfile_(email);
+    var place = placeForOrgCode_(profile.orgCode, dataset);
+    if (profile.name) user.name = profile.name;
+    user.orgCode = profile.orgCode;
+    user.orgOffice = place.office;
+    user.orgSc = place.sc;
   }
   return user;
 }

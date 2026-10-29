@@ -226,6 +226,9 @@ function prFromRow_(get, number, title, place, directory) {
   place.buildings.forEach(function (b) {
     b.manager.forEach(function (e) { if (pr.buildingManager.indexOf(e) === -1) pr.buildingManager.push(e); });
   });
+  pr.subprojects = (SUB_PROJECTS[number] || []).map(function (s) { return { id: str_(s[0]), title: str_(s[1]) }; });
+  // How many projects the PR is: its sub-projects when it funds several, otherwise one.
+  pr.units = pr.subprojects.length || 1;
   pr.lead = pr.cor.length ? pr.cor.slice() : pr.requestor.slice();
   pr.service = serviceReason_(pr);
   pr.stage = stageOf_(pr);

@@ -109,6 +109,25 @@ var PROJECT_WORK_RE = /\b(replac\w*|repairs?|install\w*|renovat\w*|retrofit|upgr
 /** Title rules only apply to these EASi categories (construction and A-E work stays a project). */
 var SERVICE_TITLE_CATEGORY_RE = /^(services|other|)$/i;
 
+/**
+ * PRs that fund several projects at once (one award, many line items). Each counts as its
+ * number of projects everywhere, and the project's detail panel lists them. Until EASi's
+ * line items can be read, add them here by PR number: [project number, title].
+ */
+var SUB_PROJECTS = {
+  // Building 56 and 67 Multi-Project O&M R&A, Denver Federal Center (award 47PD5126F0318).
+  'EQPMBA-26-0272': [
+    ['DWP26104', 'B56 Fire Sprinkler Work'],
+    ['DWP26104-1', 'VCT Floor Polishing'],
+    ['DWP26104-2', 'B56 Replace Pump, Vibration Lab'],
+    ['DWP26104-3', 'B56 Vibration Lab ACM Abatement'],
+    ['DWP26104-4', 'B56 Garage Door E26'],
+    ['DWP26104-5', 'B67 RF1 Motor Replacement'],
+    ['DWP26104-6', 'B67 AHU8 Chilled Water-Steam Valve Replacement'],
+    ['DWP26104-7', 'B67 3rd Floor Drain Line Repairs']
+  ]
+};
+
 /** Building numbers look like CO0026ZZ (state + 4 digits + 2 letters or digits). */
 var BUILDING_NUMBER_RE = /\b[A-Z]{2}\d{4}[A-Z0-9]{2}\b/g;
 /** NEH BA61 Project Portal numbers (RM0199-100726) that requesters put in PR titles. */
