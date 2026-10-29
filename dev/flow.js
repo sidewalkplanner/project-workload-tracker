@@ -69,8 +69,8 @@ const assert = require('assert');
   const top = await page.textContent('tbody tr.clickable >> nth=0 >> td >> nth=3');
   await page.click('tbody tr.clickable >> nth=0');
   await page.waitForSelector('.pill');
-  const listed = await page.$$eval('tbody tr.clickable', (r) => r.length);
-  assert.strictEqual(listed, Number(top), 'person has ' + top + ' projects');
+  const heading = Number((await page.textContent('.card-head h2')).replace(/,/g, '').match(/^\d+/)[0]);
+  assert.strictEqual(heading, Number(top), 'person has ' + top + ' projects');
 
   // CSV export.
   const [download] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text("Export CSV")')]);

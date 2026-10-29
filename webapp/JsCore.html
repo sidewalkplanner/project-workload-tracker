@@ -138,6 +138,7 @@ function prepareData(data) {
   data.prs.forEach(function (p) {
     p.stageOrder = S.stageIndex[p.stage] ? S.stageIndex[p.stage].order : 99;
     p._search = [p.pr, p.title, p.vendor, p.awardNumber, p.buildings.join(' '), p.buildingNames.join(' '), p.portalNumbers.join(' '),
+      (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join(' '),
       p.offices.join(' '), p.rwas.join(' '), p.projectCodes.join(' ')]
       .concat(['lead', 'cor', 'requestor', 'co', 'cs', 'programManager', 'buildingManager'].map(function (r) {
         return (p[r] || []).map(function (e) { return e + ' ' + (data.people[e] || ''); }).join(' ');
@@ -208,14 +209,20 @@ function officesInScope() {
 function emptyTotals() {
   return { count: 0, open: 0, preaward: 0, awarded: 0, expended: 0, BA61: 0, BA80: 0, BA54: 0, Other: 0, committed: 0, obligated: 0, remaining: 0, expendedAmt: 0 };
 }
+/** How many projects a PR is: a multi-project PR counts each of its sub-projects. */
+function unitsOf(p) { return p.units || 1; }
+function countOf(list) { return list.reduce(function (s, p) { return s + unitsOf(p); }, 0); }
+
 function addTo(t, p) {
-  t.count++;
+  var n = unitsOf(p);
+  t.count += n;
+  t.prs = (t.prs || 0) + 1;
   var g = stageOf(p).group;
-  if (p.stage !== 'expended') t.open++;
-  if (g === 'preaward') t.preaward++;
-  if (p.stage === 'awarded') t.awarded++;
-  if (p.stage === 'expended') t.expended++;
-  programLabels(p).forEach(function (l) { t[l]++; });
+  if (p.stage !== 'expended') t.open += n;
+  if (g === 'preaward') t.preaward += n;
+  if (p.stage === 'awarded') t.awarded += n;
+  if (p.stage === 'expended') t.expended += n;
+  programLabels(p).forEach(function (l) { t[l] += n; });
   t.committed += p.committed;
   t.obligated += p.obligated;
   t.remaining += p.remaining;

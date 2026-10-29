@@ -26,7 +26,8 @@ var PROJECT_ACCESSORS = {
 };
 /** The CSV export: everything, at full precision, whatever the table shows. */
 var PROJECT_CSV = [
-  ['PR', function (p) { return p.pr; }], ['Title', function (p) { return p.title; }], ['Program', function (p) { return programLabels(p).join(' / '); }],
+  ['PR', function (p) { return p.pr; }], ['Title', function (p) { return p.title; }],
+  ['Projects', function (p) { return unitsOf(p); }], ['Sub-projects', function (p) { return (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join('; '); }], ['Program', function (p) { return programLabels(p).join(' / '); }],
   ['EASi status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
   ['Project lead', function (p) { return peopleNames(p.lead); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
@@ -322,7 +323,7 @@ function overviewView() {
   leads.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
   var avg = leads.length ? leads.reduce(function (s, r) { return s + r.count; }, 0) / leads.length : 0;
   var preawardDollars = list.filter(function (p) { return stageOf(p).group === 'preaward'; }).reduce(function (s, p) { return s + p.committed; }, 0);
-  var withContracting = list.filter(function (p) { return p.stage === 'assigned' || p.stage === 'solicitation' || p.stage === 'drafting'; }).length;
+  var withContracting = countOf(list.filter(function (p) { return p.stage === 'assigned' || p.stage === 'solicitation' || p.stage === 'drafting'; }));
   var top = leads[0];
 
   wrap.appendChild(h('section', { class: 'card summary', 'aria-label': 'Summary' },
@@ -379,7 +380,7 @@ function topPeopleCard(leads, avg) {
 function pipelineCard() {
   var list = filtered({ status: true });
   var counts = {}, dollars = {};
-  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + 1; dollars[p.stage] = (dollars[p.stage] || 0) + p.committed; });
+  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + unitsOf(p); dollars[p.stage] = (dollars[p.stage] || 0) + p.committed; });
   var pre = S.data.stages.filter(function (s) { return s.group === 'preaward'; });
   var max = Math.max.apply(null, pre.map(function (s) { return counts[s.key] || 0; }).concat([1]));
   var f = S.filters;
@@ -519,7 +520,7 @@ function projectsView() {
   groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; rerender(); });
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Export CSV');
   card.appendChild(h('div', { class: 'card-head' },
-    h('div', null, h('h2', null, plural(list.length, S.filters.stage || S.filters.status === 'all' ? 'project' : statusLabel().toLowerCase() + ' project') + ' · ' + scopeName()),
+    h('div', null, h('h2', null, plural(t.count, S.filters.stage || S.filters.status === 'all' ? 'project' : statusLabel().toLowerCase() + ' project') + ' · ' + scopeName()),
       h('p', null, fmtMoneyShort(t.committed) + ' committed · ' + fmtMoneyShort(t.obligated) + ' obligated · ' + fmtMoneyShort(t.remaining) + ' not yet expended'))));
   card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
   if (!list.length) { card.appendChild(emptyState()); return card; }
@@ -552,7 +553,7 @@ function projectsView() {
     });
   });
   card.appendChild(h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)));
-  var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'project') + '. Click a column to sort; Shift-click to add a second sort.'));
+  var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'PR') + (t.count !== list.length ? ' (' + plural(t.count, 'project') + ')' : '') + '. Click a column to sort; Shift-click to add a second sort.'));
   if (shown >= limit && limit < list.length) {
     foot.appendChild(h('button', { class: 'btn', type: 'button', onClick: function () { S.projects.limit += 400; rerender(); } }, 'Show more'));
   }
@@ -599,7 +600,9 @@ function projectRow(p, cols) {
     pr: function () { return h('td', { class: 'nowrap' }, h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', onClick: function (e) { e.stopPropagation(); } }, p.pr)); },
     title: function () {
       return h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title),
-        h('div', { class: 'sub', title: p.buildingNames.join('\n') || null }, more(p.buildings, 2) || 'No building listed', p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null));
+        h('div', { class: 'sub', title: p.buildingNames.join('\n') || null }, more(p.buildings, 2) || 'No building listed',
+          p.subprojects && p.subprojects.length ? h('span', { class: 'tag', title: p.subprojects.map(function (s) { return s.id + ' ' + s.title; }).join('\n') }, p.subprojects.length + ' projects') : null,
+          p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null));
     },
     program: function () { return h('td', { class: 'tags-cell' }, programTags(p)); },
     stageOrder: function () { return h('td', null, stageBadge(p)); },
@@ -648,7 +651,7 @@ function workloadView() {
   byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; rerender(); });
   var people = rows.filter(function (r) { return r.email; });
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
-  var total = list.length;
+  var total = countOf(list);
   var avg = people.length ? people.reduce(function (s, r) { return s + r.count; }, 0) / people.length : 0;
 
   var cols = [
@@ -727,6 +730,11 @@ function openDrawer(p) {
       h('div', null, h('div', { class: 'label' }, 'Obligated'), h('div', { class: 'value' }, fmtMoney(p.obligated))),
       h('div', null, h('div', { class: 'label' }, 'Expended'), h('div', { class: 'value' }, fmtMoney(p.expended))),
       h('div', null, h('div', { class: 'label' }, 'Unexpended'), h('div', { class: 'value' }, fmtMoney(p.remaining)))),
+    p.subprojects && p.subprojects.length ? [
+      h('div', { class: 'section-title' }, p.subprojects.length + ' projects on this PR'),
+      h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, 'One award funds all of them, so EASi shows one PR. The tracker counts each project.'),
+      h('ol', { class: 'subprojects' }, p.subprojects.map(function (s) { return h('li', null, h('strong', null, s.id), ' ', s.title); }))
+    ] : null,
     h('div', { class: 'section-title' }, 'EASi status'),
     h('dl', { class: 'dl' },
       item('Where it is', st.label),

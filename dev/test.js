@@ -156,6 +156,23 @@ test('service contracts are flagged; repairs and multi-project R&A stay projects
   assert.ok(/Snow Removal/.test(get('S2').service));
 });
 
+test('a multi-project PR carries its sub-projects', () => {
+  const src = demoSources(3);
+  const H = src.pipeline[0];
+  const r = src.pipeline[1].slice();
+  r[H.indexOf('PR_Number')] = 'EQPMBA-26-0272';
+  r[H.indexOf('PR_Title')] = 'Building 56 - CO0533AA, Building 67 - CO627AA Multi-Project O&M R&A';
+  r[H.indexOf('Category_Code')] = 'Services';
+  src.pipeline.push(r);
+  const d = load(runtimeWith(src)).data;
+  const p = d.prs.find((x) => x.pr === 'EQPMBA-26-0272');
+  assert.strictEqual(p.units, 8);
+  assert.strictEqual(p.subprojects[0].id, 'DWP26104');
+  assert.strictEqual(p.subprojects[7].id, 'DWP26104-7');
+  assert.strictEqual(p.service, '');
+  assert.ok(d.prs.filter((x) => x.pr !== 'EQPMBA-26-0272').every((x) => x.units === 1));
+});
+
 test('helpers: dates, money, names, emails', () => {
   const c = runtimeWith(demoSources(1)).ctx;
   assert.strictEqual(c.pipelineDate_('Tue Oct 20 2026 03:00:00 GMT-0400 (Eastern Daylight Time)'), '2026-10-20');
