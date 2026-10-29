@@ -26,8 +26,7 @@ const sources = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : demoSources()
 const directoryNames = {
   'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB',
   'robin.center@gsa.gov': 'Robin Center - PMCG',
-  'adam.rankin@gsa.gov': 'Adam Rankin - PMCGC',
-  'robert.sells@gsa.gov': 'Robert Sells - PMCGC'
+  'casey.denver@gsa.gov': 'Casey Denver - PMCGC'
 };
 const rt = createRuntime({ quiet: true, owner: 'owner@gsa.gov', sheets: sheetsFrom(sources), directoryNames });
 

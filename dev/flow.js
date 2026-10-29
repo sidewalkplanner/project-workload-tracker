@@ -13,8 +13,8 @@ const assert = require('assert');
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + '/');
-  await page.waitForSelector('.kpi');
-  const count = async () => Number((await page.textContent('.kpi .value')).replace(/,/g, ''));
+  await page.waitForSelector('.stat');
+  const count = async () => Number((await page.textContent('.stat .value')).replace(/,/g, ''));
   const all = await count();
 
   // Service contracts are hidden by default; the Type filter brings them back.
@@ -38,7 +38,10 @@ const assert = require('assert');
 
   // Sorting by committed, descending then ascending.
   await page.click('th:has-text("Committed")');
-  const money = async () => page.$$eval('tbody tr.clickable', (trs) => trs.map((tr) => Number(tr.children[8].textContent.replace(/[$,]/g, ''))));
+  const money = async () => page.$$eval('table', ([table]) => {
+    const at = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Committed'));
+    return [...table.querySelectorAll('tbody tr.clickable')].map((tr) => Number((tr.children[at].getAttribute('title') || tr.children[at].textContent).replace(/[$,]/g, '')));
+  });
   let m = await money();
   assert.deepStrictEqual(m, m.slice().sort((a, b) => b - a), 'descending');
   await page.click('th:has-text("Committed")');
@@ -75,13 +78,13 @@ const assert = require('assert');
 
   // Field office filter via URL, and the manager banner.
   await page.goto(base + '/?as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
-  await page.waitForSelector('.kpi');
+  await page.waitForSelector('.stat');
   const banner = await page.$('.banner');
   if (banner) console.log('  banner: ' + (await banner.textContent()).trim());
 
   // Someone whose GSA profile says PMCFB opens on Iowa (demo directory in dev/server.js).
   await page.goto(base + '/?as=pat.viewer%40gsa.gov');
-  await page.waitForSelector('.kpi');
+  await page.waitForSelector('.stat');
   const orgBanner = await page.$('.banner');
   if (orgBanner) console.log('  org banner: ' + (await orgBanner.textContent()).trim());
   assert.strictEqual(await page.$eval('select[aria-label="Field office"]', (s) => s.value), 'Iowa Field Office');
