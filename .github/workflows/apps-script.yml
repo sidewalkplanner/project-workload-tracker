@@ -1,0 +1,72 @@
+# Uploads webapp/ to the tracker's Apps Script project and publishes it on the existing
+# deployment (same link) whenever webapp/ changes on main. Optional: until the
+# repository variables and secret below are set, it only runs the tests.
+# See docs/DEPLOYMENT.md, "Automatic updates from GitHub".
+name: Test and upload to Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths: ['webapp/**', 'dev/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: apps-script-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Settings › Secrets and variables › Actions › Variables. Not secrets.
+  SCRIPT_ID: ${{ vars.SCRIPT_ID }}
+  DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+  CLASP: npx --yes @google/clasp@2.4.2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the tests
+        run: node dev/test.js
+
+  upload:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.SCRIPT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sign in to Google
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::The CLASPRC_JSON secret is missing. See docs/DEPLOYMENT.md, 'Automatic updates from GitHub'."
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Upload webapp/
+        working-directory: webapp
+        run: |
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+          $CLASP push --force
+
+      - name: Publish on the existing deployment (same link)
+        if: env.DEPLOYMENT_ID != ''
+        working-directory: webapp
+        run: $CLASP deploy --deploymentId "$DEPLOYMENT_ID" --description "GitHub ${GITHUB_SHA::7}"
+
+      - name: Sign out
+        if: ${{ always() }}
+        run: rm -f "$HOME/.clasprc.json" webapp/.clasp.json

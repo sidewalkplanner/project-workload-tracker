@@ -1,0 +1,9 @@
+node_modules/
+# Exports of real data used for local testing must never be committed.
+*.json
+!package.json
+!webapp/appsscript.json
+*.xlsx
+webapp/.clasp.json
+out/
+shots/

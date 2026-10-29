@@ -1,0 +1,90 @@
+# Zone 5 Project Workload Tracker
+
+A Google Apps Script web app that shows the EASi status of every project in OFM **Zone 5** (Heartland and Rocky Mountain service centers, 12 field offices), and who is carrying them. It reads two Google Sheets and never changes them:
+
+- the APS Workload Tracker **BA61 Pipeline** report (every purchase request in EASi, refreshed each morning), and
+- the **OFM Building Assignments** sheet (which zone, service center and field office each building belongs to, and its Field Office Manager).
+
+> **Setting it up?** Follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It takes about 15 minutes in the browser, with nothing to install.
+
+![Overview, as a Field Office Manager sees it (demo data)](docs/img/overview.png)
+
+## What it shows
+
+**Overview**
+- Headline numbers for whatever is filtered: projects, pre-award, awarded and open, committed, obligated, unexpended, and how many project leads.
+- **Where projects are in EASi**: PRs by stage (draft → review → awaiting assignment → with contracting → solicitation → award drafting → awarded → fully expended). Click a stage to list those PRs.
+- **By program**: BA61, BA80 and BA54 side by side (plus Other).
+- **Field offices**: one sortable row per office with its manager, project counts by stage and program, dollars, number of project leads, projects per lead, and the person with the most.
+- **Who has the most projects**: the busiest project leads, split pre-award / awarded / expended.
+
+**Projects**: every PR in a sortable table (click a header; click again to reverse; Shift-click to add a second sort). Group by field office, project lead, COR, requestor, EASi status, program, building or fiscal year. Click a row for the full EASi record and a link into EASi. Export what you see to CSV.
+
+**Workload**: everyone ranked by how many projects they have, for the role you pick (project lead, COR, requestor, building manager, program manager, contracting officer, contract specialist), with pre-award vs awarded, BA61/80/54 counts, dollars and their oldest open fiscal year. Split by field office if you like. Click a person to see their projects. Export to CSV.
+
+**Filters** (shared by all three views, and kept in the page link so you can share a view): service center, field office, program (BA61 / BA80 / BA54 / Other), EASi status (open, pre-award, awarded, fully expended, all), PR fiscal year, and a search box that matches PR numbers, titles, buildings, people, vendors, RWA and BA61 portal numbers.
+
+**Who sees what**: anyone at GSA with the link sees all of Zone 5. A Field Office Manager opens on their own office, and a Service Center Director on their service center (from the OFM Building Assignments sheet); one click shows the whole zone. Anyone listed on PRs gets a **My projects** link.
+
+## How the numbers work
+
+| Term | Meaning |
+|---|---|
+| Zone 5 PR | A PR with at least one Zone 5 building in `FE_Building_Code_List`. When EASi lists no building, building numbers in the PR title are used. A PR with only a Zone 5 OFM org code (P00MCF00, P00MCG00) is shown at service-center level. PRs with no building at all (national contracts, broker leases) are left out. |
+| Field office | From the building. A PR on buildings in two offices appears under both. |
+| Program | `FE_Program_Code_List`: PG61 = BA61, PG80 = BA80, PG54 = BA54, anything else = Other. A draft PR often has no code yet; then "BA61", "BA 80", "PG54" in the title, or a BA61 portal number (RM0028-092426), sets it. A PR funded from two programs counts in both. |
+| EASi status | From Acquisition Status, Award Status and PR Status. **Awarded · open** has money obligated and not all of it expended in Pegasys; **Fully expended** has it all expended (or nothing obligated). **Open** = everything except fully expended. |
+| Project lead | The COR on the PR, or the requestor until a COR is named (pre-award PRs rarely have a COR yet). This is the default for "who has the most projects". |
+| Committed / Obligated / Expended / Unexpended | `PR_Committed_Amount`, `Award_Obligated_Amount`, `Variance_Pegasys_Expended_Amount`, and obligated − expended. |
+| Building manager | The ServiceNow primary POC for the PR's buildings, from the OFM Building Assignments sheet. |
+
+On the October 29, 2026 report, 874 of the 10,294 PRs nationwide are on Zone 5 buildings; 688 of them are open.
+
+## How it works
+
+The server reads both sheets, keeps only Zone 5, and stores the result in the script cache, so a page load doesn't re-read 10,000 rows. It rebuilds every 4 hours and at 7:30 Central each morning (after EASi regenerates the report), and anyone can press **Refresh** (once every 10 minutes; admins any time). The web app runs as the person who deployed it, so viewers don't need access to the source sheets, and only people signed in with a GSA account can open it.
+
+| File | What it does |
+|---|---|
+| `webapp/Config.gs` | Sheet IDs, zone, programs, stages, roles. Any setting can be overridden in Script properties. |
+| `webapp/Pipeline.gs` | Turns the two sheets into the Zone 5 dataset (pure functions, tested in Node). |
+| `webapp/Data.gs` | Reads the sheets, caches the snapshot, works out who is signed in. |
+| `webapp/Api.gs` | The two functions the page calls: `apiLoad`, `apiRefresh`. |
+| `webapp/Setup.gs` | `setup()` (run once) and the scheduled refresh. |
+| `webapp/Web.gs` | `doGet`, link parameters. |
+| `webapp/Index.html`, `Styles.html`, `JsCore.html`, `JsApp.html` | The page: a dependency-free single-page app. All data is inserted as text, never as HTML. |
+| `dev/` | Apps Script mock, tests, local preview, browser checks. |
+| `tools/export_sheets.py` | Converts downloaded copies of the two sheets to JSON for local testing. |
+
+### Settings (Apps Script › Project Settings › Script properties)
+
+| Property | Default |
+|---|---|
+| `PIPELINE_ID` | `1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU` (WLT - BA61 Pipeline) |
+| `PIPELINE_TAB` | `Pipeline` |
+| `DIRECTORY_ID` | `1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw` (OFM Building Assignments) |
+| `DIRECTORY_TAB` / `ORG_TAB` | `Buildings` / `Org Relationships` |
+| `ZONE` | `5` (the same app works for any zone) |
+| `ADMIN_EMAILS` | blank (the deployer is always an admin) |
+| `CACHE_MINUTES` | `360` |
+
+## Developing locally
+
+Requires Node 18+. Playwright is only needed for the browser checks.
+
+```bash
+npm test                 # backend tests on made-up data
+npm run preview          # http://localhost:8080 with made-up data; add ?as=sam.foothills@gsa.gov to be the demo Denver FC manager
+```
+
+To test with the real sheets, download both as .xlsx (File › Download › Microsoft Excel), then:
+
+```bash
+python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json
+SOURCES_JSON=/tmp/sources.json npm test
+node dev/server.js --sources /tmp/sources.json
+node dev/flow.js http://localhost:8080          # clicks through filters, sorting, grouping, drill-downs, export
+node dev/screenshots.js out/ http://localhost:8080
+```
+
+The exported JSON holds real data; `.gitignore` keeps `*.json` and `*.xlsx` out of the repository.

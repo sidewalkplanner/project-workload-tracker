@@ -1,0 +1,349 @@
+<script>
+/* ==========================================================================
+   Core: DOM helpers, formatting, state, filtering and aggregation.
+   All data is inserted as text, never as HTML.
+   ========================================================================== */
+var BOOT = window.__BOOT__ || { app: {}, route: {} };
+var PROGRAM_LABELS = ['BA61', 'BA80', 'BA54', 'Other'];
+var PROGRAM_COLORS = { BA61: 'var(--ba61)', BA80: 'var(--ba80)', BA54: 'var(--ba54)', Other: 'var(--other)' };
+var GROUP_COLORS = { preaward: 'var(--preaward)', awarded: 'var(--awarded)', closed: 'var(--expended)' };
+var STATUS_OPTIONS = [
+  { key: 'open', label: 'Open', help: 'Everything not fully expended' },
+  { key: 'preaward', label: 'Pre-award' },
+  { key: 'awarded', label: 'Awarded · open' },
+  { key: 'expended', label: 'Fully expended' },
+  { key: 'all', label: 'All' }
+];
+
+var S = {
+  data: null,
+  user: null,
+  view: 'overview',
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null },
+  projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400 },
+  workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
+  officesSort: [{ key: 'count', dir: -1 }],
+  stageIndex: {},
+  homeOffice: {}
+};
+
+function h(tag, attrs) {
+  var el = document.createElement(tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'style' && typeof v === 'object') Object.keys(v).forEach(function (s) { el.style.setProperty(s, v[s]); });
+      else if (k.slice(0, 2) === 'on' && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k === 'text') el.textContent = v;
+      else el.setAttribute(k, v === true ? '' : v);
+    });
+  }
+  for (var i = 2; i < arguments.length; i++) append(el, arguments[i]);
+  return el;
+}
+
+function append(el, child) {
+  if (child === null || child === undefined || child === false) return;
+  if (Array.isArray(child)) { child.forEach(function (c) { append(el, c); }); return; }
+  el.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+}
+
+function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+
+// ---------- Formatting ----------
+function fmtInt(n) { return Math.round(n || 0).toLocaleString('en-US'); }
+function fmtMoney(n) { return '$' + Math.round(n || 0).toLocaleString('en-US'); }
+function fmtMoneyShort(n) {
+  n = n || 0;
+  var a = Math.abs(n);
+  if (a >= 1e9) return '$' + (n / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
+  if (a >= 1e6) return '$' + (n / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace(/\.0+$/, '') + 'M';
+  if (a >= 1e4) return '$' + Math.round(n / 1e3) + 'K';
+  return fmtMoney(n);
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  var p = iso.split('-');
+  return Number(p[1]) + '/' + Number(p[2]) + '/' + p[0];
+}
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function plural(n, word, many) { return fmtInt(n) + ' ' + (n === 1 ? word : (many || word + 's')); }
+
+function personName(email) {
+  if (!email) return '';
+  if (S.data && S.data.people[email]) return S.data.people[email];
+  var local = String(email).split('@')[0].replace(/\d+$/, '');
+  return local.split(/[._-]+/).filter(String).map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ') || email;
+}
+function peopleNames(list) { return (list || []).map(personName).join(', '); }
+
+// ---------- PR helpers ----------
+function programLabels(p) {
+  if (p._labels) return p._labels;
+  var out = [];
+  (S.data.programs || []).forEach(function (prog) { if (p.programs.indexOf(prog.code) !== -1) out.push(prog.label); });
+  if (!out.length) out.push('Other');
+  p._labels = out;
+  return out;
+}
+function stageOf(p) { return S.stageIndex[p.stage] || { key: p.stage, label: p.stage, short: p.stage, group: 'preaward', order: 99 }; }
+function officeShort(name) { return String(name || '').replace(/ Field Office$/, ''); }
+function officeLabel(p) {
+  if (p.offices.length) return p.offices.map(officeShort).join(', ');
+  return p.serviceCenters.map(function (s) { return s.replace(/ Service Center$/, ''); }).join(', ') + ' SC';
+}
+
+/** Prepares the loaded dataset: stage order, searchable text, each person's home office. */
+function prepareData(data) {
+  S.stageIndex = {};
+  data.stages.forEach(function (s, i) { s.order = i; S.stageIndex[s.key] = s; });
+  data.prs.forEach(function (p) {
+    p.stageOrder = S.stageIndex[p.stage] ? S.stageIndex[p.stage].order : 99;
+    p._search = [p.pr, p.title, p.vendor, p.awardNumber, p.buildings.join(' '), p.buildingNames.join(' '), p.portalNumbers.join(' '),
+      p.offices.join(' '), p.rwas.join(' '), p.projectCodes.join(' ')]
+      .concat(['lead', 'cor', 'requestor', 'co', 'cs', 'programManager', 'buildingManager'].map(function (r) {
+        return (p[r] || []).map(function (e) { return e + ' ' + (data.people[e] || ''); }).join(' ');
+      })).join(' ').toLowerCase();
+  });
+  S.homeOffice = {};
+  data.roles.forEach(function (role) {
+    var tally = {};
+    data.prs.forEach(function (p) {
+      (p[role.key] || []).forEach(function (e) {
+        tally[e] = tally[e] || {};
+        p.offices.forEach(function (o) { tally[e][o] = (tally[e][o] || 0) + 1; });
+      });
+    });
+    S.homeOffice[role.key] = {};
+    Object.keys(tally).forEach(function (e) {
+      var best = '', n = 0;
+      Object.keys(tally[e]).forEach(function (o) { if (tally[e][o] > n) { best = o; n = tally[e][o]; } });
+      S.homeOffice[role.key][e] = best;
+    });
+  });
+}
+
+// ---------- Filtering ----------
+function matchesStatus(p, status) {
+  var g = stageOf(p).group;
+  if (status === 'open') return p.stage !== 'expended';
+  if (status === 'preaward') return g === 'preaward';
+  if (status === 'awarded') return p.stage === 'awarded';
+  if (status === 'expended') return p.stage === 'expended';
+  return true;
+}
+
+/** The PRs that pass the filters. skip: { status: true } leaves the status/stage filter out. */
+function filtered(skip) {
+  skip = skip || {};
+  var f = S.filters;
+  var q = f.q.trim().toLowerCase();
+  var terms = q ? q.split(/\s+/) : [];
+  var progs = f.programs;
+  return S.data.prs.filter(function (p) {
+    if (f.office && p.offices.indexOf(f.office) === -1) return false;
+    if (!f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
+    if (progs.length < PROGRAM_LABELS.length && !programLabels(p).some(function (l) { return progs.indexOf(l) !== -1; })) return false;
+    if (!skip.status) {
+      if (f.stage) { if (p.stage !== f.stage) return false; }
+      else if (!matchesStatus(p, f.status)) return false;
+    }
+    if (f.fy && String(p.fy) !== String(f.fy)) return false;
+    if (!skip.person && f.person && (p[f.person.role] || []).indexOf(f.person.email) === -1) return false;
+    for (var i = 0; i < terms.length; i++) if (p._search.indexOf(terms[i]) === -1) return false;
+    return true;
+  });
+}
+
+function officesInScope() {
+  var f = S.filters;
+  return S.data.offices.filter(function (o) {
+    if (f.office) return o.name === f.office;
+    if (f.sc) return o.serviceCenter === f.sc;
+    return true;
+  });
+}
+
+// ---------- Aggregation ----------
+function emptyTotals() {
+  return { count: 0, open: 0, preaward: 0, awarded: 0, expended: 0, BA61: 0, BA80: 0, BA54: 0, Other: 0, committed: 0, obligated: 0, remaining: 0, expendedAmt: 0 };
+}
+function addTo(t, p) {
+  t.count++;
+  var g = stageOf(p).group;
+  if (p.stage !== 'expended') t.open++;
+  if (g === 'preaward') t.preaward++;
+  if (p.stage === 'awarded') t.awarded++;
+  if (p.stage === 'expended') t.expended++;
+  programLabels(p).forEach(function (l) { t[l]++; });
+  t.committed += p.committed;
+  t.obligated += p.obligated;
+  t.remaining += p.remaining;
+  t.expendedAmt += p.expended;
+  return t;
+}
+function totalsOf(list) { var t = emptyTotals(); list.forEach(function (p) { addTo(t, p); }); return t; }
+
+/** People in a role with their totals. byOffice splits each person by field office. */
+function workloadRows(list, roleKey, byOffice) {
+  var rows = {};
+  list.forEach(function (p) {
+    var people = p[roleKey] && p[roleKey].length ? p[roleKey] : [''];
+    var offices = byOffice ? (p.offices.length ? p.offices : ['']) : [null];
+    people.forEach(function (email) {
+      offices.forEach(function (office) {
+        var key = (office || '') + '|' + email;
+        if (!rows[key]) {
+          rows[key] = emptyTotals();
+          rows[key].email = email;
+          rows[key].name = email ? personName(email) : '(none in EASi)';
+          rows[key].office = byOffice ? office : (S.homeOffice[roleKey] && S.homeOffice[roleKey][email]) || '';
+          rows[key].oldestFy = null;
+        }
+        addTo(rows[key], p);
+        if (p.fy && (rows[key].oldestFy === null || p.fy < rows[key].oldestFy) && p.stage !== 'expended') rows[key].oldestFy = p.fy;
+      });
+    });
+  });
+  return Object.keys(rows).map(function (k) { return rows[k]; });
+}
+
+// ---------- Sorting ----------
+function sortRows(rows, sorts, accessors) {
+  accessors = accessors || {};
+  var keyed = rows.map(function (r, i) { return { r: r, i: i }; });
+  keyed.sort(function (a, b) {
+    for (var s = 0; s < sorts.length; s++) {
+      var key = sorts[s].key;
+      var get = accessors[key] || function (x) { return x[key]; };
+      var va = get(a.r), vb = get(b.r);
+      var c = compareValues(va, vb);
+      if (c) return c * sorts[s].dir;
+    }
+    if (a.r.name !== undefined && b.r.name !== undefined) { var n = compareValues(a.r.name, b.r.name); if (n) return n; }
+    return a.i - b.i;
+  });
+  return keyed.map(function (k) { return k.r; });
+}
+function compareValues(a, b) {
+  var ea = a === null || a === undefined || a === '', eb = b === null || b === undefined || b === '';
+  if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b), 'en', { numeric: true, sensitivity: 'base' });
+}
+/** Click a header: sort by it (again flips it). Shift-click: add it as the next sort key. */
+function toggleSort(sorts, key, multi, defaultDir) {
+  var existing = null;
+  sorts.forEach(function (s) { if (s.key === key) existing = s; });
+  if (multi) {
+    if (existing) existing.dir = -existing.dir;
+    else sorts.push({ key: key, dir: defaultDir || 1 });
+    return sorts;
+  }
+  if (existing && sorts[0] === existing) return [{ key: key, dir: -existing.dir }];
+  return [{ key: key, dir: existing ? existing.dir : (defaultDir || 1) }];
+}
+
+/** A sortable header cell. cols: { key, label, num, dir } */
+function sortHeader(col, sorts, onSort) {
+  var idx = -1;
+  sorts.forEach(function (s, i) { if (s.key === col.key) idx = i; });
+  var active = idx !== -1;
+  var dir = active ? sorts[idx].dir : 0;
+  var th = h('th', {
+    class: 'sortable' + (col.num ? ' num' : ''),
+    scope: 'col',
+    tabindex: '0',
+    title: 'Sort by ' + col.label + ' (Shift-click to add a second sort)',
+    'aria-sort': idx === 0 ? (dir > 0 ? 'ascending' : 'descending') : 'none'
+  }, col.label, h('span', { class: 'arrow', 'aria-hidden': 'true' }, active ? (dir > 0 ? '▲' : '▼') : ''),
+    active && sorts.length > 1 ? h('span', { class: 'rank' }, String(idx + 1)) : null);
+  var go = function (e) { onSort(col.key, e.shiftKey, col.dir || (col.num ? -1 : 1)); };
+  th.addEventListener('click', go);
+  th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); } });
+  return th;
+}
+
+// ---------- Misc ----------
+function toCsv(rows) {
+  return rows.map(function (r) {
+    return r.map(function (v) {
+      var s = v === null || v === undefined ? '' : String(v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',');
+  }).join('\r\n');
+}
+function downloadFile(name, content, type) {
+  var blob = new Blob(['﻿' + content], { type: type });
+  var url = URL.createObjectURL(blob);
+  var a = h('a', { href: url, download: name, target: '_blank' });
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
+}
+function toast(message) {
+  var el = h('div', { class: 'toast', role: 'status' }, message);
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 3200);
+}
+
+var tooltipEl = null;
+function showTooltip(evt, title, rows) {
+  hideTooltip();
+  tooltipEl = h('div', { class: 'tooltip', role: 'tooltip' }, h('div', { class: 'tt-title' }, title),
+    rows.map(function (r) {
+      return h('div', { class: 'tt-row' }, h('span', null, r.color ? h('span', { class: 'swatch', style: { background: r.color } }) : null, r.label), h('strong', { class: 'num' }, r.value));
+    }));
+  document.body.appendChild(tooltipEl);
+  moveTooltip(evt);
+}
+function moveTooltip(evt) {
+  if (!tooltipEl) return;
+  var x = evt.clientX + 14, y = evt.clientY + 14;
+  var w = tooltipEl.offsetWidth, ht = tooltipEl.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = evt.clientX - w - 14;
+  if (y + ht > window.innerHeight - 8) y = evt.clientY - ht - 14;
+  tooltipEl.style.left = Math.max(8, x) + 'px';
+  tooltipEl.style.top = Math.max(8, y) + 'px';
+}
+function hideTooltip() { if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; } }
+function withTooltip(el, title, rowsFn) {
+  el.addEventListener('mouseenter', function (e) { showTooltip(e, title, rowsFn()); });
+  el.addEventListener('mousemove', moveTooltip);
+  el.addEventListener('mouseleave', hideTooltip);
+  el.addEventListener('focus', function () {
+    var r = el.getBoundingClientRect();
+    showTooltip({ clientX: r.left + r.width / 2, clientY: r.bottom }, title, rowsFn());
+  });
+  el.addEventListener('blur', hideTooltip);
+  return el;
+}
+
+/** A stacked bar of segments [{ value, color, label }] scaled to max. */
+function stackedBar(segments, max, cls) {
+  var bar = h('div', { class: cls || 'hbar-track' });
+  segments.forEach(function (s) {
+    if (!s.value) return;
+    bar.appendChild(h('div', { class: 'seg-fill', style: { width: (max ? (s.value / max) * 100 : 0) + '%', background: s.color } }));
+  });
+  return bar;
+}
+
+function stageBadge(p) {
+  var st = stageOf(p);
+  return h('span', { class: 'stage' }, h('span', { class: 'swatch', style: { background: GROUP_COLORS[st.group] } }), st.short);
+}
+function programTags(p) {
+  return programLabels(p).map(function (l) {
+    return h('span', { class: 'tag' }, h('span', { class: 'swatch', style: { background: PROGRAM_COLORS[l] } }), l);
+  });
+}
+</script>

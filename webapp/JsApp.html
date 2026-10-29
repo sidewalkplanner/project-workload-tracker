@@ -1,0 +1,709 @@
+<script>
+/* ==========================================================================
+   App shell, filters and the three views: Overview, Projects, Workload.
+   ========================================================================== */
+var VIEWS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'projects', label: 'Projects' },
+  { key: 'workload', label: 'Workload' }
+];
+
+var PROJECT_COLUMNS = [
+  { key: 'pr', label: 'PR', csv: function (p) { return p.pr; } },
+  { key: 'title', label: 'Title', csv: function (p) { return p.title; } },
+  { key: 'program', label: 'Program', csv: function (p) { return programLabels(p).join(' / '); } },
+  { key: 'stageOrder', label: 'EASi status', csv: function (p) { return stageOf(p).label; } },
+  { key: 'office', label: 'Field office', csv: function (p) { return officeLabel(p); } },
+  { key: 'building', label: 'Building', csv: function (p) { return p.buildings.join(' '); } },
+  { key: 'corName', label: 'COR', csv: function (p) { return peopleNames(p.cor); } },
+  { key: 'requestorName', label: 'Requestor', csv: function (p) { return peopleNames(p.requestor); } },
+  { key: 'committed', label: 'Committed', num: true, csv: function (p) { return p.committed; } },
+  { key: 'obligated', label: 'Obligated', num: true, csv: function (p) { return p.obligated; } },
+  { key: 'remaining', label: 'Unexpended', num: true, csv: function (p) { return p.remaining; } },
+  { key: 'fy', label: 'FY', num: true, csv: function (p) { return p.fy || ''; } },
+  { key: 'executed', label: 'Awarded', num: true, csv: function (p) { return p.executed; } },
+  { key: 'vendor', label: 'Vendor', csv: function (p) { return p.vendor; } }
+];
+var PROJECT_ACCESSORS = {
+  program: function (p) { return programLabels(p).join('/'); },
+  office: function (p) { return officeLabel(p); },
+  building: function (p) { return p.buildings[0] || ''; },
+  corName: function (p) { return peopleNames(p.cor); },
+  requestorName: function (p) { return peopleNames(p.requestor); }
+};
+var GROUPS = [
+  { key: '', label: 'No grouping' },
+  { key: 'office', label: 'Field office' },
+  { key: 'lead', label: 'Project lead' },
+  { key: 'cor', label: 'COR' },
+  { key: 'requestor', label: 'Requestor' },
+  { key: 'stage', label: 'EASi status' },
+  { key: 'program', label: 'Program' },
+  { key: 'building', label: 'Building' },
+  { key: 'fy', label: 'Fiscal year' }
+];
+
+// ---------------------------------------------------------------------------
+// Start-up
+// ---------------------------------------------------------------------------
+function start() {
+  applyRoute(BOOT.route || {});
+  load(false);
+}
+
+function load(refresh) {
+  var fn = refresh ? 'apiRefresh' : 'apiLoad';
+  if (!S.data) renderState('Loading the Zone 5 pipeline…', 'This can take up to half a minute the first time each morning, while the EASi report is read.', true);
+  google.script.run
+    .withSuccessHandler(function (json) {
+      var res = JSON.parse(json);
+      var first = !S.data;
+      S.data = res.data;
+      S.user = res.user;
+      prepareData(S.data);
+      if (first) applyDefaultsForUser();
+      render();
+      if (refresh) toast('Refreshed from the EASi report.');
+    })
+    .withFailureHandler(function (err) {
+      if (S.data) { toast('Could not refresh: ' + (err && err.message || err)); render(); return; }
+      renderState('The tracker could not load', (err && err.message) || String(err), false);
+    })[fn]();
+}
+
+function applyRoute(r) {
+  var f = S.filters;
+  if (r.view && VIEWS.some(function (v) { return v.key === r.view; })) S.view = r.view;
+  if (r.office) f.office = r.office;
+  if (r.sc) f.sc = r.sc;
+  if (r.program) {
+    var list = r.program.toUpperCase().split(/[ ,]+/).map(function (p) { return p === 'OTHER' ? 'Other' : p; })
+      .filter(function (p) { return PROGRAM_LABELS.indexOf(p) !== -1; });
+    if (list.length) f.programs = list;
+  }
+  if (r.status && STATUS_OPTIONS.some(function (s) { return s.key === r.status; })) f.status = r.status;
+  if (r.fy && /^\d{4}$/.test(r.fy)) f.fy = r.fy;
+  if (r.q) f.q = r.q;
+  if (r.role) S.workload.role = r.role;
+  if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
+  if (r.group) S.projects.group = r.group;
+  S.routeHadScope = !!(r.office || r.sc);
+}
+
+/** Field Office Managers open on their office, Service Center Directors on their service center. */
+function applyDefaultsForUser() {
+  var f = S.filters;
+  if (f.office && !S.data.offices.some(function (o) { return o.name === f.office; })) f.office = '';
+  if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
+  if (!S.data.roles.some(function (r) { return r.key === S.workload.role; })) S.workload.role = 'lead';
+  if (S.routeHadScope || !S.user) return;
+  if (S.user.manages.length === 1) { f.office = S.user.manages[0]; S.scopeNote = 'manager'; }
+  else if (S.user.directs.length === 1) { f.sc = S.user.directs[0]; S.scopeNote = 'director'; }
+}
+
+function syncUrl() {
+  try {
+    var f = S.filters, p = {};
+    if (S.view !== 'overview') p.view = S.view;
+    if (f.office) p.office = f.office;
+    else if (f.sc) p.sc = f.sc;
+    if (f.programs.length < PROGRAM_LABELS.length) p.program = f.programs.join(',');
+    if (f.status !== 'open') p.status = f.status;
+    if (f.fy) p.fy = f.fy;
+    if (f.q) p.q = f.q;
+    if (f.person) { p.person = f.person.email; p.role = f.person.role; }
+    else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
+    if (S.view === 'projects' && S.projects.group) p.group = S.projects.group;
+    google.script.history.replace(null, p);
+  } catch (e) { /* outside Apps Script */ }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function renderState(title, message, busy) {
+  var app = clear(document.getElementById('app'));
+  app.appendChild(h('div', { class: 'state' }, busy ? h('span', { class: 'spinner' }) : null, h('h2', null, title), h('p', null, message)));
+}
+
+function render() {
+  hideTooltip();
+  var app = clear(document.getElementById('app'));
+  app.appendChild(topBar());
+  var main = h('main', { id: 'main', tabindex: '-1' });
+  main.appendChild(filterBar());
+  var banner = scopeBanner();
+  if (banner) main.appendChild(banner);
+  if (S.view === 'overview') main.appendChild(overviewView());
+  else if (S.view === 'projects') main.appendChild(projectsView());
+  else main.appendChild(workloadView());
+  main.appendChild(footnote());
+  app.appendChild(main);
+  syncUrl();
+}
+
+function rerender() {
+  var y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
+}
+
+function go(view) {
+  S.view = view;
+  render();
+  window.scrollTo(0, 0);
+}
+
+function topBar() {
+  var d = S.data;
+  var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read the EASi report again' }, 'Refresh');
+  refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
+  var tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Views' }, VIEWS.map(function (v) {
+    return h('button', { class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(S.view === v.key), onClick: function () { go(v.key); } }, v.label);
+  }));
+  return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
+    h('div', { class: 'brand' },
+      h('span', { class: 'brand-title' }, 'Zone ' + d.zone + ' Project Workload'),
+      h('span', { class: 'brand-sub' }, 'EASi pipeline · ' + d.serviceCenters.map(function (s) { return s.short; }).join(' & ') + ' · BA61, BA80, BA54')),
+    h('div', { class: 'freshness' },
+      h('span', null, 'EASi report ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : 'date unknown')),
+      refreshBtn),
+    tabs));
+}
+
+function scopeBanner() {
+  if (!S.scopeNote || !S.user) return null;
+  var f = S.filters;
+  var mine = S.scopeNote === 'manager' ? f.office : f.sc;
+  if (!mine || (S.scopeNote === 'manager' && f.office !== mine) || (S.scopeNote === 'director' && (f.sc !== mine || f.office))) return null;
+  return h('div', { class: 'banner', role: 'note' },
+    h('span', null, 'Showing ', h('strong', null, S.scopeNote === 'manager' ? officeShort(mine) : mine), S.scopeNote === 'manager' ? ', the field office you manage.' : ', the service center you lead.'),
+    h('button', { class: 'link-btn', type: 'button', onClick: function () { f.office = ''; f.sc = ''; S.scopeNote = ''; rerender(); } }, 'Show all of Zone ' + S.data.zone));
+}
+
+function filterBar() {
+  var f = S.filters, d = S.data;
+  var scSel = h('select', { 'aria-label': 'Service center' }, h('option', { value: '' }, 'All service centers'),
+    d.serviceCenters.map(function (s) { return h('option', { value: s.name, selected: f.sc === s.name && !f.office }, s.short); }));
+  scSel.addEventListener('change', function () { f.sc = scSel.value; f.office = ''; rerender(); });
+  var foSel = h('select', { 'aria-label': 'Field office' }, h('option', { value: '' }, 'All field offices'),
+    d.serviceCenters.map(function (sc) {
+      return h('optgroup', { label: sc.short }, d.offices.filter(function (o) { return o.serviceCenter === sc.name && (!f.sc || f.sc === sc.name || f.office === o.name); })
+        .map(function (o) { return h('option', { value: o.name, selected: f.office === o.name }, o.short); }));
+    }));
+  foSel.addEventListener('change', function () {
+    f.office = foSel.value;
+    var o = d.offices.filter(function (x) { return x.name === f.office; })[0];
+    if (o) f.sc = o.serviceCenter;
+    rerender();
+  });
+  var programs = h('div', { class: 'chips', role: 'group', 'aria-label': 'Programs' }, PROGRAM_LABELS.map(function (l) {
+    var on = f.programs.indexOf(l) !== -1;
+    return h('button', {
+      class: 'chip-toggle', type: 'button', 'aria-pressed': String(on),
+      title: l === 'Other' ? 'Other budget activities, or none listed' : (d.programs.filter(function (p) { return p.label === l; })[0] || {}).name,
+      onClick: function () {
+        var list = f.programs.slice();
+        if (on) list = list.filter(function (x) { return x !== l; }); else list.push(l);
+        f.programs = list.length ? PROGRAM_LABELS.filter(function (x) { return list.indexOf(x) !== -1; }) : PROGRAM_LABELS.slice();
+        rerender();
+      }
+    }, h('span', { class: 'dot', style: { background: PROGRAM_COLORS[l] } }), l);
+  }));
+  var status = h('div', { class: 'seg', role: 'group', 'aria-label': 'EASi status' }, STATUS_OPTIONS.map(function (s) {
+    return h('button', { type: 'button', 'aria-pressed': String(!f.stage && f.status === s.key), title: s.help || null, onClick: function () { f.status = s.key; f.stage = ''; rerender(); } }, s.label);
+  }));
+  var years = {};
+  d.prs.forEach(function (p) { if (p.fy) years[p.fy] = true; });
+  var fySel = h('select', { 'aria-label': 'Fiscal year' }, h('option', { value: '' }, 'All years'),
+    Object.keys(years).sort().reverse().map(function (y) { return h('option', { value: y, selected: String(f.fy) === y }, 'FY' + y.slice(2)); }));
+  fySel.addEventListener('change', function () { f.fy = fySel.value; rerender(); });
+  var search = h('input', { type: 'search', placeholder: 'PR, title, building, person, vendor…', value: f.q, 'aria-label': 'Search' });
+  var timer = null;
+  search.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      f.q = search.value;
+      rerender();
+      var again = document.querySelector('input[type="search"]');
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    }, 250);
+  });
+
+  var active = [];
+  if (f.person) {
+    var role = d.roles.filter(function (r) { return r.key === f.person.role; })[0] || { short: f.person.role };
+    active.push(pill(role.short + ': ' + (f.person.email ? personName(f.person.email) : '(none)'), function () { f.person = null; }));
+  }
+  if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
+  var mineBtn = null;
+  if (S.user && S.user.email && !f.person) {
+    var myRole = null;
+    ['lead', 'buildingManager', 'programManager', 'co', 'cs'].some(function (r) {
+      if (d.prs.some(function (p) { return (p[r] || []).indexOf(S.user.email) !== -1; })) { myRole = r; return true; }
+      return false;
+    });
+    if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
+  }
+  var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person;
+  var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: function () {
+    S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null };
+    S.scopeNote = '';
+    rerender();
+  } }, 'Reset filters') : null;
+
+  return h('section', { class: 'filters', 'aria-label': 'Filters' },
+    h('div', { class: 'filter-row' },
+      h('label', { class: 'field' }, h('span', null, 'Service center'), scSel),
+      h('label', { class: 'field' }, h('span', null, 'Field office'), foSel),
+      h('div', { class: 'field' }, h('span', null, 'Program'), programs),
+      h('div', { class: 'field' }, h('span', null, 'EASi status'), status),
+      h('label', { class: 'field' }, h('span', null, 'PR fiscal year'), fySel),
+      h('label', { class: 'field' }, h('span', null, 'Search'), search)),
+    (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null);
+}
+
+function pill(text, onRemove) {
+  return h('span', { class: 'pill' }, text, h('button', { type: 'button', 'aria-label': 'Remove ' + text, onClick: function () { onRemove(); rerender(); } }, '×'));
+}
+
+function scopeName() {
+  var f = S.filters;
+  if (f.office) return officeShort(f.office);
+  if (f.sc) return f.sc.replace(/ Service Center$/, '');
+  return 'Zone ' + S.data.zone;
+}
+
+// ---------------------------------------------------------------------------
+// Overview
+// ---------------------------------------------------------------------------
+function overviewView() {
+  var list = filtered();
+  var t = totalsOf(list);
+  var wrap = h('div', { class: 'stack' });
+
+  var preawardDollars = list.filter(function (p) { return stageOf(p).group === 'preaward'; }).reduce(function (s, p) { return s + p.committed; }, 0);
+  wrap.appendChild(h('div', { class: 'kpis' },
+    kpi('Projects', fmtInt(t.count), statusLabel() + ' · ' + scopeName()),
+    kpi('Pre-award', fmtInt(t.preaward), fmtMoneyShort(preawardDollars) + ' committed'),
+    kpi('Awarded · open', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' unexpended'),
+    kpi('Committed', fmtMoneyShort(t.committed), 'on these PRs'),
+    kpi('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' expended'),
+    kpi('Project leads', fmtInt(workloadRows(list, 'lead', false).filter(function (r) { return r.email; }).length), 'with at least one project')));
+
+  wrap.appendChild(h('div', { class: 'grid grid-2' }, stageCard(), programCard(list)));
+  wrap.appendChild(officeCard(list));
+  wrap.appendChild(topPeopleCard(list));
+  return wrap;
+}
+
+function statusLabel() {
+  var f = S.filters;
+  if (f.stage) return S.stageIndex[f.stage].short;
+  return STATUS_OPTIONS.filter(function (s) { return s.key === f.status; })[0].label;
+}
+
+function kpi(label, value, sub) {
+  return h('div', { class: 'card kpi' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), h('div', { class: 'sub' }, sub));
+}
+
+function stageCard() {
+  var list = filtered({ status: true });
+  var counts = {}, dollars = {};
+  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + 1; dollars[p.stage] = (dollars[p.stage] || 0) + p.committed; });
+  var max = Math.max.apply(null, S.data.stages.map(function (s) { return counts[s.key] || 0; }).concat([1]));
+  var f = S.filters;
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Where projects are in EASi'), h('p', null, 'PRs by acquisition stage. Click a stage to list only those.')),
+      h('div', { class: 'legend' }, ['preaward', 'awarded', 'closed'].map(function (g) {
+        return h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS[g] } }), g === 'preaward' ? 'Pre-award' : g === 'awarded' ? 'Awarded · open' : 'Fully expended');
+      }))),
+    h('div', { class: 'hbars' }, S.data.stages.map(function (s) {
+      var n = counts[s.key] || 0;
+      var b = h('button', { class: 'hbar', type: 'button', 'aria-pressed': String(f.stage === s.key), 'aria-label': s.label + ': ' + n + ' PRs' },
+        h('span', { class: 'hbar-label' }, s.label),
+        stackedBar([{ value: n, color: GROUP_COLORS[s.group] }], max),
+        h('span', { class: 'hbar-value' }, fmtInt(n)));
+      b.addEventListener('click', function () { f.stage = f.stage === s.key ? '' : s.key; S.view = 'projects'; render(); window.scrollTo(0, 0); });
+      return withTooltip(b, s.label, function () { return [{ label: 'PRs', value: fmtInt(n) }, { label: 'Committed', value: fmtMoney(dollars[s.key] || 0) }]; });
+    })));
+}
+
+function programCard(list) {
+  var rows = PROGRAM_LABELS.map(function (l) {
+    var subset = list.filter(function (p) { return programLabels(p).indexOf(l) !== -1; });
+    var t = totalsOf(subset);
+    t.label = l;
+    return t;
+  });
+  var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
+  var names = {};
+  S.data.programs.forEach(function (p) { names[p.label] = p.name; });
+  names.Other = 'Other · other budget activities or none listed';
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'By program'), h('p', null, 'A PR funded from two programs counts in both.'))),
+    h('div', { class: 'table-wrap' }, h('table', null,
+      h('thead', null, h('tr', null, h('th', null, 'Program'), h('th', null, h('span', { class: 'sr-only' }, 'Share')), h('th', { class: 'num' }, 'Projects'), h('th', { class: 'num' }, 'Pre-award'), h('th', { class: 'num' }, 'Committed'), h('th', { class: 'num' }, 'Unexpended'))),
+      h('tbody', null, rows.map(function (r) {
+        var tr = h('tr', { class: 'clickable', title: 'Show only ' + r.label },
+          h('td', null, h('span', { class: 'stage' }, h('span', { class: 'swatch', style: { background: PROGRAM_COLORS[r.label] } }), h('strong', null, r.label)), h('div', { class: 'small muted' }, names[r.label].replace(/^[^·]*· /, ''))),
+          h('td', { style: { 'min-width': '90px', 'vertical-align': 'middle' } }, stackedBar([{ value: r.count, color: PROGRAM_COLORS[r.label] }], max, 'mini-bar')),
+          h('td', { class: 'num' }, fmtInt(r.count)),
+          h('td', { class: 'num' }, fmtInt(r.preaward)),
+          h('td', { class: 'num' }, fmtMoneyShort(r.committed)),
+          h('td', { class: 'num' }, fmtMoneyShort(r.remaining)));
+        tr.addEventListener('click', function () { S.filters.programs = [r.label]; rerender(); });
+        return tr;
+      })))));
+}
+
+function officeCard(list) {
+  var offices = officesInScope();
+  var rows = offices.map(function (o) {
+    var subset = list.filter(function (p) { return p.offices.indexOf(o.name) !== -1; });
+    var t = totalsOf(subset);
+    var people = workloadRows(subset, 'lead', false).filter(function (r) { return r.email; });
+    people.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
+    t.office = o;
+    t.name = o.short;
+    t.sc = o.serviceCenter.replace(/ Service Center$/, '');
+    t.managerName = o.manager ? personName(o.manager) || o.manager : '';
+    t.cors = people.length;
+    t.top = people[0] || null;
+    t.topCount = t.top ? t.top.count : 0;
+    t.perCor = people.length ? t.count / people.length : 0;
+    return t;
+  });
+  var noOffice = list.filter(function (p) { return !p.offices.length; });
+  var sorted = sortRows(rows, S.officesSort, { manager: function (r) { return r.managerName; } });
+  var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
+  var showSc = !S.filters.sc && !S.filters.office;
+  var cols = [
+    { key: 'name', label: 'Field office' }, showSc ? { key: 'sc', label: 'Service center' } : null, { key: 'manager', label: 'Manager' },
+    { key: 'count', label: 'Projects', num: true }, { key: 'mix', label: 'Mix' }, { key: 'preaward', label: 'Pre-award', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true },
+    { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Unexpended', num: true },
+    { key: 'cors', label: 'Leads', num: true }, { key: 'perCor', label: 'Per lead', num: true }, { key: 'topCount', label: 'Most assigned', num: true }
+  ];
+  var onSort = function (key, multi, dir) { if (key === 'mix') key = 'count'; S.officesSort = toggleSort(S.officesSort, key, multi, dir); rerender(); };
+  var tbody = h('tbody', null, sorted.map(function (r) {
+    var tr = h('tr', { class: 'clickable', title: 'Show ' + r.name },
+      h('td', { class: 'nowrap' }, h('strong', null, r.name), S.user && r.office.manager === S.user.email ? h('span', { class: 'you' }, 'You') : null),
+      showSc ? h('td', { class: 'nowrap' }, r.sc) : null,
+      h('td', { class: 'nowrap' }, r.managerName),
+      h('td', { class: 'num' }, h('strong', null, fmtInt(r.count))),
+      h('td', { style: { 'min-width': '110px', 'vertical-align': 'middle' } }, stackedBar([{ value: r.preaward, color: GROUP_COLORS.preaward }, { value: r.awarded, color: GROUP_COLORS.awarded }, { value: r.expended, color: GROUP_COLORS.closed }], max, 'mini-bar')),
+      h('td', { class: 'num' }, fmtInt(r.preaward)),
+      h('td', { class: 'num' }, fmtInt(r.awarded)),
+      h('td', { class: 'num' }, fmtInt(r.BA61)),
+      h('td', { class: 'num' }, fmtInt(r.BA80)),
+      h('td', { class: 'num' }, fmtInt(r.BA54)),
+      h('td', { class: 'num' }, fmtMoneyShort(r.committed)),
+      h('td', { class: 'num' }, fmtMoneyShort(r.remaining)),
+      h('td', { class: 'num' }, fmtInt(r.cors)),
+      h('td', { class: 'num' }, r.perCor ? r.perCor.toFixed(1) : '–'),
+      h('td', null, r.top ? h('span', { class: 'nowrap' }, h('button', { class: 'person-btn', type: 'button', onClick: function (e) { e.stopPropagation(); showPerson('lead', r.top.email); } }, r.top.name), ' · ' + r.top.count) : '–'));
+    tr.addEventListener('click', function () { S.filters.office = r.office.name; S.filters.sc = r.office.serviceCenter; rerender(); });
+    return tr;
+  }));
+  if (noOffice.length && !S.filters.office) {
+    var nt = totalsOf(noOffice);
+    tbody.appendChild(h('tr', null, h('td', { colspan: showSc ? '3' : '2' }, h('em', null, 'Service center level (no building on the PR)')),
+      h('td', { class: 'num' }, fmtInt(nt.count)), h('td'), h('td', { class: 'num' }, fmtInt(nt.preaward)), h('td', { class: 'num' }, fmtInt(nt.awarded)),
+      h('td', { class: 'num' }, fmtInt(nt.BA61)), h('td', { class: 'num' }, fmtInt(nt.BA80)), h('td', { class: 'num' }, fmtInt(nt.BA54)),
+      h('td', { class: 'num' }, fmtMoneyShort(nt.committed)), h('td', { class: 'num' }, fmtMoneyShort(nt.remaining)), h('td', { colspan: '3' })));
+  }
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Field offices'), h('p', null, 'Click a column to sort, a row to focus on that office. A PR on buildings in two offices counts in each.')),
+      h('div', { class: 'legend' }, h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.preaward } }), 'Pre-award'), h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.awarded } }), 'Awarded · open'), h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.closed } }), 'Fully expended'))),
+    h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.filter(Boolean).map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody)));
+}
+
+function topPeopleCard(list) {
+  var rows = workloadRows(list, 'lead', false).filter(function (r) { return r.email; });
+  rows.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
+  var top = rows.slice(0, 12);
+  var max = top.length ? top[0].count : 1;
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Who has the most projects'), h('p', null, 'Project leads (the COR, or the requestor until a COR is named) in ' + scopeName() + ', ' + statusLabel().toLowerCase() + ' PRs. Click a name for their projects.')),
+      h('button', { class: 'btn', type: 'button', onClick: function () { S.workload.role = 'lead'; go('workload'); } }, 'Full workload →')),
+    top.length ? h('div', { class: 'hbars' }, top.map(function (r) {
+      var b = h('button', { class: 'hbar', type: 'button', 'aria-label': r.name + ': ' + r.count + ' projects' },
+        h('span', { class: 'hbar-label' }, r.name, h('span', { class: 'muted small' }, r.office && !S.filters.office ? ' · ' + officeShort(r.office) : '')),
+        stackedBar([{ value: r.preaward, color: GROUP_COLORS.preaward }, { value: r.awarded, color: GROUP_COLORS.awarded }, { value: r.expended, color: GROUP_COLORS.closed }], max),
+        h('span', { class: 'hbar-value' }, fmtInt(r.count)));
+      b.addEventListener('click', function () { showPerson('lead', r.email); });
+      return withTooltip(b, r.name, function () {
+        return [{ label: 'Pre-award', value: fmtInt(r.preaward), color: GROUP_COLORS.preaward }, { label: 'Awarded · open', value: fmtInt(r.awarded), color: GROUP_COLORS.awarded },
+          { label: 'Fully expended', value: fmtInt(r.expended), color: GROUP_COLORS.closed }, { label: 'Committed', value: fmtMoney(r.committed) }];
+      });
+    })) : h('div', { class: 'empty' }, 'No projects match these filters.'));
+}
+
+function showPerson(role, email) {
+  S.filters.person = { role: role, email: email };
+  go('projects');
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+function projectsView() {
+  var list = sortRows(filtered(), S.projects.sort, PROJECT_ACCESSORS);
+  var t = totalsOf(list);
+  var card = h('section', { class: 'card' });
+  var groupSel = h('select', { 'aria-label': 'Group by' }, GROUPS.map(function (g) { return h('option', { value: g.key, selected: S.projects.group === g.key }, g.label); }));
+  groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; rerender(); });
+  var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Export CSV');
+  card.appendChild(h('div', { class: 'card-head' },
+    h('div', null, h('h2', null, plural(list.length, 'project') + ' · ' + scopeName()),
+      h('p', null, fmtMoney(t.committed) + ' committed · ' + fmtMoney(t.obligated) + ' obligated · ' + fmtMoney(t.remaining) + ' unexpended. Click a column to sort; Shift-click to add a second sort.'))));
+  card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
+  if (!list.length) { card.appendChild(h('div', { class: 'empty' }, 'No projects match these filters.')); return card; }
+
+  var onSort = function (key, multi, dir) { S.projects.sort = toggleSort(S.projects.sort, key, multi, dir); S.projects.limit = 400; rerender(); };
+  var thead = h('thead', null, h('tr', null, PROJECT_COLUMNS.map(function (c) { return sortHeader(c, S.projects.sort, onSort); })));
+  var tbody = h('tbody');
+  var shown = 0;
+  var limit = S.projects.limit;
+  var groups = groupProjects(list, S.projects.group);
+  groups.forEach(function (g) {
+    if (g.key !== null) {
+      var collapsed = !!S.projects.collapsed[g.key];
+      var gt = totalsOf(g.items);
+      var row = h('tr', { class: 'group-row' + (collapsed ? ' collapsed' : ''), tabindex: '0', 'aria-expanded': String(!collapsed) },
+        h('td', { colspan: '8' }, h('span', { class: 'caret', 'aria-hidden': 'true' }, '▾'), g.label, h('span', { class: 'muted small' }, '  ' + plural(gt.count, 'project') + ' · ' + gt.preaward + ' pre-award · ' + gt.awarded + ' awarded')),
+        h('td', { class: 'num' }, fmtMoneyShort(gt.committed)), h('td', { class: 'num' }, fmtMoneyShort(gt.obligated)), h('td', { class: 'num' }, fmtMoneyShort(gt.remaining)), h('td', { colspan: '3' }));
+      var toggle = function () { S.projects.collapsed[g.key] = !collapsed; rerender(); };
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      tbody.appendChild(row);
+      if (collapsed) return;
+    }
+    g.items.forEach(function (p) {
+      if (shown >= limit) return;
+      shown++;
+      tbody.appendChild(projectRow(p));
+    });
+  });
+  card.appendChild(h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)));
+  var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'project') + '.'));
+  if (shown >= limit && limit < list.length) {
+    foot.appendChild(h('button', { class: 'btn', type: 'button', onClick: function () { S.projects.limit += 400; rerender(); } }, 'Show more'));
+  }
+  card.appendChild(foot);
+  return card;
+}
+
+function groupProjects(list, key) {
+  if (!key) return [{ key: null, items: list }];
+  var map = {}, order = [];
+  var put = function (k, label, p, sortKey) {
+    if (!map[k]) { map[k] = { key: k, label: label, items: [], sortKey: sortKey === undefined ? label : sortKey }; order.push(map[k]); }
+    map[k].items.push(p);
+  };
+  list.forEach(function (p) {
+    if (key === 'office') (p.offices.length ? p.offices : ['']).forEach(function (o) { put('o:' + o, o ? officeShort(o) : 'Service center level (no building)', p, o || '~'); });
+    else if (key === 'lead' || key === 'cor' || key === 'requestor') (p[key].length ? p[key] : ['']).forEach(function (e) { put(key + ':' + e, e ? personName(e) : '(none in EASi)', p, e ? personName(e) : '~'); });
+    else if (key === 'stage') { var st = stageOf(p); put('s:' + st.key, st.label, p, st.order); }
+    else if (key === 'program') programLabels(p).forEach(function (l) { put('p:' + l, l, p, PROGRAM_LABELS.indexOf(l)); });
+    else if (key === 'building') (p.buildings.length ? p.buildings : ['']).forEach(function (b, i) { put('b:' + b, b ? b + ' · ' + (p.buildingNames[i] || '') : '(no building)', p, b || '~'); });
+    else if (key === 'fy') put('f:' + p.fy, p.fy ? 'FY' + p.fy : '(no fiscal year)', p, p.fy ? -p.fy : 0);
+  });
+  order.sort(function (a, b) {
+    if (key === 'lead' || key === 'cor' || key === 'requestor' || key === 'office') return b.items.length - a.items.length || compareValues(a.sortKey, b.sortKey);
+    return compareValues(a.sortKey, b.sortKey);
+  });
+  return order;
+}
+
+function projectRow(p) {
+  var personCell = function (role) {
+    if (!p[role].length) return h('td', { class: 'muted' }, '–');
+    return h('td', null, p[role].map(function (e, i) {
+      return [i ? ', ' : '', h('button', { class: 'person-btn', type: 'button', onClick: function (ev) { ev.stopPropagation(); S.filters.person = { role: role, email: e }; rerender(); } }, personName(e))];
+    }));
+  };
+  var tr = h('tr', { class: 'clickable' },
+    h('td', null, h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', onClick: function (e) { e.stopPropagation(); } }, p.pr)),
+    h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title)),
+    h('td', null, programTags(p)),
+    h('td', null, stageBadge(p)),
+    h('td', null, officeLabel(p)),
+    h('td', { class: 'nowrap', title: p.buildingNames.join('\n') }, p.buildings.slice(0, 2).join(', ') + (p.buildings.length > 2 ? ' +' + (p.buildings.length - 2) : '')),
+    personCell('cor'),
+    personCell('requestor'),
+    h('td', { class: 'num' }, fmtMoney(p.committed)),
+    h('td', { class: 'num' }, p.obligated ? fmtMoney(p.obligated) : '–'),
+    h('td', { class: 'num' }, p.remaining ? fmtMoney(p.remaining) : '–'),
+    h('td', { class: 'num' }, p.fy || ''),
+    h('td', { class: 'num' }, fmtDate(p.executed)),
+    h('td', null, p.vendor));
+  tr.addEventListener('click', function () { openDrawer(p); });
+  return tr;
+}
+
+function exportProjects(list) {
+  var header = PROJECT_COLUMNS.map(function (c) { return c.label; }).concat(['Building names', 'Service center', 'Acquisition status', 'PR status', 'Award number', 'Contracting officer', 'Contract specialist', 'Building manager', 'Expended', 'EASi link']);
+  var rows = list.map(function (p) {
+    return PROJECT_COLUMNS.map(function (c) { return c.csv(p); }).concat([p.buildingNames.join('; '), p.serviceCenters.join('; '), p.acquisitionStatus, p.prStatus, p.awardNumber,
+      peopleNames(p.co), peopleNames(p.cs), peopleNames(p.buildingManager), p.expended, p.link]);
+  });
+  downloadFile('Zone ' + S.data.zone + ' projects - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(rows)), 'text/csv;charset=utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Workload
+// ---------------------------------------------------------------------------
+function workloadView() {
+  var w = S.workload, d = S.data;
+  var list = filtered({ person: true });
+  var rows = workloadRows(list, w.role, w.byOffice);
+  rows = sortRows(rows, w.sort, { office: function (r) { return r.office ? officeShort(r.office) : ''; } });
+  // People first; projects with nobody in this role go last, unranked.
+  rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
+  var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
+  var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
+  roleSel.addEventListener('change', function () { w.role = roleSel.value; S.filters.person = null; rerender(); });
+  var byOffice = h('input', { type: 'checkbox', checked: w.byOffice });
+  byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; rerender(); });
+  var people = rows.filter(function (r) { return r.email; });
+  var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
+  var total = list.length;
+  var avg = people.length ? people.reduce(function (s, r) { return s + r.count; }, 0) / people.length : 0;
+
+  var cols = [
+    { key: 'rank', label: '#', num: true },
+    { key: 'name', label: role.short }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main field office' },
+    { key: 'count', label: 'Projects', num: true },
+    { key: 'bar', label: 'Mix' },
+    { key: 'preaward', label: 'Pre-award', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true }, { key: 'Other', label: 'Other', num: true },
+    { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Unexpended', num: true }, { key: 'oldestFy', label: 'Oldest FY', num: true, dir: 1 }
+  ];
+  var onSort = function (key, multi, dir) {
+    if (key === 'rank' || key === 'bar') key = 'count';
+    w.sort = toggleSort(w.sort, key, multi, dir);
+    rerender();
+  };
+  var thead = h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, w.sort, onSort); })));
+  var tbody = h('tbody', null, rows.map(function (r, i) {
+    var mine = S.user && r.email && r.email === S.user.email;
+    var tr = h('tr', { class: 'clickable', title: 'Show ' + r.name + '’s projects' },
+      h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
+      h('td', null, r.email ? h('strong', null, r.name) : h('em', null, r.name), mine ? h('span', { class: 'you' }, 'You') : null, r.email ? h('div', { class: 'small muted' }, r.email) : null),
+      h('td', { class: 'nowrap' }, r.office ? officeShort(r.office) : '–'),
+      h('td', { class: 'num' }, h('strong', null, fmtInt(r.count))),
+      h('td', { style: { 'min-width': '90px', 'vertical-align': 'middle' } }, stackedBar([{ value: r.preaward, color: GROUP_COLORS.preaward }, { value: r.awarded, color: GROUP_COLORS.awarded }, { value: r.expended, color: GROUP_COLORS.closed }], max, 'mini-bar')),
+      h('td', { class: 'num' }, fmtInt(r.preaward)),
+      h('td', { class: 'num' }, fmtInt(r.awarded)),
+      h('td', { class: 'num' }, r.BA61 || '–'),
+      h('td', { class: 'num' }, r.BA80 || '–'),
+      h('td', { class: 'num' }, r.BA54 || '–'),
+      h('td', { class: 'num' }, r.Other || '–'),
+      h('td', { class: 'num' }, fmtMoneyShort(r.committed)),
+      h('td', { class: 'num' }, r.remaining ? fmtMoneyShort(r.remaining) : '–'),
+      h('td', { class: 'num' }, r.oldestFy ? 'FY' + String(r.oldestFy).slice(2) : '–'));
+    tr.addEventListener('click', function () {
+      S.filters.person = { role: w.role, email: r.email };
+      if (w.byOffice && r.office) { S.filters.office = r.office; }
+      go('projects');
+    });
+    return tr;
+  }));
+  var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () {
+    var header = ['Rank', role.short, 'Email', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Pre-award', 'Awarded', 'Fully expended', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Unexpended', 'Oldest open FY'];
+    var data = rows.map(function (r, i) { return [i + 1, r.name, r.email, r.office ? officeShort(r.office) : '', r.count, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
+    downloadFile('Zone ' + d.zone + ' workload by ' + role.short + ' - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(data)), 'text/csv;charset=utf-8');
+  } }, 'Export CSV');
+
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null,
+      h('h2', null, 'Workload by ' + role.short + ' · ' + scopeName()),
+      h('p', null, plural(people.length, 'person', 'people') + ' on ' + plural(total, 'project') + ' (' + statusLabel().toLowerCase() + '), ' + avg.toFixed(1) + ' each on average. A project with two ' + role.short + 's counts for both. Click a person for their projects.')),
+      h('div', { class: 'legend' }, h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.preaward } }), 'Pre-award'), h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.awarded } }), 'Awarded · open'), h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS.closed } }), 'Fully expended'))),
+    h('div', { class: 'toolbar' },
+      h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
+      h('label', { class: 'field', style: { 'flex-direction': 'row', 'align-items': 'center', gap: '8px', height: '36px' } }, byOffice, h('span', { style: { 'text-transform': 'none', 'font-size': '14px', 'letter-spacing': '0', color: 'var(--ink-2)', 'font-weight': '500' } }, 'Split by field office')),
+      h('div', { class: 'spacer' }), exportBtn),
+    rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : h('div', { class: 'empty' }, 'No projects match these filters.'));
+}
+
+// ---------------------------------------------------------------------------
+// Project detail
+// ---------------------------------------------------------------------------
+function openDrawer(p) {
+  hideTooltip();
+  var st = stageOf(p);
+  var people = function (list) { return list.length ? list.map(function (e) { return personName(e) + ' (' + e + ')'; }).join(', ') : '–'; };
+  var item = function (label, value) { return [h('dt', null, label), h('dd', null, value === '' || value === null || value === undefined ? '–' : value)]; };
+  var close = h('button', { class: 'close-btn', type: 'button', 'aria-label': 'Close' }, '×');
+  var drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': p.pr },
+    h('div', { class: 'drawer-head' }, h('div', null,
+      h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener' }, p.pr + ' · open in EASi ↗'),
+      h('h2', null, p.title),
+      h('div', null, programTags(p), ' ', stageBadge(p))), close),
+    h('div', { class: 'money-row' },
+      h('div', null, h('div', { class: 'label' }, 'Committed'), h('div', { class: 'value' }, fmtMoney(p.committed))),
+      h('div', null, h('div', { class: 'label' }, 'Obligated'), h('div', { class: 'value' }, fmtMoney(p.obligated))),
+      h('div', null, h('div', { class: 'label' }, 'Expended'), h('div', { class: 'value' }, fmtMoney(p.expended))),
+      h('div', null, h('div', { class: 'label' }, 'Unexpended'), h('div', { class: 'value' }, fmtMoney(p.remaining)))),
+    h('div', { class: 'section-title' }, 'EASi status'),
+    h('dl', { class: 'dl' },
+      item('Where it is', st.label),
+      item('PR status', p.prStatus),
+      item('Acquisition status', p.acquisitionStatus),
+      item('Solicitation status', p.solicitationStatus),
+      item('Award status', p.awardStatus),
+      p.reviewers.length ? item('Waiting on', people(p.reviewers)) : null,
+      item('Award number', p.awardNumber),
+      item('Awarded', fmtDate(p.executed)),
+      item('Vendor', p.vendor),
+      item('Award type', p.awardType),
+      item('Category', p.category),
+      item('PR fiscal year', p.fy ? 'FY' + p.fy : '')),
+    h('div', { class: 'section-title' }, 'Location'),
+    h('dl', { class: 'dl' },
+      item('Field office', p.offices.join(', ') || '(service center level)'),
+      item('Service center', p.serviceCenters.join(', ')),
+      item('Buildings', p.buildings.length ? p.buildings.map(function (b, i) { return b + ' · ' + (p.buildingNames[i] || ''); }).join('\n') : ''),
+      p.placeNote ? item('Matched by', p.placeNote === 'title' ? 'Building number in the PR title (no building in EASi)' : 'OFM org code (no building in EASi)') : null),
+    h('div', { class: 'section-title' }, 'People'),
+    h('dl', { class: 'dl' },
+      item('COR', people(p.cor)),
+      item('Requestor', people(p.requestor)),
+      item('Building manager', people(p.buildingManager)),
+      item('Program manager', people(p.programManager)),
+      item('Contracting officer', people(p.co)),
+      item('Contract specialist', people(p.cs))),
+    h('div', { class: 'section-title' }, 'Funding'),
+    h('dl', { class: 'dl' },
+      item('Program codes', p.programs.join(', ') + (p.programFromTitle ? ' (from the PR title; EASi has no program code yet)' : '')),
+      item('RWA', p.rwas.join(', ')),
+      item('Project codes', p.projectCodes.join(', ')),
+      item('BA61 portal number', p.portalNumbers.join(', ')),
+      item('Contracting office', p.officeCode),
+      p.comments ? item('Comments', p.comments) : null));
+  drawer.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
+  var backdrop = h('div', { class: 'drawer-backdrop' }, drawer);
+  var opener = document.activeElement;
+  var shut = function () { backdrop.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.focus) opener.focus(); };
+  var onKey = function (e) { if (e.key === 'Escape') shut(); };
+  close.addEventListener('click', shut);
+  backdrop.addEventListener('click', function (e) { if (e.target === backdrop) shut(); });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(backdrop);
+  close.focus();
+}
+
+function footnote() {
+  var d = S.data, c = d.counts;
+  return h('p', { class: 'footnote' },
+    'Source: the EASi BA61 Pipeline report (' + fmtInt(c.pipelineRows) + ' PRs nationwide, generated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : 'date unknown') + '), matched to Zone ' + d.zone +
+    ' field offices through the buildings on each PR and the OFM Building Assignments sheet' + (d.directoryUpdated ? ' (updated ' + d.directoryUpdated + ')' : '') + '. ' +
+    fmtInt(c.zonePrs) + ' PRs are on Zone ' + d.zone + ' buildings. PRs without a building (national contracts, broker leases) are not shown. ' +
+    '“Fully expended” means Pegasys shows the whole obligation spent. Snapshot built ' + fmtDateTime(d.builtAt) + '.');
+}
+
+window.addEventListener('load', start);
+</script>
