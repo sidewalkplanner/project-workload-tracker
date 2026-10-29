@@ -22,7 +22,7 @@ permissions:
 env:
   # Apps Script › Project Settings › IDs, and Deploy › Manage deployments. Not secrets.
   # Leave DEPLOYMENT_ID blank until the web app has been deployed once; uploads still work.
-  SCRIPT_ID: ''
+  SCRIPT_ID: 1Z6ql0QyOvGvUnsOUTs6wwiFvuBIOJdCu78zQwX3G0oMJEhT0JSe9_AZZ
   DEPLOYMENT_ID: ''
   CLASP: npx --yes @google/clasp@2.4.2
 
