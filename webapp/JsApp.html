@@ -64,7 +64,7 @@ function load(refresh) {
   if (!S.data) renderState('Loading the project workload…', 'This can take up to a minute the first time each morning, while the EASi report is read.', true);
   var fail = function (err) {
     if (S.data) { toast('Could not refresh: ' + (err && err.message || err)); render(); return; }
-    renderState('The tracker could not load', (err && err.message) || String(err), false);
+    renderState('The tracker could not load', 'Please reload the page in a minute. If it keeps happening, tell the person who sent you the link. (' + ((err && err.message) || String(err)) + ')', false);
   };
   // The snapshot comes gzipped when the browser can unpack it (a tenth of the size).
   var packed = typeof DecompressionStream === 'function';
@@ -256,19 +256,18 @@ function filterBar() {
     if (o) { f.sc = o.serviceCenter; f.zone = o.zone; }
     rerender();
   });
-  var programs = h('div', { class: 'chips', role: 'group', 'aria-label': 'Programs' }, PROGRAM_LABELS.map(function (l) {
-    var on = f.programs.indexOf(l) !== -1;
-    return h('button', {
-      class: 'chip-toggle', type: 'button', 'aria-pressed': String(on),
-      title: l === 'Other' ? 'Other budget activities, or none listed' : (d.programs.filter(function (p) { return p.label === l; })[0] || {}).name,
-      onClick: function () {
-        var list = f.programs.slice();
-        if (on) list = list.filter(function (x) { return x !== l; }); else list.push(l);
-        f.programs = list.length ? PROGRAM_LABELS.filter(function (x) { return list.indexOf(x) !== -1; }) : PROGRAM_LABELS.slice();
-        rerender();
-      }
-    }, h('span', { class: 'dot', style: { background: PROGRAM_COLORS[l] } }), l);
-  }));
+  // One choice at a time: All, or a single program. (Clicking a program shows only it.)
+  var allPrograms = f.programs.length === PROGRAM_LABELS.length;
+  var programs = h('div', { class: 'seg', role: 'group', 'aria-label': 'Program' },
+    h('button', { type: 'button', 'aria-pressed': String(allPrograms), onClick: function () { f.programs = PROGRAM_LABELS.slice(); rerender(); } }, 'All'),
+    PROGRAM_LABELS.map(function (l) {
+      var on = !allPrograms && f.programs.length === 1 && f.programs[0] === l;
+      return h('button', {
+        type: 'button', 'aria-pressed': String(on),
+        title: l === 'Other' ? 'Other budget activities, or none listed' : (d.programs.filter(function (p) { return p.label === l; })[0] || {}).name,
+        onClick: function () { f.programs = [l]; rerender(); }
+      }, h('span', { class: 'dot', style: { background: PROGRAM_COLORS[l] } }), l);
+    }));
   var status = h('div', { class: 'seg', role: 'group', 'aria-label': 'Status' }, STATUS_OPTIONS.map(function (s) {
     return h('button', { type: 'button', 'aria-pressed': String(!f.stage && f.status === s.key), title: s.help || null, onClick: function () { f.status = s.key; f.stage = ''; rerender(); } }, s.label);
   }));
@@ -363,6 +362,7 @@ function overviewView() {
   var list = filtered();
   var t = totalsOf(list);
   var wrap = h('div', { class: 'stack' });
+  wrap.appendChild(h('p', { class: 'tip' }, icon('info'), 'Pick your field office, then click any number, bar or name to see the projects behind it.'));
   var leads = workloadRows(list, 'lead', false).filter(function (r) { return r.email; });
   leads.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
   var avg = leads.length ? leads.reduce(function (s, r) { return s + r.count; }, 0) / leads.length : 0;
@@ -371,11 +371,11 @@ function overviewView() {
   var top = leads[0];
 
   wrap.appendChild(h('section', { class: 'card summary', 'aria-label': 'Summary' },
-    stat(S.filters.status === 'all' && !S.filters.stage ? 'Projects' : statusLabel() + ' projects', fmtInt(t.count), scopeName()),
-    stat('Not awarded yet', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting'),
-    stat('Awarded', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend'),
-    stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far'),
-    stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none')));
+    stat(S.filters.status === 'all' && !S.filters.stage ? 'Projects' : statusLabel() + ' projects', fmtInt(t.count), scopeName(), function () { showProjects(''); }),
+    stat('Not awarded yet', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting', function () { showProjects('preaward'); }),
+    stat('Awarded', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend', function () { showProjects('awarded'); }),
+    stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
+    stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none', function () { S.workload.role = 'lead'; go('workload'); })));
 
   wrap.appendChild(h('div', { class: 'grid grid-main' },
     topPeopleCard(leads, avg),
@@ -384,14 +384,36 @@ function overviewView() {
   return wrap;
 }
 
+/** "114 open projects", "13 projects not awarded yet", "40 projects paid in full", "8 projects with contracting". */
+function projectsPhrase(n) {
+  var f = S.filters;
+  var p = plural(n, 'project');
+  if (f.stage) return p + ': ' + S.stageIndex[f.stage].short.toLowerCase();
+  if (f.status === 'open') return fmtInt(n) + ' open ' + (n === 1 ? 'project' : 'projects');
+  if (f.status === 'awarded') return fmtInt(n) + ' awarded ' + (n === 1 ? 'project' : 'projects');
+  if (f.status === 'preaward') return p + ' not awarded yet';
+  if (f.status === 'expended') return p + ' paid in full';
+  return p;
+}
+
 function statusLabel() {
   var f = S.filters;
   if (f.stage) return S.stageIndex[f.stage].short;
   return STATUS_OPTIONS.filter(function (s) { return s.key === f.status; })[0].label;
 }
 
-function stat(label, value, sub) {
-  return h('div', { class: 'stat' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), h('div', { class: 'sub' }, sub));
+/** A summary number. With onClick it is a button that opens the projects behind it. */
+function stat(label, value, sub, onClick) {
+  var el = h(onClick ? 'button' : 'div', { class: 'stat' + (onClick ? ' clickable' : ''), type: onClick ? 'button' : null, title: onClick ? 'See these projects' : null },
+    h('div', { class: 'label' }, label), h('div', { class: 'value' }, value), h('div', { class: 'sub' }, sub));
+  if (onClick) el.addEventListener('click', onClick);
+  return el;
+}
+
+/** Opens the Projects tab with a status chosen ('' keeps the current one). */
+function showProjects(status) {
+  if (status) { S.filters.status = status; S.filters.stage = ''; }
+  go('projects');
 }
 
 /** Everyone with projects, busiest first, against the average for the scope. */
@@ -412,7 +434,7 @@ function topPeopleCard(leads, avg) {
       h('p', null, 'Open projects assigned to each ' + (S.filters.team === 'all' ? 'person' : teamLabel(S.filters.team).toLowerCase().replace(/s$/, '')) + ' in ' + scopeName() + '. Click a name to see their projects.')), all),
     h('div', { class: 'toolbar' }, teamSwitch()),
     top.length ? [
-      h('div', { class: 'chart-legend' }, groupLegend('Average ' + avg.toFixed(1))),
+      h('div', { class: 'chart-legend' }, groupLegend('Dashed line = average (' + avg.toFixed(1) + ')')),
       h('div', { class: 'hbars people' }, top.map(function (r) {
         var b = h('button', { class: 'hbar', type: 'button', 'aria-label': r.name + ': ' + r.count + ' projects, ' + r.preaward + ' not awarded yet' },
           h('span', { class: 'hbar-label', title: r.name + (r.office ? ' · ' + officeShort(r.office) : '') + (r.team ? ' · ' + teamLabel(r.team) : '') + (r.org ? ' (' + r.org + ')' : '') }, r.name,
@@ -577,7 +599,7 @@ function projectsView() {
   groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; rerender(); });
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Download for Excel');
   card.appendChild(h('div', { class: 'card-head' },
-    h('div', null, h('h2', null, plural(t.count, S.filters.stage || S.filters.status === 'all' ? 'project' : statusLabel().toLowerCase() + ' project') + ' · ' + scopeName()),
+    h('div', null, h('h2', null, projectsPhrase(t.count) + ' · ' + scopeName()),
       h('p', null, fmtMoneyShort(t.committed) + ' committed, ' + fmtMoneyShort(t.obligated) + ' obligated, ' + fmtMoneyShort(t.remaining) + ' left to spend. Click a project for details.'))));
   card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
   if (!list.length) { card.appendChild(emptyState()); return card; }
@@ -733,7 +755,7 @@ function workloadView() {
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
       h('td', { class: 'nowrap' }, r.email ? h('strong', null, r.name) : h('em', null, r.name), mine ? h('span', { class: 'you' }, 'You') : null),
       h('td', { class: 'nowrap hide-sm', title: r.team ? teamLabel(r.team) + (r.org ? ', org code ' + r.org : ', no org code in the directory') : null }, r.team ? [h('span', { class: 'tag team-' + r.team }, teamLabel(r.team, true)), r.org ? h('span', { class: 'muted' }, ' ' + r.org) : null] : '–'),
-      h('td', { class: 'nowrap hide-sm' }, r.office ? officeShort(r.office) : '–'),
+      h('td', { class: 'hide-sm office-cell' }, r.office ? officeShort(r.office) : '–'),
       h('td', { class: 'num' }, h('strong', null, fmtInt(r.count))),
       h('td', { class: 'bar-cell wide' }, stackedBar(groupSegments(r), max, 'mini-bar', r.email ? avg : 0)),
       h('td', { class: 'num' }, fmtInt(r.preaward)),
@@ -760,8 +782,8 @@ function workloadView() {
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null,
       h('h2', null, 'Who has how many projects · ' + scopeName()),
-      h('p', null, plural(people.length, 'person', 'people') + ', ' + plural(total, statusLabel().toLowerCase() + ' project') + ', about ' + avg.toFixed(1) + ' each. Click a name to see their projects.')),
-      groupLegend('Average ' + avg.toFixed(1))),
+      h('p', null, plural(people.length, 'person', 'people') + ', ' + projectsPhrase(total) + ', about ' + avg.toFixed(1) + ' each. Click a name to see their projects.')),
+      groupLegend('Dashed line = average (' + avg.toFixed(1) + ')')),
     h('div', { class: 'toolbar' },
       h('div', { class: 'field' }, h('span', null, 'Show'), teamSwitch()),
       h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
