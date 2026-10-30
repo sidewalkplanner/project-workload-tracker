@@ -58,6 +58,14 @@ function start() {
 }
 
 function load(refresh) {
+  // The first time, the data usually came with the page (BOOT.preload).
+  if (!refresh && !S.data && BOOT.preload && typeof DecompressionStream === 'function') {
+    var pre = BOOT.preload;
+    BOOT.preload = null;
+    renderState('Loading the project workload…', '', true);
+    gunzipJson(pre.gz).then(function (data) { show(data, pre.user, false); }).catch(function () { load(false); });
+    return;
+  }
   var fn = refresh ? 'apiRefresh' : 'apiLoad';
   if (!S.data) renderState('Loading the project workload…', 'This can take up to a minute the first time each morning, while the EASi report is read.', true);
   var fail = function (err) {
@@ -69,17 +77,19 @@ function load(refresh) {
   google.script.run
     .withSuccessHandler(function (json) {
       var res = JSON.parse(json);
-      (res.gz ? gunzipJson(res.gz) : Promise.resolve(res.data)).then(function (data) {
-        var first = !S.data;
-        S.data = data;
-        S.user = res.user;
-        prepareData(S.data);
-        if (first) applyDefaultsForUser();
-        render();
-        if (refresh) toast('Refreshed from the EASi report.');
-      }).catch(fail);
+      (res.gz ? gunzipJson(res.gz) : Promise.resolve(res.data)).then(function (data) { show(data, res.user, refresh); }).catch(fail);
     })
     .withFailureHandler(fail)[fn]({ packed: packed });
+}
+
+function show(data, user, refreshed) {
+  var first = !S.data;
+  S.data = data;
+  S.user = user;
+  prepareData(S.data);
+  if (first) applyDefaultsForUser();
+  render();
+  if (refreshed) toast('Refreshed from the EASi report.');
 }
 
 /** base64 gzip -> parsed JSON, with the browser's own decompressor. */

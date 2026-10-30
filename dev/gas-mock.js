@@ -20,11 +20,23 @@ function createRuntime(opts) {
   const triggers = [];
   const state = { user: opts.user || '', owner: opts.owner || 'owner@gsa.gov', reads: 0 };
 
-  function sheetFor(rows) {
-    return {
+  function sheetFor(rows, writable) {
+    const sheet = {
       getDataRange() { return { getValues() { state.reads++; return rows.map((r) => r.slice()); } }; },
-      getName() { return ''; }
+      getName() { return ''; },
+      getLastRow() { return rows.length; },
+      clear() { rows.length = 0; },
+      getRange(r, c, nr) {
+        return {
+          getValues() { state.snapshotReads = (state.snapshotReads || 0) + 1; return rows.slice(r - 1, r - 1 + nr).map((x) => x.slice()); },
+          setValues(v) {
+            if (!writable) throw new Error('read-only sheet');
+            v.forEach((row, i) => { if (String(row[0]).length > 50000) throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.'); rows[r - 1 + i] = row.slice(); });
+          }
+        };
+      }
     };
+    return sheet;
   }
   function addSpreadsheet(id, tabs) {
     spreadsheets[id] = tabs;
@@ -37,7 +49,18 @@ function createRuntime(opts) {
       openById(id) {
         const tabs = spreadsheets[id];
         if (!tabs) throw new Error('Exception: You do not have permission to access the requested document (' + id + ').');
-        return { getSheetByName(name) { return tabs[name] ? sheetFor(tabs[name]) : null; } };
+        const names = Object.keys(tabs);
+        return {
+          getId() { return id; },
+          getSheetByName(name) { return tabs[name] ? sheetFor(tabs[name], tabs.__writable) : null; },
+          getSheets() { return names.filter((n) => n !== '__writable').map((n) => sheetFor(tabs[n], tabs.__writable)); }
+        };
+      },
+      create(name) {
+        const id = 'created-' + Object.keys(spreadsheets).length;
+        spreadsheets[id] = { Sheet1: [], __writable: true };
+        state.created = (state.created || 0) + 1;
+        return ctx.SpreadsheetApp.openById(id);
       }
     },
     PropertiesService: {
@@ -130,7 +153,7 @@ function createRuntime(opts) {
   }
 
   return {
-    ctx, props, cache, triggers, state, addSpreadsheet,
+    ctx, props, cache, triggers, state, addSpreadsheet, spreadsheets,
     setUser(email) { state.user = email; }
   };
 }
