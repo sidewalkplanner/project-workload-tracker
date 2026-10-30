@@ -69,13 +69,17 @@ var STAGES = [
   { key: 'expended', label: 'Paid in full (all obligated money spent)', short: 'Paid in full', group: 'closed' }
 ];
 
-/** People roles the Workload tab can rank. "field" is the PR field holding the emails. */
+/**
+ * People on each PR, by the PR field holding their emails. The People tab's "Count projects by"
+ * menu offers the ones without menu: false; COR and submitter are already the person assigned,
+ * and EASi's Program manager field is rarely filled.
+ */
 var ROLES = [
-  { key: 'lead', label: 'Person assigned (the COR, or the requestor until there is one)', short: 'Person assigned' },
-  { key: 'cor', label: 'COR', short: 'COR' },
-  { key: 'requestor', label: 'Requestor', short: 'Requestor' },
+  { key: 'lead', label: 'Person assigned (the COR, or the submitter until there is one)', short: 'Person assigned' },
+  { key: 'cor', label: 'COR', short: 'COR', menu: false },
+  { key: 'requestor', label: 'Submitter', short: 'Submitter', menu: false },
   { key: 'buildingManager', label: "The building's building manager", short: 'Building manager' },
-  { key: 'programManager', label: 'Program manager in EASi', short: 'Program manager' },
+  { key: 'programManager', label: 'Program manager in EASi', short: 'Program manager', menu: false },
   { key: 'co', label: 'Contracting officer', short: 'Contracting officer' },
   { key: 'cs', label: 'Contract specialist', short: 'Contract specialist' }
 ];

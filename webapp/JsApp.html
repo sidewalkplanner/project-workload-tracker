@@ -30,7 +30,7 @@ var PROJECT_CSV = [
   ['Projects', function (p) { return unitsOf(p); }], ['Sub-projects', function (p) { return (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join('; '); }], ['Program', function (p) { return programLabels(p).join(' / '); }],
   ['Status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
-  ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
+  ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Submitter', function (p) { return peopleNames(p.requestor); }],
   ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Left to spend', function (p) { return p.remaining; }],
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
@@ -46,8 +46,6 @@ var GROUPS = [
   { key: 'stage', label: 'Status' },
   { key: 'program', label: 'Program' },
   { key: 'building', label: 'Building' },
-  { key: 'cor', label: 'COR' },
-  { key: 'requestor', label: 'Requestor' },
   { key: 'fy', label: 'Fiscal year' }
 ];
 
@@ -121,7 +119,7 @@ function applyDefaultsForUser() {
   if (f.office && !S.data.offices.some(function (o) { return o.name === f.office; })) f.office = '';
   if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
   if (f.zone && S.data.zones.indexOf(f.zone) === -1) f.zone = '';
-  if (!S.data.roles.some(function (r) { return r.key === S.workload.role; })) S.workload.role = 'lead';
+  if (!S.data.roles.some(function (r) { return r.key === S.workload.role && r.menu !== false; })) S.workload.role = 'lead';
   if (S.routeHadScope || !S.user) return;
   var u = S.user;
   var lead = u.email && S.homeOffice.lead ? S.homeOffice.lead[u.email] : '';
@@ -693,7 +691,7 @@ function projectRow(p, cols) {
       return h('td', { class: 'lead-cell', title: p.lead.length > 1 ? peopleNames(p.lead) : null },
         h('button', { class: 'person-btn', type: 'button', onClick: function (ev) { ev.stopPropagation(); S.filters.person = { role: 'lead', email: first }; rerender(); } }, personName(first)),
         p.lead.length > 1 ? h('span', { class: 'muted' }, ' +' + (p.lead.length - 1)) : null,
-        !p.cor.length ? h('div', { class: 'sub', title: 'The requestor leads until EASi names a COR' }, 'No COR yet') : null);
+        !p.cor.length ? h('div', { class: 'sub', title: 'The person who submitted the PR is shown until EASi names a COR' }, 'Submitter, COR not named yet') : null);
     },
     committed: function () { return h('td', { class: 'num', title: fmtMoney(p.committed) }, fmtMoneyShort(p.committed)); },
     remaining: function () { return h('td', { class: 'num', title: p.remaining ? fmtMoney(p.remaining) : null }, p.remaining ? fmtMoneyShort(p.remaining) : '–'); },
@@ -724,7 +722,7 @@ function workloadView() {
   // People first; projects with nobody in this role go last, unranked.
   rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
   var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
-  var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
+  var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.filter(function (r) { return r.menu !== false; }).map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
   roleSel.addEventListener('change', function () { w.role = roleSel.value; S.filters.person = null; rerender(); });
   var byOffice = h('input', { type: 'checkbox', checked: w.byOffice });
   byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; rerender(); });
@@ -840,7 +838,7 @@ function openDrawer(p) {
     h('div', { class: 'section-title' }, 'People'),
     h('dl', { class: 'dl' },
       item('COR', people(p.cor)),
-      item('Requestor', people(p.requestor)),
+      item('Submitter', people(p.requestor)),
       item('Building manager', people(p.buildingManager)),
       item('Program manager', people(p.programManager)),
       item('Contracting officer', people(p.co)),
