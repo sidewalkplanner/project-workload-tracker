@@ -19,10 +19,65 @@ var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 var CACHE_CHUNK = 45000;
 
 function loadPacked_() {
-  var cached = readCachedJson_();
-  if (cached) return JSON.parse(cached);
+  var packed = cachedOrSavedPacked_();
+  if (packed) return packed;
   var json = refreshDataset_();
   return packDataset_(JSON.parse(json), json);
+}
+
+/**
+ * The snapshot without rebuilding it: from the cache, or from the saved copy (a small sheet
+ * the tracker owns) when the cache has been emptied, putting it back in the cache. null when
+ * neither has one from this version of the code.
+ */
+function cachedOrSavedPacked_() {
+  var cached = readCachedJson_();
+  if (cached) return JSON.parse(cached);
+  var saved = readSavedSnapshot_();
+  if (saved) writeCachedJson_(saved);
+  return saved ? JSON.parse(saved) : null;
+}
+
+// ---------------------------------------------------------------------------
+// The saved copy: so a cache that Google empties early costs a second or two, not a rebuild.
+// ---------------------------------------------------------------------------
+
+var SNAPSHOT_SHEET_PROP = 'SNAPSHOT_SHEET_ID';
+var SNAPSHOT_CELL = 45000;   // A cell holds up to 50,000 characters.
+
+function savedSnapshotSheet_(create) {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(SNAPSHOT_SHEET_PROP);
+  if (id) {
+    try { return SpreadsheetApp.openById(id).getSheets()[0]; } catch (e) { if (!create) return null; }
+  }
+  if (!create) return null;
+  var ss = SpreadsheetApp.create('NEH Project Workload Tracker - saved snapshot (do not edit)');
+  props.setProperty(SNAPSHOT_SHEET_PROP, ss.getId());
+  return ss.getSheets()[0];
+}
+
+/** Saves the packed snapshot (JSON text) into column A: a header row, then the text in pieces. */
+function writeSavedSnapshot_(packedJson) {
+  var sheet = savedSnapshotSheet_(true);
+  var rows = [[JSON.stringify({ version: DATASET_VERSION, savedAt: new Date().toISOString() })]];
+  for (var i = 0; i < packedJson.length; i += SNAPSHOT_CELL) rows.push([packedJson.slice(i, i + SNAPSHOT_CELL)]);
+  sheet.clear();
+  sheet.getRange(1, 1, rows.length, 1).setValues(rows);
+}
+
+function readSavedSnapshot_() {
+  try {
+    var sheet = savedSnapshotSheet_(false);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var values = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
+    var head = JSON.parse(String(values[0][0]) || '{}');
+    if (head.version !== DATASET_VERSION) return null;
+    return values.slice(1).map(function (r) { return String(r[0]); }).join('');
+  } catch (e) {
+    console.warn('Could not read the saved snapshot: ' + e);
+    return null;
+  }
 }
 
 function loadDataset_() {
@@ -80,7 +135,9 @@ function refreshDataset_() {
   }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
-  writeCachedJson_(JSON.stringify(packDataset_(dataset, json)));
+  var packedJson = JSON.stringify(packDataset_(dataset, json));
+  writeCachedJson_(packedJson);
+  try { writeSavedSnapshot_(packedJson); } catch (e) { console.warn('Could not save the snapshot copy: ' + e); }
   try {
     PropertiesService.getScriptProperties().setProperty('LAST_REFRESH', JSON.stringify({
       at: dataset.builtAt, generatedAt: generatedAt, prs: dataset.prs.length, seconds: dataset.buildSeconds

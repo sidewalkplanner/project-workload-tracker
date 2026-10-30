@@ -79,6 +79,7 @@ http.createServer((req, res) => {
     return;
   }
   if (u.pathname !== '/') { res.writeHead(404); res.end(); return; }
+  rt.setUser(u.query.as || 'viewer@gsa.gov');
   const page = rt.ctx.doGet({ parameter: u.query }).content.replace('<head>', '<head>' + SHIM);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(page);

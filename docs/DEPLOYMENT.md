@@ -76,6 +76,10 @@ The key belongs to the account that made it. If that person leaves, or uploads s
 
 If the repo is ever made private, nothing changes: the workflow runs inside GitHub with its own access.
 
+## The saved-snapshot sheet
+
+After the first refresh, a Google Sheet named **NEH Project Workload Tracker - saved snapshot (do not edit)** appears in the owner's Drive. It holds a compressed copy of the tracker's data so the page stays fast when Google clears its cache. Leave it where it is and don't share or edit it; if it's deleted, the next refresh makes a new one.
+
 ## Settings
 
 All optional, in **Project Settings** › **Script properties**:

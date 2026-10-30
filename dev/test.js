@@ -111,6 +111,25 @@ test('a snapshot saved by older code is not reused', () => {
   assert.ok(d.prs.length > 0 && d.teams, 'rebuilt with the current shape');
 });
 
+test('an emptied cache is refilled from the saved copy, not rebuilt; the page carries its data', () => {
+  const rt = runtimeWith(demoSources(30));
+  load(rt);
+  assert.strictEqual(rt.state.created, 1, 'the saved-copy sheet was created');
+  const reads = rt.state.reads;
+  Object.keys(rt.cache).forEach((k) => delete rt.cache[k]);
+  const d = load(rt).data;
+  assert.strictEqual(d.prs.length, 30);
+  assert.strictEqual(rt.state.reads, reads, 'no source sheet was read again');
+  assert.ok(Number(rt.cache[rt.ctx.CACHE_PREFIX + 'n']) >= 1, 'the cache was refilled');
+  const page = rt.ctx.doGet({ parameter: {} }).content;
+  assert.ok(/"preload":\{"user":/.test(page), 'the page carries the data');
+  // A saved copy from older code is ignored.
+  Object.keys(rt.cache).forEach((k) => delete rt.cache[k]);
+  const sheetId = rt.props.SNAPSHOT_SHEET_ID;
+  rt.spreadsheets[sheetId].Sheet1[0] = [JSON.stringify({ version: -1 })];
+  assert.ok(/"preload":null/.test(rt.ctx.doGet({ parameter: {} }).content));
+});
+
 test('placement: building in the title, OFM org code, several offices', () => {
   const src = demoSources(5);
   const row = (over) => {

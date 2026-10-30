@@ -11,7 +11,16 @@
 function doGet(e) {
   var params = (e && e.parameter) || {};
   var template = HtmlService.createTemplateFromFile('Index');
-  template.bootJson = safeJsonForHtml_({ app: APP, route: routeFromParams_(params) });
+  // The data comes inside the page when the snapshot is ready (cache or saved copy), saving
+  // the page a second trip to the server; otherwise the page asks for it (and it gets built).
+  var preload = null;
+  try {
+    var packed = cachedOrSavedPacked_();
+    if (packed) preload = { user: currentUser_(packed.meta), gz: packed.gz };
+  } catch (err) {
+    console.warn('Page opened without its data: ' + err);
+  }
+  template.bootJson = safeJsonForHtml_({ app: APP, route: routeFromParams_(params), preload: preload });
   return template.evaluate()
     .setTitle(APP.name)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
