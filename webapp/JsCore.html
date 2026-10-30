@@ -14,7 +14,7 @@ var TYPE_OPTIONS = [
 ];
 var STATUS_OPTIONS = [
   { key: 'open', label: 'Open', help: 'Everything not yet paid in full, including planned projects not in EASi yet' },
-  { key: 'planned', label: 'Not in EASi yet', help: 'Projects planned or approved in the BA61 portal or the BA54 tracker that have no PR in EASi yet', planned: true },
+  { key: 'planned', label: 'Not in EASi yet', help: 'Projects planned or approved in the BA61 portal, the BA54 tracker or the RWA dashboard that have no PR in EASi yet', planned: true },
   { key: 'preaward', label: 'Not awarded yet', help: 'From draft PR through contract being written' },
   { key: 'awarded', label: 'Awarded', help: 'Awarded, with money still to be spent' },
   { key: 'expended', label: 'Paid in full', help: 'Awarded and all obligated money spent (Pegasys)' },
@@ -30,8 +30,20 @@ var GROUP_LABELS = { planned: 'Not in EASi yet', preaward: 'Not awarded yet', aw
 /** The planning sheets the snapshot read (BA61 portal, BA54 tracker): their projects with no PR in EASi yet are included. */
 function plannedSources() {
   var d = S.data || {};
-  return [d.portal && d.portal.read ? 'the BA61 portal' : '', d.ba54 && d.ba54.read ? 'the BA54 tracker' : ''].filter(Boolean);
+  return ['portal', 'ba54', 'rwa'].filter(function (k) { return d[k] && d[k].read; }).map(function (k) { return PLAN_SOURCES[k].name; });
 }
+
+/** How the page talks about each planning sheet. */
+var PLAN_SOURCES = {
+  portal: { name: 'the BA61 portal', short: 'portal', program: 'PG61', person: 'COR', amount: 'Budgeted in the portal', amountShort: 'budgeted in the BA61 portal',
+    number: 'The project’s BA61 portal number', match: function () { return 'No PR in EASi has this project’s number in its title or as its EQ number yet.'; } },
+  ba54: { name: 'the BA54 tracker', short: 'tracker', program: 'PG54', person: 'Project manager (COR)', amount: 'Total cost (BA54 tracker)', amountShort: 'total cost in the BA54 tracker',
+    number: 'The project’s PCN in the BA54 tracker',
+    match: function (p) { return 'No PR in EASi' + (p.fy ? ' from FY' + String(p.fy - 1).slice(2) + ' on' : '') + ' lists this project’s PCN or ASID among its project codes yet.'; } },
+  rwa: { name: 'the RWA dashboard', short: 'RWA dashboard', program: 'PG80', person: 'GSA PM (COR)', amount: 'Authorized (RWA)', amountShort: 'authorized on the RWA',
+    number: 'The RWA or work request number in RETA', match: function () { return 'No PR in EASi lists this RWA number yet, and nothing is committed or obligated on it.'; } }
+};
+function planSource(p) { return PLAN_SOURCES[p.source] || PLAN_SOURCES.portal; }
 function hasPlanned() { return plannedSources().length > 0; }
 function statusOptions() { return STATUS_OPTIONS.filter(function (s) { return !s.planned || hasPlanned(); }); }
 /** A project from the BA61 portal or BA54 tracker that has no PR in EASi yet. */
@@ -41,18 +53,22 @@ function isPlanned(p) { return !!p.source; }
  * Plan vs. EASi for a PR that carries planned projects: { planned, committed, ratio, key, label }.
  * key: 'over' / 'under' (more than 25% off the plan), 'near', 'none' (nothing committed yet), 'mixed' (the PR
  * is also funded from other programs, so its committed amount isn't comparable), 'noamount' (the plan has no
- * amount), or '' with no plan.
+ * amount), 'shared' (a plan spread over several PRs), or '' with no plan.
  */
 function planCheck(p) {
   if (p._plan !== undefined) return p._plan;
   var plans = p.plans || [];
   var planned = plans.reduce(function (s, x) { return s + (x.estimate || 0); }, 0);
   var out = { planned: planned, committed: p.committed, ratio: null, key: '', label: '' };
-  var planPrograms = plans.map(function (x) { return x.source === 'ba54' ? 'PG54' : 'PG61'; });
+  var planPrograms = plans.map(function (x) { return planSource(x).program; });
   var others = p.programs.filter(function (c) { return planPrograms.indexOf(c) === -1; });
   if (plans.length && planned <= 0) { out.key = 'noamount'; out.label = 'No amount in the plan'; }
   else if (plans.length) {
     if (p.committed <= 0) { out.key = 'none'; out.label = 'Nothing committed in EASi yet'; }
+    else if (plans.some(function (x) { return x.prCount > 1; })) {
+      out.key = 'shared';
+      out.label = 'The plan is spread over several PRs, so this one isn’t comparable to it';
+    }
     else if (others.length) {
       out.key = 'mixed';
       out.label = 'Also funded from ' + others.map(function (c) { return c.replace(/^PG/, 'BA'); }).join(', ') + ', so not comparable to the plan';
@@ -94,8 +110,8 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true },
-  projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400 },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' },
+  projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
   stageIndex: {},
@@ -186,6 +202,13 @@ function officeLabel(p) {
 
 /** Prepares the loaded dataset: stage order, searchable text, each person's home office. */
 function prepareData(data) {
+  // Planned projects leave out the EASi fields they don't have (data.plannedDefaults says what to fill in).
+  var fill = data.plannedDefaults || { values: {}, lists: [] };
+  data.prs.forEach(function (p) {
+    if (!p.source) return;
+    Object.keys(fill.values).forEach(function (k) { if (p[k] === undefined) p[k] = fill.values[k]; });
+    fill.lists.forEach(function (k) { if (!p[k]) p[k] = []; });
+  });
   S.stageIndex = {};
   data.stages.forEach(function (s, i) { s.order = i; S.stageIndex[s.key] = s; });
   data.prs.forEach(function (p) {
@@ -227,7 +250,7 @@ function matchesStatus(p, status) {
   return true;
 }
 
-/** The PRs that pass the filters. skip: { status, person, place: true } leaves that filter out. */
+/** The PRs that pass the filters. skip: { status, person, place, check: true } leaves that filter out. */
 function filtered(skip) {
   skip = skip || {};
   var f = S.filters;
@@ -236,6 +259,7 @@ function filtered(skip) {
   var progs = f.programs;
   return S.data.prs.filter(function (p) {
     if (!f.planned && isPlanned(p)) return false;
+    if (!skip.check && f.check && !attentionDetail(f.check, p)) return false;
     if (f.type === 'projects' && p.service) return false;
     if (f.type === 'service' && !p.service) return false;
     if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
@@ -463,6 +487,38 @@ function groupLegend(avgLabel) {
   return h('div', { class: 'legend' }, groups.map(function (g) {
     return h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS[g] } }), GROUP_LABELS[g]);
   }), avgLabel ? h('span', null, h('span', { class: 'swatch-line' }), avgLabel) : null);
+}
+
+/** Days from one 'yyyy-mm-dd' to the snapshot's day (or another date). */
+function daysBetween(fromIso, toIso) {
+  if (!fromIso) return null;
+  var to = toIso || (S.data && S.data.builtAt ? S.data.builtAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  return Math.max(0, Math.round((Date.parse(to + 'T12:00:00Z') - Date.parse(fromIso.slice(0, 10) + 'T12:00:00Z')) / 86400000));
+}
+
+/** How long a project has been in its current stage: { days, known, since } or null when the tracker doesn't know. */
+function stageAge(p) {
+  if (!p.since) return null;
+  return { days: daysBetween(p.since), known: !!p.sinceKnown, since: p.since };
+}
+
+/** Share of the obligation Pegasys shows spent (0-100), or null before award. */
+function spentPct(p) {
+  if (isPlanned(p) || !(p.stage === 'awarded' || p.stage === 'expended') || p.obligated <= 0) return null;
+  return Math.min(100, Math.round(p.expended / p.obligated * 100));
+}
+
+/** Days since an awarded PR's spending last changed (since its award when nothing is spent): { days, known, since } or null. */
+function paymentAge(p) {
+  if (!p.spentSince) return null;
+  return { days: daysBetween(p.spentSince), known: !!p.spentKnown, since: p.spentSince };
+}
+
+/** "27 days" (known) or "40+ days" (in this stage at least since tracking began); '' when it says nothing. */
+function stageAgeText(p) {
+  var a = stageAge(p);
+  if (!a || (!a.known && a.days < 1)) return '';
+  return plural(a.days, 'day') + (a.known ? '' : '+');
 }
 
 function stageBadge(p) {

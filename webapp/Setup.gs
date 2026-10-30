@@ -3,7 +3,7 @@
  * (pick it in the function list, then Run) after the first deployment.
  */
 
-/** Checks that both sheets can be read, builds the first snapshot and schedules the daily refresh. */
+/** Checks that the source sheets can be read, builds the first snapshot and schedules the daily refresh. */
 function setup() {
   var json = refreshDataset_();
   var dataset = JSON.parse(json);

@@ -1,11 +1,13 @@
 /**
- * Web app entry point. The page loads its data with apiLoad() after it opens, so the
- * first paint is quick even when the snapshot has to be rebuilt.
+ * Web app entry point. The data comes inside the page when a built snapshot is ready (cache
+ * or saved copy); otherwise the page asks for it with apiLoad() once it opens, so the first
+ * paint is quick even when the snapshot has to be rebuilt.
  *
  * URL parameters set the starting view and filters, for links people share:
- *   ?view=overview | projects | workload
- *   &office=<field office>  &sc=<service center>  &program=BA61,BA80  &status=open | preaward | awarded | expended | all
- *   &fy=2026  &type=projects | all | service  &role=cor  &person=<email>  &q=<search>
+ *   ?view=overview | projects | workload | attention
+ *   &zone=5  &office=<field office>  &sc=<service center>  &program=BA61,BA80
+ *   &status=open | planned | preaward | awarded | expended | all  &planned=0 (EASi only)
+ *   &fy=2026  &type=projects | all | service  &team=bm | pm  &role=cor  &person=<email>  &q=<search>  &group=<grouping>
  */
 
 function doGet(e) {
@@ -28,7 +30,7 @@ function doGet(e) {
 
 function routeFromParams_(params) {
   var route = {};
-  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned'].forEach(function (key) {
+  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check'].forEach(function (key) {
     var value = str_(params[key]).slice(0, 160);
     if (value && !/[\u0000-\u001f\u007f<>]/.test(value)) route[key] = value;
   });

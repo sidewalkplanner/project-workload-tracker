@@ -109,6 +109,7 @@ function ba54Projects_(values, inEasi, directory, people, rowLink) {
       co: people.find(get('co')),
       place: place,
       projectCodes: codes,
+      dueBy: planDueDate_(get('prDate'), fy), dueWhat: 'PR routing (estimated)',
       details: [
         ['Description', str_(get('description'))],
         ['Project type', str_(get('type'))],

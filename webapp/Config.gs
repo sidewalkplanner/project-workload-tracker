@@ -26,6 +26,9 @@ var SETTINGS_DEFAULTS = {
   // The BA54 National Tracker: BA54 projects in the current program but not in EASi yet. OFF leaves them out.
   BA54_ID: '1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8',
   BA54_TAB: 'Current Program',
+  // The All Open RWAs and WRs Dashboard: RWAs and work requests, before and after their PRs. OFF leaves them out.
+  RWA_ID: '1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0',
+  RWA_TAB: 'Detailed Data',
   // Names in the BA61 portal or BA54 tracker the tracker can't match to an email on its own: "Name = email; Name = email".
   NAME_EMAILS: '',
   // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
@@ -66,7 +69,7 @@ var PROGRAMS = [
 
 /**
  * Where a project is, in order. "group" drives the status filters. The "planned" stages are
- * BA61 portal and BA54 tracker projects with no PR in EASi yet (Planned.gs).
+ * BA61 portal, BA54 tracker and RWA dashboard projects with no PR in EASi yet (Planned.gs).
  * Fully expended = awarded and Pegasys shows the whole obligation spent (or nothing was obligated).
  */
 var STAGES = [

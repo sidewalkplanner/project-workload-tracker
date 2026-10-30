@@ -14,7 +14,18 @@ function test(name, fn) { tests.push({ name, fn }); }
 function runtimeWith(sources, user) {
   return createRuntime({ quiet: true, user: user || 'someone@gsa.gov', owner: 'owner@gsa.gov', sheets: sheetsFrom(sources) });
 }
-function load(rt) { return JSON.parse(rt.ctx.apiLoad()); }
+/** The snapshot as the page sees it: planned projects get the fields they leave out (as prepareData does). */
+function filled(res) {
+  const d = res.data || res;
+  const fill = d.plannedDefaults;
+  d.prs.forEach((p) => {
+    if (!p.source) return;
+    Object.keys(fill.values).forEach((k) => { if (p[k] === undefined) p[k] = fill.values[k]; });
+    fill.lists.forEach((k) => { if (!p[k]) p[k] = []; });
+  });
+  return res;
+}
+function load(rt) { return filled(JSON.parse(rt.ctx.apiLoad())); }
 
 test('demo: only PRs on NEH buildings are kept, across its zones', () => {
   const res = load(runtimeWith(demoSources()));
@@ -35,7 +46,7 @@ test('demo: only PRs on NEH buildings are kept, across its zones', () => {
 
 test('the ZONE setting narrows the tracker to one zone', () => {
   const rt = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { ZONE: '5' } });
-  const d = JSON.parse(rt.ctx.apiLoad()).data;
+  const d = filled(JSON.parse(rt.ctx.apiLoad())).data;
   assert.strictEqual(d.scopeLabel, 'Zone 5');
   assert.strictEqual(d.offices.length, 12);
   assert.ok(d.prs.every((p) => p.zones[0] === '5'));
@@ -226,7 +237,7 @@ test('roles: building contacts are building managers; org codes are only shown',
   const someone = Object.keys(d.people).find((e) => contacts.has(e));
   names[someone] = 'Some One - PMCGP';
   const rt = createRuntime({ quiet: true, sheets: sheetsFrom(src), directoryNames: names, directoryPageSize: 50 });
-  d = JSON.parse(rt.ctx.apiLoad()).data;
+  d = filled(JSON.parse(rt.ctx.apiLoad())).data;
   assert.ok(rt.state.directoryCalls > 1, 'paged through the directory');
   assert.strictEqual(d.orgs[someone], 'PMCGP');
   assert.strictEqual(d.teams[someone], 'bm', 'a building contact stays a building manager');
@@ -234,7 +245,7 @@ test('roles: building contacts are building managers; org codes are only shown',
   if (pmWithPmCode) assert.strictEqual(d.teams[pmWithPmCode], 'pm', 'a PM… org code alone does not make a building manager');
   // Script properties correct individual people.
   const fix = createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { PROJECT_MANAGER_EMAILS: someone } });
-  assert.strictEqual(JSON.parse(fix.ctx.apiLoad()).data.teams[someone], 'pm');
+  assert.strictEqual(filled(JSON.parse(fix.ctx.apiLoad())).data.teams[someone], 'pm');
   assert.ok(Number(rt.props.ORG_CODES_N) >= 1);
   const calls = rt.state.directoryCalls;
   rt.setUser('owner@gsa.gov');
@@ -307,14 +318,14 @@ test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(rt.ctx.nameAliases_('Pat Unlisted = Pat.Former@gsa.gov;\n Lee  Q. Smith: lee.jones@gsa.gov; junk; = x@gsa.gov'))),
     { 'pat unlisted': 'pat.former@gsa.gov', 'lee smith': 'lee.jones@gsa.gov' });
   // NAME_EMAILS ties a name the matching can't work out to its email.
-  const aliased = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { NAME_EMAILS: 'Pat Unlisted = pat.former@gsa.gov' } }).ctx.apiLoad()).data;
+  const aliased = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { NAME_EMAILS: 'Pat Unlisted = pat.former@gsa.gov' } }).ctx.apiLoad())).data;
   const pat = aliased.prs.filter((p) => p.source && p.cor[0] === 'pat.former@gsa.gov');
   assert.strictEqual(pat.length, 1);
   assert.strictEqual(pat[0].lead[0], 'pat.former@gsa.gov');
   assert.ok(!aliased.people['name:pat unlisted']);
   // PORTAL_ID OFF: no portal projects, and the page hides the portal parts.
   const off = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_ID: 'OFF' } });
-  const d = JSON.parse(off.ctx.apiLoad()).data;
+  const d = filled(JSON.parse(off.ctx.apiLoad())).data;
   assert.strictEqual(d.portal.read, false);
   assert.ok(d.prs.every((p) => p.source !== 'portal'));
   // A portal the deployer can't open leaves its projects out instead of failing the build.
@@ -335,9 +346,9 @@ test('BA54 tracker: current-program projects with no recent PR are added', () =>
   assert.strictEqual(carrier.length, 1, 'and that PR shows the BA54 plan');
   assert.ok(d.prs.every((p) => !p.plans.some((x) => x.id === 'RCO90002')), 'an old PR on the code does not');
   // Where this comes from: every source, with how fresh it is.
-  assert.deepStrictEqual(d.sources.map((s) => s.key), ['easi', 'directory', 'portal', 'ba54']);
+  assert.deepStrictEqual(d.sources.map((s) => s.key), ['easi', 'directory', 'portal', 'ba54', 'rwa']);
   assert.strictEqual(d.sources[3].updated, '2026-10-30');
-  assert.ok(d.sources.every((s) => s.rows > 0 && s.name && s.gives));
+  assert.ok(d.sources.filter((s) => s.read !== false).every((s) => s.rows > 0 && s.name && s.gives));
   assert.ok(numbers.indexOf('RCO90002') !== -1, 'a PR from years before the plan does not count');
   assert.ok(numbers.some((n) => /^Row \d+ \(no PCN\)$/.test(n)), 'a project with no PCN keeps its row');
   assert.ok(numbers.indexOf('RCO90004 (2)') !== -1, 'two phases on one code are two projects');
@@ -350,8 +361,115 @@ test('BA54 tracker: current-program projects with no recent PR are added', () =>
   assert.ok(ba54.filter((p) => p.lead.length).every((p) => p.lead[0].indexOf('@') !== -1));
   assert.ok(ba54.every((p) => p.details.some((x) => x[0] === 'Project type')));
   // BA54_ID OFF leaves them out.
-  const off = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { BA54_ID: 'OFF' } }).ctx.apiLoad()).data;
+  const off = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { BA54_ID: 'OFF' } }).ctx.apiLoad())).data;
   assert.ok(off.prs.every((p) => p.source !== 'ba54') && !off.ba54.read);
+});
+
+function rt_rwaNumbers(text) { return JSON.parse(JSON.stringify(runtimeWith(demoSources(3)).ctx.rwaNumbersIn_(text))); }
+
+test('RWA dashboard: RWAs with no PR and no money are added; PRs show their RWA', () => {
+  const src = demoSources();
+  const d = load(runtimeWith(src)).data;
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.rwa.counts)), { rows: 9, inEasi: 3, notInEasi: 4, otherZones: 1, closed: 1, fundedElsewhere: 1 });
+  const rwas = d.prs.filter((p) => p.source === 'rwa');
+  const byNumber = {};
+  rwas.forEach((p) => { byNumber[p.pr] = p; });
+  assert.strictEqual(byNumber['3999002'].stage, 'planning');
+  assert.strictEqual(byNumber['3999002'].sourceLabel, 'Work request');
+  assert.strictEqual(byNumber['3999002'].estimate, 80000, 'a work request uses the pending amount');
+  assert.strictEqual(byNumber['3999003'].stage, 'pending');
+  assert.strictEqual(byNumber['3999004'].stage, 'noPr');
+  assert.strictEqual(byNumber['3999004'].lead.length, 0, 'no GSA PM in RETA: nobody (Kahua is not used)');
+  assert.ok(!byNumber['3999005'], 'money but no PR: funded another way');
+  assert.ok(/Severable/.test(byNumber['3999007'].service), 'severable RWAs are services');
+  assert.ok(rwas.every((p) => p.programs[0] === 'PG80' && /&range=A\d+$/.test(p.link)));
+  // PRs that list an RWA show it, with the customer; one RWA on two PRs is marked shared.
+  const carriers = d.prs.filter((p) => !p.source && p.plans.some((x) => x.source === 'rwa'));
+  assert.ok(carriers.length >= 3);
+  const sharedPlan = carriers.map((p) => p.plans.filter((x) => x.id === '3999001')[0]).filter(Boolean);
+  assert.strictEqual(sharedPlan.length, 2);
+  assert.ok(sharedPlan.every((x) => x.prCount === 2 && /Demo Affairs/.test(x.note)));
+  assert.ok(!byNumber['3999009'], 'an RWA number in a PR title is in EASi');
+  const titled = d.prs.filter((p) => p.pr === src.pipeline[5][0])[0];
+  assert.strictEqual(titled.plans.filter((x) => x.id === '3999009')[0].how, 'RWA number in the PR title');
+  assert.deepStrictEqual(rt_rwaNumbers('For Bid - BA80 P00A0000 N3850370, RWA #n3858013 and 1234567'), ['3850370', '3858013']);
+  assert.strictEqual(d.sources[4].updated, '2026-10-30');
+  // RWA_ID OFF leaves them out.
+  const off = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { RWA_ID: 'OFF' } }).ctx.apiLoad())).data;
+  assert.ok(off.prs.every((p) => p.source !== 'rwa') && !off.rwa.read);
+});
+
+test('a planning sheet whose columns changed is left out, and the page says why', () => {
+  const src = demoSources();
+  src.rwa[1] = src.rwa[1].map((h) => (h === 'RWA No' ? 'RWA Number' : h));
+  const d = load(runtimeWith(src)).data;
+  assert.ok(d.prs.length > 420, 'the rest still builds');
+  assert.ok(d.prs.every((p) => p.source !== 'rwa'));
+  assert.strictEqual(d.rwa.read, false);
+  const rwa = d.sources.filter((s) => s.key === 'rwa')[0];
+  assert.ok(/RWA No/.test(rwa.error), rwa.error);
+  // A sheet turned OFF is not listed as a problem.
+  const off = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { RWA_ID: 'OFF' } }).ctx.apiLoad())).data;
+  assert.ok(off.sources.filter((s) => s.key === 'rwa')[0].off);
+});
+
+test('people are shown by their directory name when the directory has one', () => {
+  const src = demoSources();
+  const someone = src.pipeline[1][src.pipeline[0].indexOf('Contact_Requestor')];
+  const rt = createRuntime({ quiet: true, sheets: sheetsFrom(src), directoryNames: { [someone]: 'Dana Q. Example - PMCGC' } });
+  const d = load(rt).data;
+  assert.strictEqual(d.people[someone], 'Dana Q. Example');
+  assert.strictEqual(d.orgs[someone], 'PMCGC');
+});
+
+test('stage history: days in stage, changes between refreshes, plans before their PR', () => {
+  const rt = runtimeWith(demoSources());
+  const d = load(rt).data;
+  // The first refresh: real dates where a source has one, else "by today".
+  const awarded = d.prs.filter((p) => p.stage === 'awarded' && p.executed)[0];
+  assert.strictEqual(awarded.since, awarded.executed);
+  assert.strictEqual(awarded.sinceKnown, true);
+  const unseeded = d.prs.filter((p) => !p.source && p.stage === 'review')[0];
+  assert.ok(unseeded.since && !unseeded.sinceKnown);
+  assert.strictEqual(d.historyStarted, unseeded.since);
+  const rwaPlan = d.prs.filter((p) => p.source === 'rwa' && p.stage === 'noPr')[0];
+  assert.ok(rwaPlan && rwaPlan.since && rwaPlan.seedDate === undefined);
+  // The history is saved in the snapshot sheet and read back.
+  const ctx = rt.ctx;
+  const saved = ctx.readHistory_();
+  assert.ok(saved && saved.items[unseeded.pr]);
+  // A later refresh that sees a stage change dates it that day, and keeps the earlier stage.
+  const later = JSON.parse(JSON.stringify(d));
+  const moved = later.prs.filter((p) => p.pr === unseeded.pr)[0];
+  moved.stage = 'approved';
+  const plan = later.prs.filter((p) => p.source === 'portal')[0];
+  const next = ctx.updateHistory_(later, saved, '2099-01-15');
+  assert.strictEqual(moved.since, '2099-01-15');
+  assert.strictEqual(moved.sinceKnown, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(moved.history)).map((x) => x[0]), ['review']);
+  // A new project seen after the first day reached its stage that day.
+  later.prs.push({ pr: 'EQNEW-99-0001', stage: 'draft', plans: [] });
+  ctx.updateHistory_(later, next, '2099-01-16');
+  assert.strictEqual(later.prs[later.prs.length - 1].sinceKnown, true);
+  // A PR carrying a planned project gets that plan's history (the time before its PR).
+  const carrier = { pr: 'EQCARRY-99-0001', stage: 'review', plans: [{ source: 'portal', id: plan.pr }] };
+  later.prs.push(carrier);
+  ctx.updateHistory_(later, next, '2099-01-17');
+  assert.ok(carrier.plans[0].history && carrier.plans[0].history[0][0] === plan.stage);
+  // Spending after award: nothing paid runs from the award; a new payment restarts the clock.
+  const unpaid = d.prs.filter((p) => !p.source && p.stage === 'awarded' && p.expended === 0 && p.executed)[0];
+  if (unpaid) assert.ok(unpaid.spentSince === unpaid.executed && unpaid.spentKnown);
+  const paying = later.prs.filter((p) => !p.source && p.stage === 'awarded' && p.expended > 0)[0];
+  assert.ok(paying.spentSince && !paying.spentKnown, 'first day: spending at least since today');
+  paying.expended += 1000;
+  ctx.updateHistory_(later, next, '2099-02-01');
+  assert.strictEqual(paying.spentSince, '2099-02-01');
+  assert.strictEqual(paying.spentKnown, true);
+  ctx.updateHistory_(later, next, '2099-03-01');
+  assert.strictEqual(paying.spentSince, '2099-02-01', 'no change, the date stays');
+  // Long-gone projects are forgotten.
+  const gone = ctx.updateHistory_({ prs: [] }, next, '2101-06-01');
+  assert.strictEqual(Object.keys(gone.items).length, 0);
 });
 
 test('helpers: dates, money, names, emails', () => {
