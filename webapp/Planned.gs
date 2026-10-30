@@ -1,7 +1,7 @@
 /**
- * What the BA61 portal (Portal.gs) and the BA54 tracker (Ba54.gs) have in common: projects
- * planned or approved there with no PR in EASi yet, added to the dataset as records with a
- * source ('portal' or 'ba54') and one of the "planned" stages. Their money is the plan's
+ * What the BA61 portal (Portal.gs), the BA54 tracker (Ba54.gs) and the RWA dashboard (Rwa.gs)
+ * have in common: projects planned or approved there with no PR in EASi yet, added to the
+ * dataset as records with a source ('portal', 'ba54' or 'rwa') and one of the "planned" stages. Their money is the plan's
  * budget or cost (an estimate), kept apart from what EASi has committed. Those sheets give
  * people as names; plannedPeople_ turns a name into the person's email when only one person
  * fits.
@@ -77,6 +77,16 @@ function plannedPlace_(buildings, officeName, directory) {
  * A full project record for a planned project, with every field the page reads.
  * @param {Object} f  { source, sourceLabel, pr, title, link, fy, program, stage, planStatus, estimate, cor, requestor, co, place, details: [[label, value]], portalNumbers, projectCodes }
  */
+/** The EASi fields a planned project doesn't have: left out of the snapshot to keep it small, filled in by the page. */
+var PLANNED_DEFAULTS = {
+  values: {
+    programFromTitle: false, prStatus: '', acquisitionStatus: '', awardStatus: '', solicitationStatus: '', awardNumber: '', awardType: '',
+    vendor: '', category: '', procurementCategory: '', committed: 0, obligated: 0, expended: 0, reserved: 0, remaining: 0, executed: '',
+    state: '', officeCode: '', comments: '', placeNote: '', service: '', units: 1
+  },
+  lists: ['reviewers', 'requestor', 'co', 'cs', 'assigned', 'programManager', 'buildingManager', 'projectCodes', 'rwas', 'portalNumbers', 'subprojects', 'plans', 'details']
+};
+
 function plannedRecord_(f) {
   var place = f.place;
   var p = {
@@ -87,37 +97,31 @@ function plannedRecord_(f) {
     link: f.link || '',
     fy: f.fy || null,
     programs: [f.program],
-    programFromTitle: false,
     planStatus: str_(f.planStatus),
     details: (f.details || []).filter(function (d) { return str_(d[1]) !== ''; }),
     estimate: f.estimate || 0,
-    prStatus: '', acquisitionStatus: '', awardStatus: '', solicitationStatus: '', reviewers: [],
-    awardNumber: '', awardType: '', vendor: '', category: '', procurementCategory: '',
-    committed: 0, obligated: 0, expended: 0, reserved: 0, remaining: 0, executed: '',
     cor: f.cor || [],
-    requestor: f.requestor || [],
-    co: f.co || [], cs: [], assigned: [], programManager: [],
-    buildingManager: [],
     buildings: place.buildings.map(function (b) { return b.number; }),
     buildingNames: place.buildings.map(function (b) { return b.name + (b.city ? ' · ' + b.city + ', ' + b.state : ''); }),
     offices: place.offices,
     serviceCenters: place.serviceCenters,
     zones: place.zones,
-    placeNote: place.buildings.length ? '' : 'plan-office',
-    state: '', officeCode: '', projectCodes: f.projectCodes || [], rwas: [],
-    portalNumbers: f.portalNumbers || [],
-    plans: [],
-    comments: '',
-    subprojects: [],
-    units: 1,
     stage: f.stage
   };
+  if (f.requestor && f.requestor.length) p.requestor = f.requestor;
+  if (f.co && f.co.length) p.co = f.co;
+  if (f.projectCodes && f.projectCodes.length) p.projectCodes = f.projectCodes;
+  if (f.portalNumbers && f.portalNumbers.length) p.portalNumbers = f.portalNumbers;
+  if (!place.buildings.length) p.placeNote = 'plan-office';
   // Snow removal, custodial and the like are service contracts here too.
-  p.service = serviceReason_(p);
+  var service = serviceReason_({ title: p.title, procurementCategory: '', category: '' });
+  if (service) p.service = service;
+  var managers = [];
   place.buildings.forEach(function (b) {
-    b.manager.forEach(function (e) { if (p.buildingManager.indexOf(e) === -1) p.buildingManager.push(e); });
+    b.manager.forEach(function (e) { if (managers.indexOf(e) === -1) managers.push(e); });
   });
-  p.lead = p.cor.length ? p.cor.slice() : p.requestor.slice();
+  if (managers.length) p.buildingManager = managers;
+  p.lead = p.cor.length ? p.cor.slice() : (p.requestor || []).slice();
   return p;
 }
 

@@ -172,7 +172,54 @@ function demoSources(count) {
 
   const reportInfo = [['Report Name', 'BA61 Pipeline'], ['Generated At', '2026-10-29T12:08:31.000Z']];
   const ba54Dashboard = [['All Divisions - National BA54 Tracker'], [], [null, 'Obligation Data As of', '2026-10-30T05:00:00.000Z']];
-  return { pipeline, reportInfo, buildings, org, portal, ba54, ba54Dashboard };
+  // The RWA dashboard's Detailed Data tab: a "Data as of" row, the header row, then RWAs and work requests.
+  const rwaHeader = ['PBS Zone', 'State', 'City', 'Building Type', 'Building Number', 'Office', 'Org Code', 'Office Symbol', 'Enterprise/\nOPPM Division', 'Service Center',
+    'OFM Field Office', 'RWA Type', 'RWA No', 'Sev/Nonsev', 'RWA Status', 'RWA Value Category', 'RWA is Accepted', 'PENDING Authorized Amount', 'PENDING Amendment Value',
+    'ACTUAL Authorized Amount', 'Open Commitments', 'Obligated', 'Expensed', 'Billed', 'Collected', 'AB Code', 'Agency', 'Bureau', 'Agency POC', 'RETA GSA PM/POC',
+    'Kahua GSA PM', 'Primary Kahua Project', 'Kahua Status', 'Planned Construction/Lease Award', 'Planned Construction NTP', 'Planned Substantial Completion',
+    'WR Sent Date', 'RWA Accepted Date', 'RWA Accepted FY', 'Description'];
+  const rwa = [['Data as of: 10/30/2026 01:09 PM ET'], rwaHeader];
+  const colR = (name) => rwaHeader.indexOf(name);
+  const rwaCol = HEADER.indexOf('FE_RWA_List');
+  const rwaPr = pipeline.findIndex((r, i) => i > 0 && /^\d+$/.test(String(r[rwaCol])));
+  const shared = pipeline.findIndex((r, i) => i > rwaPr + 1 && /^\d+$/.test(String(r[rwaCol])));
+  if (shared > 0 && pipeline[shared + 1]) { pipeline[shared][rwaCol] = '3999001'; pipeline[shared + 1][rwaCol] = '3999001'; }
+  const kc = OFFICES[2];  // Kansas City North
+  const kcStaff = officeStaff[kc[1]];
+  [
+    // [RWA No, type, sev, status, obligated, building, GSA PM, Kahua PM]
+    [rwaPr > 0 ? String(pipeline[rwaPr][rwaCol]) : '3000001', 'N', 'Nonseverable', 'Accepted', 50000, null, kcStaff[3], ''],
+    ['3999001', 'N', 'Nonseverable', 'Accepted', 90000, null, kcStaff[3], ''],
+    ['3999002', 'W', 'Nonseverable', 'Planning/Estimate', 0, null, kcStaff[4], ''],
+    ['3999003', 'N', 'Nonseverable', 'Signature Requested', 0, null, kcStaff[4], ''],
+    ['3999004', 'N', 'Nonseverable', 'Accepted', 0, null, '', kcStaff[5]],
+    ['3999005', 'N', 'Nonseverable', 'Accepted', 120000, null, kcStaff[5], ''],
+    ['3999006', 'N', 'Nonseverable', 'Substantially Completed', 0, null, kcStaff[5], ''],
+    ['3999007', 'R', 'Severable', 'Accepted', 0, null, kcStaff[3], ''],
+    ['3999008', 'N', 'Nonseverable', 'Accepted', 0, 'WA0001ZZ', 'pat.seattle@gsa.gov', '']
+  ].forEach((x) => {
+    const row = new Array(rwaHeader.length).fill(null);
+    row[colR('Building Type')] = 'Owned';
+    row[colR('Building Number')] = x[5] || pick(officeBuildings[kc[1]]);
+    row[colR('OFM Field Office')] = x[5] ? 'Seattle Field Office' : kc[1];
+    row[colR('RWA Type')] = x[1];
+    row[colR('RWA No')] = Number(x[0]);
+    row[colR('Sev/Nonsev')] = x[2];
+    row[colR('RWA Status')] = x[3];
+    row[colR('ACTUAL Authorized Amount')] = x[1] === 'W' ? 0 : 150000;
+    row[colR('PENDING Authorized Amount')] = x[1] === 'W' ? 80000 : 0;
+    row[colR('Open Commitments')] = 0;
+    row[colR('Obligated')] = x[4];
+    row[colR('Agency')] = 'DEPARTMENT OF DEMO AFFAIRS';
+    row[colR('Bureau')] = 'OFFICE OF EXAMPLES';
+    row[colR('RETA GSA PM/POC')] = x[6] || null;
+    row[colR('Kahua GSA PM')] = x[7] || null;
+    row[colR('RWA Accepted FY')] = 2026;
+    row[colR('Description')] = pick(WORK) + ' for the customer (RWA)';
+    rwa.push(row);
+  });
+
+  return { pipeline, reportInfo, buildings, org, portal, ba54, ba54Dashboard, rwa };
 }
 
 /**

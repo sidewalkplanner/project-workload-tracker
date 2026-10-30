@@ -57,7 +57,7 @@ var GROUPS = [
 var PLAN_GROUPS = [
   ['planned', 'Planned, not in EASi yet'], ['over', 'In EASi, committed more than 25% over the plan'], ['near', 'In EASi, within 25% of the plan'],
   ['under', 'In EASi, committed more than 25% under the plan'], ['none', 'In EASi with a plan, nothing committed yet'],
-  ['mixed', 'In EASi with a plan, also funded from other programs'], ['noamount', 'In EASi with a plan that has no amount'], ['', 'No plan on file (EASi only)']
+  ['mixed', 'In EASi with a plan, also funded from other programs'], ['shared', 'In EASi, the plan is spread over several PRs'], ['noamount', 'In EASi with a plan that has no amount'], ['', 'No plan on file (EASi only)']
 ];
 
 // ---------------------------------------------------------------------------
@@ -636,7 +636,7 @@ function projectsView() {
   var t = totalsOf(list);
   var card = h('section', { class: 'card' });
   var groupSel = h('select', { 'aria-label': 'Group by' }, GROUPS.map(function (g) { return h('option', { value: g.key, selected: S.projects.group === g.key }, g.label); }));
-  groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; rerender(); });
+  groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; S.projects.groupLimit = {}; rerender(); });
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Download for Excel');
   card.appendChild(h('div', { class: 'card-head' },
     h('div', null, h('h2', null, projectsPhrase(t.count) + ' · ' + scopeName()),
@@ -667,20 +667,28 @@ function projectsView() {
       tbody.appendChild(row);
       if (collapsed) return;
     }
-    g.items.forEach(function (p) {
-      if (shown >= limit) return;
-      shown++;
-      tbody.appendChild(projectRow(p, cols));
-    });
+    // Grouped, each group shows its first rows on its own, so a big group doesn't leave the rest empty.
+    var cap = g.key === null ? limit - shown : (S.projects.groupLimit[g.key] || GROUP_ROWS);
+    g.items.slice(0, cap).forEach(function (p) { shown++; tbody.appendChild(projectRow(p, cols)); });
+    if (g.key !== null && g.items.length > cap) {
+      var rest = g.items.length - cap;
+      var moreRow = h('tr', { class: 'group-more' }, h('td', { colspan: String(cols.length) },
+        h('button', { class: 'link-btn', type: 'button', onClick: function () { S.projects.groupLimit[g.key] = cap + 200; rerender(); } },
+          'Show ' + fmtInt(Math.min(rest, 200)) + ' more of ' + g.label.charAt(0).toLowerCase() + g.label.slice(1) + (rest > 200 ? ' (' + fmtInt(rest) + ' left)' : ''))));
+      tbody.appendChild(moreRow);
+    }
   });
   card.appendChild(h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)));
   var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'PR') + (t.count !== list.length ? ' (' + plural(t.count, 'project') + ')' : '') + '. Click a column heading to sort.'));
-  if (shown >= limit && limit < list.length) {
+  if (!S.projects.group && shown >= limit && limit < list.length) {
     foot.appendChild(h('button', { class: 'btn', type: 'button', onClick: function () { S.projects.limit += 400; rerender(); } }, 'Show more'));
   }
   card.appendChild(foot);
   return card;
 }
+
+/** Rows each group shows before its "Show more" row. */
+var GROUP_ROWS = 50;
 
 function groupProjects(list, key) {
   if (!key) return [{ key: null, items: list }];
@@ -727,7 +735,7 @@ function projectRow(p, cols) {
   var cells = {
     pr: function () {
       var number = p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', title: isPlanned(p) ? 'Open in ' + plannedName(p) : 'Open in EASi', onClick: function (e) { e.stopPropagation(); } }, p.pr) : p.pr;
-      return h('td', { class: 'nowrap' }, number, isPlanned(p) ? h('div', { class: 'sub', title: (p.source === 'ba54' ? 'The project’s PCN in the BA54 tracker' : 'The project’s BA61 portal number') + ': there is no PR in EASi yet' }, p.sourceLabel) : null);
+      return h('td', { class: 'nowrap' }, number, isPlanned(p) ? h('div', { class: 'sub', title: planSource(p).number + ': there is no PR in EASi yet' }, p.sourceLabel) : null);
     },
     title: function () {
       return h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title),
@@ -747,7 +755,7 @@ function projectRow(p, cols) {
         !p.cor.length ? h('div', { class: 'sub', title: 'The person who submitted the PR is shown until EASi names a COR' }, 'Submitter, COR not named yet') : null);
     },
     committed: function () {
-      if (isPlanned(p)) return h('td', { class: 'num', title: fmtMoney(p.estimate) + (p.source === 'ba54' ? ' total cost in the BA54 tracker' : ' budgeted in the BA61 portal') + '. Nothing is committed in EASi yet.' }, p.estimate ? [fmtMoneyShort(p.estimate), h('div', { class: 'sub' }, 'estimated')] : '–');
+      if (isPlanned(p)) return h('td', { class: 'num', title: fmtMoney(p.estimate) + ' ' + planSource(p).amountShort + '. Nothing is committed in EASi yet.' }, p.estimate ? [fmtMoneyShort(p.estimate), h('div', { class: 'sub' }, 'estimated')] : '–');
       var plan = planCheck(p);
       if (!plan.key) return h('td', { class: 'num', title: fmtMoney(p.committed) }, fmtMoneyShort(p.committed));
       var off = plan.key === 'over' || plan.key === 'under';
@@ -810,7 +818,7 @@ function workloadView() {
   var thead = h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, w.sort, onSort); })));
   var tbody = h('tbody', null, rows.map(function (r, i) {
     var mine = S.user && r.email && r.email === S.user.email;
-    var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'Named in the BA61 portal or BA54 tracker. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
+    var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'Named in a plan, with no email found. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
       h('td', { class: 'nowrap' }, r.email ? h('strong', null, r.name) : h('em', null, r.name), mine ? h('span', { class: 'you' }, 'You') : null),
       h('td', { class: 'nowrap hide-sm', title: r.team ? teamLabel(r.team) + (r.org ? ', org code ' + r.org : ', no org code in the directory') : null }, r.team ? [h('span', { class: 'tag team-' + r.team }, teamLabel(r.team, true)), r.org ? h('span', { class: 'muted' }, ' ' + r.org) : null] : '–'),
@@ -868,7 +876,7 @@ function openDrawer(p) {
       h('h2', null, p.title),
       h('div', null, programTags(p), ' ', stageBadge(p), p.service ? [' ', h('span', { class: 'tag' }, 'Service contract')] : null)), close),
     planned ? h('div', { class: 'money-row' },
-      h('div', null, h('div', { class: 'label' }, p.source === 'ba54' ? 'Total cost (BA54 tracker)' : 'Budgeted in the portal'), h('div', { class: 'value' }, fmtMoney(p.estimate))),
+      h('div', null, h('div', { class: 'label' }, planSource(p).amount), h('div', { class: 'value' }, p.estimate ? fmtMoney(p.estimate) : 'None yet')),
       h('div', null, h('div', { class: 'label' }, 'Committed in EASi'), h('div', { class: 'value' }, 'Not yet'))) :
     h('div', { class: 'money-row' },
       h('div', null, h('div', { class: 'label' }, 'Committed'), h('div', { class: 'value' }, fmtMoney(p.committed))),
@@ -882,12 +890,10 @@ function openDrawer(p) {
     ] : null,
     planned ? [
       h('div', { class: 'section-title' }, 'In ' + plannedName(p)),
-      h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, (p.source === 'ba54'
-        ? 'No PR in EASi' + (p.fy ? ' from FY' + String(p.fy - 1).slice(2) + ' on' : '') + ' lists this project’s PCN or ASID among its project codes yet.'
-        : 'No PR in EASi has this project’s number in its title or as its EQ number yet.') + ' It moves to its EASi status once one does.'),
+      h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, planSource(p).match(p) + ' It moves to its EASi status once one does.'),
       h('dl', { class: 'dl' },
         item('Where it is now', st.label),
-        item('Status in the ' + (p.source === 'ba54' ? 'tracker' : 'portal'), p.planStatus),
+        item('Status in the ' + planSource(p).short, p.planStatus),
         (p.details || []).map(function (x) { return item(x[0], /^\d{4}-\d{2}-\d{2}$/.test(x[1]) ? fmtDate(x[1]) : x[1]); }),
         item('Fiscal year', p.fy ? 'FY' + p.fy : ''))
     ] : null,
@@ -916,8 +922,8 @@ function openDrawer(p) {
       p.placeNote ? item('Matched by', { title: 'Building number in the PR title (no building in EASi)', org: 'OFM org code (no building in EASi)', 'plan-office': 'Field office in ' + plannedName(p) + ' (no building number in the directory)' }[p.placeNote]) : null),
     h('div', { class: 'section-title' }, 'People'),
     h('dl', { class: 'dl' },
-      item(p.source === 'ba54' ? 'Project manager (COR)' : 'COR', people(p.cor)),
-      p.source === 'ba54' ? null : item(planned ? 'Submitter (requester in the portal)' : 'Submitter', people(p.requestor)),
+      item(planned ? planSource(p).person : 'COR', people(p.cor)),
+      planned && p.source !== 'portal' ? null : item(planned ? 'Submitter (requester in the portal)' : 'Submitter', people(p.requestor)),
       item('Building manager', people(p.buildingManager)),
       planned ? (p.co.length ? item('Contracting officer', people(p.co)) : null) : [item('Program manager', people(p.programManager)), item('Contracting officer', people(p.co)), item('Contract specialist', people(p.cs))]),
     planned ? null : h('div', { class: 'section-title' }, 'Funding'),
@@ -955,8 +961,9 @@ function planSection(p, item) {
         x.link ? h('a', { href: x.link, target: '_blank', rel: 'noopener' }, x.id || x.sourceLabel) : h('strong', null, x.id || x.sourceLabel),
         ' · ', x.sourceLabel, x.status ? ' · ' + x.status : '',
         h('div', { class: 'small' }, x.title),
-        h('div', { class: 'small muted' }, [x.estimate ? fmtMoney(x.estimate) + ' planned' : 'No amount planned', x.person ? (x.source === 'ba54' ? 'project manager ' : 'COR ') + x.person : '', x.fy ? 'FY' + x.fy : '']
-          .filter(Boolean).join(' · ') + '. Matched by ' + x.how + '.'));
+        h('div', { class: 'small muted' }, [x.estimate ? fmtMoney(x.estimate) + ' planned' : 'No amount planned', x.person ? planSource(x).person.replace(/ \(COR\)$/, '') + ' ' + x.person : '', x.fy ? 'FY' + x.fy : '']
+          .filter(Boolean).join(' · ') + '. Matched by ' + x.how + (x.prCount > 1 ? ', on ' + x.prCount + ' PRs' : '') + '.'),
+        x.note ? h('div', { class: 'small muted' }, x.note) : null);
     })),
     plan.planned > 0 ? h('dl', { class: 'dl' },
       item('Planned', fmtMoney(plan.planned)),
@@ -968,7 +975,7 @@ function planSection(p, item) {
 function andList(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''); }
 
 /** "the BA61 portal" / "the BA54 tracker" */
-function plannedName(p) { return p.source === 'ba54' ? 'the BA54 tracker' : 'the BA61 portal'; }
+function plannedName(p) { return planSource(p).name; }
 
 /** "Where this comes from": every source, what it adds and how fresh it is, then how the numbers work. */
 function footnote() {
@@ -977,7 +984,7 @@ function footnote() {
   var when = function (s) {
     if (!s.updated) return 'read at the last refresh';
     if (/T/.test(s.updated)) return 'updated ' + fmtDateTime(s.updated);
-    return (s.key === 'portal' ? 'last project change ' : s.key === 'ba54' ? 'data as of ' : 'updated ') + (/^\d{4}-/.test(s.updated) ? fmtDate(s.updated) : s.updated);
+    return (s.key === 'portal' ? 'last project change ' : s.key === 'ba54' || s.key === 'rwa' ? 'data as of ' : 'updated ') + (/^\d{4}-/.test(s.updated) ? fmtDate(s.updated) : s.updated);
   };
   var sources = (d.sources || []).filter(function (s) { return s.read !== false; });
   return h('section', { class: 'sources', 'aria-label': 'Where this comes from' },
@@ -988,7 +995,7 @@ function footnote() {
     h('p', { class: 'footnote' },
     'A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
     '“Paid in full” means Pegasys shows all the obligated money spent.' +
-    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes. Then the PR shows the plan next to what EASi has committed.' : '')));
+    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes, an RWA’s number on the PR. RWAs and work requests count only while nothing is committed or obligated on them (one with money but no PR is funded another way, such as a lease or purchase card); severable RWAs count as service contracts. Then the PR shows the plan next to what EASi has committed.' : '')));
 }
 
 window.addEventListener('load', start);

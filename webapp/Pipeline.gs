@@ -10,8 +10,9 @@
  * (P00MCF00 = Heartland, P00MCA00 = New England, ...) is kept under its service center.
  * A PR on buildings in several field offices is listed under each of them.
  *
- * Projects planned in the BA61 portal or the BA54 tracker with no PR in EASi yet are added
- * from those sheets (Planned.gs, Portal.gs, Ba54.gs), when the options carry them.
+ * Projects planned in the BA61 portal, the BA54 tracker or the RWA dashboard with no PR in
+ * EASi yet are added from those sheets (Planned.gs, Portal.gs, Ba54.gs, Rwa.gs), when the
+ * options carry them; PRs that carry one of them show it as their plan.
  */
 
 /**
@@ -21,6 +22,7 @@
  * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes,
  *                                    portalValues (the BA61 portal's Projects tab), portalUrl,
  *                                    ba54Values (the BA54 tracker's Current Program tab), ba54Link,
+ *                                    rwaValues (the RWA dashboard's Detailed Data tab), rwaLink,
  *                                    nameEmails (Script property NAME_EMAILS) }
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
@@ -35,7 +37,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   // What is in EASi, from every PR in any zone: PR numbers, the portal numbers PRs carry, and
   // project codes with the PRs' fiscal years. And everyone named on a PR anywhere, to match the
   // names the BA61 portal and BA54 tracker give to emails.
-  var inEasi = { eq: {}, mentioned: {}, codes: {} };
+  var inEasi = { eq: {}, mentioned: {}, codes: {}, rwas: {} };
   var known = [];
 
   for (var i = 1; i < pipelineValues.length; i++) {
@@ -48,6 +50,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { (inEasi.mentioned[n] = inEasi.mentioned[n] || []).push(number); });
     var prFy = fiscalYear_(get('fiscalYear'));
     codeList_(get('projectCodes')).forEach(function (c) { (inEasi.codes[c] = inEasi.codes[c] || []).push({ pr: number, fy: prFy }); });
+    codeList_(get('rwas')).forEach(function (c) { var n = rwaNumber_(c); if ((inEasi.rwas[n] = inEasi.rwas[n] || []).indexOf(number) === -1) inEasi.rwas[n].push(number); });
     known = known.concat(parseEmailList_(get('cor')), parseEmailList_(get('requestor')));
     var place = placeOf_(get('buildingCodes'), title, get('orgCodes'), directory);
     if (!place.offices.length && !place.serviceCenters.length) {
@@ -63,9 +66,12 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   var named = plannedPeople_(known, options.nameEmails);
   var portal = portalProjects_(options.portalValues, inEasi, directory, named, str_(options.portalUrl));
   var ba54 = ba54Projects_(options.ba54Values, inEasi, directory, named, str_(options.ba54Link));
+  var rwa = rwaProjects_(options.rwaValues, inEasi, directory, named, str_(options.rwaLink));
   // A PR carrying a planned project shows the plan next to what EASi says (plan vs. actual).
   var plansByPr = {};
-  portal.plans.concat(ba54.plans).forEach(function (m) {
+  portal.plans.concat(ba54.plans, rwa.plans).forEach(function (m) {
+    // How many PRs share the plan: then one PR's committed amount isn't comparable to it.
+    m.plan.prCount = m.prs.length;
     m.prs.forEach(function (n) { (plansByPr[n] = plansByPr[n] || []).push(m.plan); });
   });
   prs.forEach(function (p) {
@@ -74,7 +80,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
       if (plan.source === 'portal' && p.portalNumbers.indexOf(plan.id) === -1) p.portalNumbers.push(plan.id);
     });
   });
-  var planned = portal.projects.concat(ba54.projects);
+  var planned = portal.projects.concat(ba54.projects, rwa.projects);
   prs = prs.concat(planned);
   prs.sort(function (a, b) { return a.pr < b.pr ? -1 : a.pr > b.pr ? 1 : 0; });
 
@@ -110,14 +116,17 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     teams: teams,
     teamNames: TEAMS,
     prs: prs,
+    plannedDefaults: PLANNED_DEFAULTS,
     portal: { read: !!(options.portalValues && options.portalValues.length > 1), url: str_(options.portalUrl), counts: portal.counts },
     ba54: { read: !!(options.ba54Values && options.ba54Values.length > 1), url: str_(options.ba54Link), counts: ba54.counts },
+    rwa: { read: !!(options.rwaValues && options.rwaValues.length > 1), url: str_(options.rwaLink), counts: rwa.counts },
     // Where everything comes from, and how fresh each part is.
     sources: [
       { key: 'easi', name: 'EASi BA61 Pipeline report', gives: 'Every purchase request in EASi, from draft to paid in full', updated: str_(options.generatedAt), rows: Math.max(0, pipelineValues.length - 1), link: str_(options.pipelineLink) },
       { key: 'directory', name: 'OFM Building Assignments', gives: 'Which zone, service center and field office each building is in, and its building managers', updated: directory.updated, rows: Object.keys(directory.buildings).length, link: str_(options.directoryLink) },
       { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved, before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: !!(options.portalValues && options.portalValues.length > 1) },
-      { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: !!(options.ba54Values && options.ba54Values.length > 1) }
+      { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: !!(options.ba54Values && options.ba54Values.length > 1) },
+      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request on an NEH building: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: !!(options.rwaValues && options.rwaValues.length > 1) }
     ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };

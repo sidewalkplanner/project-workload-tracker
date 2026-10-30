@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 8;
+var DATASET_VERSION = 9;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -122,6 +122,7 @@ function refreshDataset_() {
   var orgTab = directory.getSheetByName(setting_('ORG_TAB'));
   var portal = readPlanTab_('PORTAL_ID', 'PORTAL_TAB', 'BA61 portal projects');
   var ba54 = readPlanTab_('BA54_ID', 'BA54_TAB', 'BA54 tracker projects', 'Dashboard');
+  var rwa = readPlanTab_('RWA_ID', 'RWA_TAB', 'RWA dashboard projects');
   var dataset = buildDataset_(
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
@@ -129,6 +130,7 @@ function refreshDataset_() {
     { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
       portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link, ba54Updated: ba54.asOf,
+      rwaValues: rwa.values, rwaLink: rwa.link,
       pipelineLink: 'https://docs.google.com/spreadsheets/d/' + setting_('PIPELINE_ID') + '/edit', directoryLink: 'https://docs.google.com/spreadsheets/d/' + setting_('DIRECTORY_ID') + '/edit',
       nameEmails: setting_('NAME_EMAILS') }
   );
@@ -153,7 +155,7 @@ function refreshDataset_() {
 }
 
 /**
- * A tab of one of the planning sheets (the BA61 portal, the BA54 tracker): { values, link }, or
+ * A tab of one of the planning sheets (the BA61 portal, the BA54 tracker, the RWA dashboard): { values, link, asOf }, or
  * no values when its ID setting is OFF. A sheet that can't be read leaves its projects out for
  * this build instead of failing it.
  */

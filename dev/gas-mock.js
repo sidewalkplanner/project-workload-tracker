@@ -165,6 +165,7 @@ function sheetsFrom(sources) {
   const directoryId = '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw';
   const portalId = '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y';
   const ba54Id = '1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8';
+  const rwaId = '1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0';
   const dated = (rows) => rows.map((r) => r.map((v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? new Date(v) : v)));
   const tabs = { Pipeline: sources.pipeline };
   if (sources.reportInfo && sources.reportInfo.length) {
@@ -175,7 +176,8 @@ function sheetsFrom(sources) {
     [directoryId]: { Buildings: sources.buildings, 'Org Relationships': sources.org || [] },
     // The BA61 portal's data sheet, when the sources include it.
     ...(sources.portal ? { [portalId]: { Projects: sources.portal } } : {}),
-    ...(sources.ba54 ? { [ba54Id]: { 'Current Program': sources.ba54, Dashboard: dated(sources.ba54Dashboard || []) } } : {})
+    ...(sources.ba54 ? { [ba54Id]: { 'Current Program': sources.ba54, Dashboard: dated(sources.ba54Dashboard || []) } } : {}),
+    ...(sources.rwa ? { [rwaId]: { 'Detailed Data': dated(sources.rwa) } } : {})
   };
 }
 
