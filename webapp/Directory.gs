@@ -104,21 +104,26 @@ var ORG_RETRY_HOURS = 12;            // …or sooner when new people have appear
 var ORG_SWEEP_SECONDS = 240;
 
 /**
- * { email: org code } for the given emails, from the Workspace directory. The directory is
+ * { codes: { email: org code }, names: { email: name } } for the given emails, from the
+ * Workspace directory: the org code sorts people by division, and the name is how the person
+ * is shown ("Robert J. Green", not "Robertj Green" from robertj.green@). The directory is
  * read in one sweep (listDirectoryPeople, 1,000 people a page) rather than one search per
  * person, which would run into the People API's per-minute limit, and the result is kept
  * in Script properties so a normal refresh makes no directory calls at all.
  */
 function orgCodesFor_(emails) {
   var stored = readChunkedJson_(ORG_PROP) || { at: 0, codes: {} };
+  // Sweeps saved before names were kept have none: sweep again once to get them.
+  if (!stored.names) { stored.names = {}; stored.at = 0; }
   var missing = emails.filter(function (e) { return !(e in stored.codes); });
   var ageHours = (Date.now() - (stored.at || 0)) / 3600000;
   var due = ageHours > ORG_SWEEP_DAYS * 24 || (missing.length && ageHours > ORG_RETRY_HOURS);
-  if (!due || typeof People === 'undefined' || !People.People || !People.People.listDirectoryPeople) return stored.codes;
+  if (!due || typeof People === 'undefined' || !People.People || !People.People.listDirectoryPeople) return { codes: stored.codes, names: stored.names };
 
   var wanted = {};
   emails.forEach(function (e) { wanted[e] = true; });
   var found = {};
+  var foundNames = {};
   var started = Date.now();
   var token = null;
   var complete = false;
@@ -130,7 +135,7 @@ function orgCodesFor_(emails) {
       var display = person.names && person.names[0] ? person.names[0].displayName : '';
       (person.emailAddresses || []).forEach(function (a) {
         var email = str_(a.value).toLowerCase();
-        if (wanted[email]) found[email] = parseOrgCode_(display);
+        if (wanted[email]) { found[email] = parseOrgCode_(display); if (cleanDisplayName_(display)) foundNames[email] = cleanDisplayName_(display); }
       });
     });
     token = res && res.nextPageToken;
@@ -139,11 +144,16 @@ function orgCodesFor_(emails) {
 
   // Keep only people still on the PRs; '' records "looked, no code" so they aren't looked for again.
   var codes = {};
-  emails.forEach(function (e) { codes[e] = e in found ? found[e] : (complete ? '' : stored.codes[e]); });
+  var names = {};
+  emails.forEach(function (e) {
+    codes[e] = e in found ? found[e] : (complete ? '' : stored.codes[e]);
+    var name = foundNames[e] || (complete ? '' : stored.names[e]);
+    if (name) names[e] = name;
+  });
   Object.keys(codes).forEach(function (e) { if (codes[e] === undefined) delete codes[e]; });
-  writeChunkedJson_(ORG_PROP, { at: complete ? Date.now() : stored.at, codes: codes });
+  writeChunkedJson_(ORG_PROP, { at: complete ? Date.now() : stored.at, codes: codes, names: names });
   console.log('Directory sweep: org codes for ' + Object.keys(found).filter(function (e) { return found[e]; }).length + ' of ' + emails.length + ' people' + (complete ? '.' : ' (stopped early; continues next refresh).'));
-  return codes;
+  return { codes: codes, names: names };
 }
 
 function readChunkedJson_(key) {

@@ -82,7 +82,7 @@ If the repo is ever made private, nothing changes: the workflow runs inside GitH
 
 ## The saved-snapshot sheet
 
-After the first refresh, a Google Sheet named **NEH Project Workload Tracker - saved snapshot (do not edit)** appears in the owner's Drive. It holds a compressed copy of the tracker's data so the page stays fast when Google clears its cache. Leave it where it is and don't share or edit it; if it's deleted, the next refresh makes a new one.
+After the first refresh, a Google Sheet named **NEH Projects - saved snapshot (do not edit)** appears in the owner's Drive (set-ups from before the rename have one called **NEH Project Workload Tracker - saved snapshot**; it keeps working). Its first tab holds a compressed copy of the tracker's data so the page stays fast when Google clears its cache. Its **History** tab holds when each project reached its stage, which is how the page knows "days in this stage"; nothing else records that, so this tab is the one thing worth keeping. Leave the sheet where it is and don't share or edit it. If it's deleted, the next refresh makes a new one, and the stage history starts again from that day.
 
 ## Settings
 

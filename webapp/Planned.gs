@@ -113,6 +113,11 @@ function plannedRecord_(f) {
   if (f.projectCodes && f.projectCodes.length) p.projectCodes = f.projectCodes;
   if (f.portalNumbers && f.portalNumbers.length) p.portalNumbers = f.portalNumbers;
   if (!place.buildings.length) p.placeNote = 'plan-office';
+  // When the current stage began, if the plan says (History.gs uses it the first time it sees the project).
+  if (f.seedDate) p.seedDate = f.seedDate;
+  // The plan's own target (a commitment month, a PR routing month, a planned award), for Needs attention.
+  if (f.dueBy) { p.dueBy = f.dueBy; p.dueWhat = f.dueWhat; }
+  if (f.fundsClose) p.fundsClose = f.fundsClose;
   // Snow removal, custodial and the like are service contracts here too.
   var service = serviceReason_({ title: p.title, procurementCategory: '', category: '' });
   if (service) p.service = service;
@@ -123,6 +128,21 @@ function plannedRecord_(f) {
   if (managers.length) p.buildingManager = managers;
   p.lead = p.cor.length ? p.cor.slice() : (p.requestor || []).slice();
   return p;
+}
+
+var MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/**
+ * A plan's target written as a month ("October") in a fiscal year, or as a date, as the
+ * last day it can happen ('yyyy-mm-dd'; '' when there is none). FY27 runs Oct 2026 to Sep 2027.
+ */
+function planDueDate_(value, fy) {
+  if (isDateValue_(value) || /^\d{4}-\d{2}-\d{2}/.test(str_(value))) return pipelineDate_(value);
+  var m = MONTHS.map(function (x) { return x.slice(0, 3); }).indexOf(str_(value).toLowerCase().slice(0, 3));
+  if (m === -1 || !fy) return '';
+  var year = m >= 9 ? fy - 1 : fy;
+  var last = new Date(Date.UTC(year, m + 1, 0));
+  return last.toISOString().slice(0, 10);
 }
 
 /** "FY27", 2027, "2027.0" -> 2027 */

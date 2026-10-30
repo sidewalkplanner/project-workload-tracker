@@ -14,20 +14,27 @@ function apiLoad(opts) {
   return JSON.stringify({ user: user, data: JSON.parse(gunzipText_(packed.gz)) });
 }
 
-/** Reads the sources again. Anyone may ask, but only once every 10 minutes unless they are an admin. */
+/**
+ * Reads the sources again. Anyone may ask, but only once every 10 minutes unless they are an
+ * admin. The answer says what happened (refresh: 'done' | 'recent' | 'busy'), so the page can tell them.
+ */
 function apiRefresh(opts) {
   var user = currentUser_(null);
   var props = PropertiesService.getScriptProperties();
   var last = {};
   try { last = JSON.parse(props.getProperty('LAST_REFRESH') || '{}'); } catch (e) { last = {}; }
   var age = last.at ? Date.now() - new Date(last.at).getTime() : Infinity;
-  if (!user.isAdmin && age < 10 * 60 * 1000) return apiLoad(opts);
+  if (!user.isAdmin && age < 10 * 60 * 1000) return withNote_(apiLoad(opts), 'recent');
   var lock = LockService.getScriptLock();
-  if (!lock.tryLock(60 * 1000)) return apiLoad(opts);
+  if (!lock.tryLock(60 * 1000)) return withNote_(apiLoad(opts), 'busy');
   try {
     refreshDataset_();
   } finally {
     lock.releaseLock();
   }
-  return apiLoad(opts);
+  return withNote_(apiLoad(opts), 'done');
+}
+
+function withNote_(json, note) {
+  return json.replace(/^\{/, '{"refresh":' + JSON.stringify(note) + ',');
 }

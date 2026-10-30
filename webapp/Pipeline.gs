@@ -69,9 +69,21 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   directory.offices.forEach(function (o) { if (o.manager) known.push(o.manager); });
   known = known.concat(portalEmails_(options.portalValues), ba54Emails_(options.ba54Values));
   var named = plannedPeople_(known, options.nameEmails);
-  var portal = portalProjects_(options.portalValues, inEasi, directory, named, str_(options.portalUrl));
-  var ba54 = ba54Projects_(options.ba54Values, inEasi, directory, named, str_(options.ba54Link));
-  var rwa = rwaProjects_(options.rwaValues, inEasi, directory, named, str_(options.rwaLink));
+  // Each planning sheet on its own: one whose columns changed is left out (and says why on the
+  // page) instead of stopping the whole refresh.
+  var errors = {};
+  var safely = function (key, fn) {
+    try { return fn(); } catch (e) {
+      errors[key] = String(e && e.message || e);
+      if (typeof console !== 'undefined') console.warn(key + ' left out: ' + errors[key]);
+      return { projects: [], plans: [], updated: '', counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
+    }
+  };
+  var portal = safely('portal', function () { return portalProjects_(options.portalValues, inEasi, directory, named, str_(options.portalUrl)); });
+  var ba54 = safely('ba54', function () { return ba54Projects_(options.ba54Values, inEasi, directory, named, str_(options.ba54Link)); });
+  var rwa = safely('rwa', function () { return rwaProjects_(options.rwaValues, inEasi, directory, named, str_(options.rwaLink)); });
+  var readOk = function (key, values) { return !errors[key] && !!(values && values.length > 1); };
+  var readErrors = options.readErrors || {};
   // A PR carrying a planned project shows the plan next to what EASi says (plan vs. actual).
   var plansByPr = {};
   portal.plans.concat(ba54.plans, rwa.plans).forEach(function (m) {
@@ -122,16 +134,16 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     teamNames: TEAMS,
     prs: prs,
     plannedDefaults: PLANNED_DEFAULTS,
-    portal: { read: !!(options.portalValues && options.portalValues.length > 1), url: str_(options.portalUrl), counts: portal.counts },
-    ba54: { read: !!(options.ba54Values && options.ba54Values.length > 1), url: str_(options.ba54Link), counts: ba54.counts },
-    rwa: { read: !!(options.rwaValues && options.rwaValues.length > 1), url: str_(options.rwaLink), counts: rwa.counts },
+    portal: { read: readOk('portal', options.portalValues), url: str_(options.portalUrl), counts: portal.counts },
+    ba54: { read: readOk('ba54', options.ba54Values), url: str_(options.ba54Link), counts: ba54.counts },
+    rwa: { read: readOk('rwa', options.rwaValues), url: str_(options.rwaLink), counts: rwa.counts },
     // Where everything comes from, and how fresh each part is.
     sources: [
       { key: 'easi', name: 'EASi BA61 Pipeline report', gives: 'Every purchase request in EASi, from draft to paid in full', updated: str_(options.generatedAt), rows: Math.max(0, pipelineValues.length - 1), link: str_(options.pipelineLink) },
       { key: 'directory', name: 'OFM Building Assignments', gives: 'Which zone, service center and field office each building is in, and its building managers', updated: directory.updated, rows: Object.keys(directory.buildings).length, link: str_(options.directoryLink) },
-      { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved, before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: !!(options.portalValues && options.portalValues.length > 1) },
-      { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: !!(options.ba54Values && options.ba54Values.length > 1) },
-      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request on an NEH building: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: !!(options.rwaValues && options.rwaValues.length > 1) }
+      { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved, before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: readOk('portal', options.portalValues), error: errors.portal || readErrors.portal || '', off: !!options.portalOff },
+      { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: readOk('ba54', options.ba54Values), error: errors.ba54 || readErrors.ba54 || '', off: !!options.ba54Off },
+      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request on an NEH building: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff }
     ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
@@ -151,11 +163,20 @@ function teamFor_(email, isBuildingContact, overrides) {
   return isBuildingContact ? 'bm' : 'pm';
 }
 
-/** Adds org codes found in the directory ({ email: code }) to a built dataset (shown, and sortable by division). */
-function applyOrgCodes_(dataset, codes) {
+/**
+ * Adds what the directory knows about each person to a built dataset: their org code (shown,
+ * and sortable by division) and their name as GSA lists it. found: { codes, names } (or just
+ * { email: code }).
+ */
+function applyOrgCodes_(dataset, found) {
+  var codes = found && found.codes ? found.codes : (found || {});
+  var names = (found && found.names) || {};
   Object.keys(dataset.people).forEach(function (email) {
     var code = str_(codes[email]).toUpperCase();
     if (code) dataset.orgs[email] = code;
+    var name = str_(names[email]);
+    // A directory name only replaces one made from the email; names the plans give stay.
+    if (name && dataset.people[email] === nameFromEmail_(email)) dataset.people[email] = name;
   });
   return dataset;
 }
@@ -484,8 +505,12 @@ function titleCase_(text) {
   if (!text || text !== text.toUpperCase()) return text;
   return text.toLowerCase().replace(/\b([a-z])/g, function (m) { return m.toUpperCase(); })
     .replace(/\b(Us|Gsa|Fbi|Irs|Ssa|Va|Usps|Lpoe|Fob|Ctcrths|Cths|Ctc|Fc|Fed)\b/g, function (m) { return m.toUpperCase(); })
-    .replace(/\bO'([a-z])/g, function (m, c) { return "O'" + c.toUpperCase(); });
+    .replace(/\bO'([a-z])/g, function (m, c) { return "O'" + c.toUpperCase(); })
+    // "Gallatin, Tn" -> "Gallatin, TN"
+    .replace(/, ([A-Z][a-z])\b(?=[^a-z]*$)/, function (m, st) { return US_STATE_RE.test(st.toUpperCase()) ? ', ' + st.toUpperCase() : m; });
 }
+
+var US_STATE_RE = /^(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|P[AR]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])$/;
 
 function shortOfficeName_(name) {
   return str_(name).replace(/ Field Office$/, '');

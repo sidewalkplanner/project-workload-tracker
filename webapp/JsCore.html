@@ -110,7 +110,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -250,7 +250,7 @@ function matchesStatus(p, status) {
   return true;
 }
 
-/** The PRs that pass the filters. skip: { status, person, place: true } leaves that filter out. */
+/** The PRs that pass the filters. skip: { status, person, place, check: true } leaves that filter out. */
 function filtered(skip) {
   skip = skip || {};
   var f = S.filters;
@@ -259,6 +259,7 @@ function filtered(skip) {
   var progs = f.programs;
   return S.data.prs.filter(function (p) {
     if (!f.planned && isPlanned(p)) return false;
+    if (!skip.check && f.check && !attentionDetail(f.check, p)) return false;
     if (f.type === 'projects' && p.service) return false;
     if (f.type === 'service' && !p.service) return false;
     if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
@@ -486,6 +487,26 @@ function groupLegend(avgLabel) {
   return h('div', { class: 'legend' }, groups.map(function (g) {
     return h('span', null, h('span', { class: 'swatch', style: { background: GROUP_COLORS[g] } }), GROUP_LABELS[g]);
   }), avgLabel ? h('span', null, h('span', { class: 'swatch-line' }), avgLabel) : null);
+}
+
+/** Days from one 'yyyy-mm-dd' to the snapshot's day (or another date). */
+function daysBetween(fromIso, toIso) {
+  if (!fromIso) return null;
+  var to = toIso || (S.data && S.data.builtAt ? S.data.builtAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  return Math.max(0, Math.round((Date.parse(to + 'T12:00:00Z') - Date.parse(fromIso.slice(0, 10) + 'T12:00:00Z')) / 86400000));
+}
+
+/** How long a project has been in its current stage: { days, known, since } or null when the tracker doesn't know. */
+function stageAge(p) {
+  if (!p.since) return null;
+  return { days: daysBetween(p.since), known: !!p.sinceKnown, since: p.since };
+}
+
+/** "27 days" (known) or "40+ days" (in this stage at least since tracking began); '' when it says nothing. */
+function stageAgeText(p) {
+  var a = stageAge(p);
+  if (!a || (!a.known && a.days < 1)) return '';
+  return plural(a.days, 'day') + (a.known ? '' : '+');
 }
 
 function stageBadge(p) {

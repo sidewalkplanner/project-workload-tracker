@@ -54,7 +54,12 @@ function createRuntime(opts) {
         return {
           getId() { return id; },
           getSheetByName(name) { return tabs[name] ? sheetFor(tabs[name], tabs.__writable) : null; },
-          getSheets() { return names.filter((n) => n !== '__writable').map((n) => sheetFor(tabs[n], tabs.__writable)); }
+          getSheets() { return names.filter((n) => n !== '__writable').map((n) => sheetFor(tabs[n], tabs.__writable)); },
+          insertSheet(name) {
+            if (!tabs.__writable) throw new Error('read-only spreadsheet');
+            tabs[name] = tabs[name] || [];
+            return sheetFor(tabs[name], true);
+          }
         };
       },
       create(name) {

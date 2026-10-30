@@ -1,0 +1,183 @@
+<script>
+/* ==========================================================================
+   Needs attention: checks over the data already loaded, each with why it matters and
+   the projects behind it. They follow the page's filters (place, program, team, person,
+   search, type), not its status: each check picks the stages it is about.
+   ========================================================================== */
+var ATTENTION_GROUPS = [
+  { key: 'money', label: 'Money' },
+  { key: 'time', label: 'Taking long' },
+  { key: 'data', label: 'Fix in the source' }
+];
+
+/** Today as the snapshot sees it, and n days from it. */
+function snapshotDay() { return S.data && S.data.builtAt ? S.data.builtAt.slice(0, 10) : new Date().toISOString().slice(0, 10); }
+function dayPlus(n) { var d = new Date(snapshotDay() + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function isOpen(p) { return p.stage !== 'expended'; }
+
+/**
+ * Each check: test(p) returns what is wrong with the project ('' when nothing), and
+ * sortKey(p) puts the most pressing first.
+ */
+var ATTENTION_CHECKS = [
+  {
+    key: 'funds', group: 'money', title: 'RWA money expires soon, not awarded yet',
+    why: 'The customer’s funds close within 120 days (or already have) and there is no award yet. Funds that close before award are lost to the project.',
+    test: function (p) {
+      if (!(isPlanned(p) || stageOf(p).group === 'preaward')) return '';
+      var close = p.source === 'rwa' ? p.fundsClose : (p.plans || []).filter(function (x) { return x.fundsClose; }).map(function (x) { return x.fundsClose; }).sort()[0];
+      if (!close || close > dayPlus(120)) return '';
+      var d = daysBetween(snapshotDay(), close);
+      return close < snapshotDay() ? 'Funds closed ' + fmtDate(close) : 'Funds close ' + fmtDate(close) + ' (' + plural(d, 'day') + ')';
+    },
+    sortKey: function (p) { return p.fundsClose || ((p.plans || []).map(function (x) { return x.fundsClose; }).filter(Boolean).sort()[0]) || '9'; }
+  },
+  {
+    key: 'overPlan', group: 'money', title: 'Committed more than 25% over the plan',
+    why: 'EASi has committed much more than was planned in the BA61 portal, the BA54 tracker or the RWA. Check that the plan or the funding has been updated.',
+    test: function (p) { var c = planCheck(p); return c.key === 'over' ? c.label + ': ' + fmtMoneyShort(p.committed) + ' committed, ' + fmtMoneyShort(c.planned) + ' planned' : ''; },
+    sortKey: function (p) { return -(planCheck(p).ratio || 0); }
+  },
+  {
+    key: 'staleAward', group: 'money', title: 'Awarded over a year ago, nothing paid yet',
+    why: 'Money obligated a year or more ago with nothing spent may be an unliquidated obligation to review or deobligate.',
+    test: function (p) {
+      if (p.stage !== 'awarded' || !p.executed || p.expended > 0 || p.obligated <= 0) return '';
+      var d = daysBetween(p.executed);
+      return d >= 365 ? 'Awarded ' + fmtDate(p.executed) + ', ' + fmtMoneyShort(p.obligated) + ' obligated, nothing paid' : '';
+    },
+    sortKey: function (p) { return p.executed; }
+  },
+  {
+    key: 'pastTarget', group: 'time', title: 'Past its planned date, still no PR',
+    why: 'The plan said this would be committed, routed or awarded by now, and EASi has no PR for it.',
+    test: function (p) { return isPlanned(p) && p.dueBy && p.dueBy < snapshotDay() ? p.dueWhat + ' was ' + fmtDate(p.dueBy) : ''; },
+    sortKey: function (p) { return p.dueBy; }
+  },
+  {
+    key: 'approvedNoPr', group: 'time', title: 'Approved 60+ days ago, still no PR',
+    why: 'Approved or accepted (with money behind it, for an RWA) but no PR has been written yet.',
+    test: function (p) { var a = stageAge(p); return p.stage === 'noPr' && a && a.known && a.days >= 60 ? 'Approved ' + fmtDate(a.since) + ' (' + plural(a.days, 'day') + ')' : ''; },
+    sortKey: function (p) { return p.since; }
+  },
+  {
+    key: 'slow', group: 'time', title: 'Sitting in one EASi step a long time',
+    why: 'A draft PR for 60+ days, or 30+ days in review or waiting for a contract specialist.',
+    test: function (p) {
+      var limit = { draft: 60, review: 30, approved: 30 }[p.stage];
+      var a = stageAge(p);
+      if (!limit || !a || a.days < limit) return '';
+      return stageOf(p).short + ' for ' + stageAgeText(p);
+    },
+    sortKey: function (p) { return p.since; }
+  },
+  {
+    key: 'cancelledWithPr', group: 'data', title: 'Cancelled or denied in the plan, but has a PR',
+    why: 'The BA61 portal says this project was cancelled or denied, yet a PR carries it. One of the two is out of date.',
+    test: function (p) {
+      var x = (p.plans || []).filter(function (q) { return /^(cancelled|denied)$/i.test(q.status); })[0];
+      return !isPlanned(p) && x ? x.status + ' in the ' + x.sourceLabel + ' (' + x.id + ')' : '';
+    },
+    sortKey: function (p) { return -p.committed; }
+  },
+  {
+    key: 'nobody', group: 'data', title: 'Nobody assigned',
+    why: 'No COR, submitter or project manager is named, so the project counts for no one.',
+    test: function (p) { return isOpen(p) && !p.lead.length ? (isPlanned(p) ? 'No one named in ' + plannedName(p) : 'No COR or submitter in EASi') : ''; },
+    sortKey: function (p) { return -(p.committed || p.estimate || 0); }
+  },
+  {
+    key: 'noEmail', group: 'data', title: 'Person named, but no email found',
+    why: 'The plan names someone the tracker can’t match to a GSA email (a first name only, a typo, or a contractor). Fix the name in the sheet, or add it to NAME_EMAILS.',
+    test: function (p) { var k = p.lead.filter(function (e) { return e.indexOf('@') === -1; })[0]; return isOpen(p) && k ? 'Named as “' + personName(k) + '”' : ''; },
+    sortKey: function (p) { return personName(p.lead[0] || ''); }
+  },
+  {
+    key: 'noPcn', group: 'data', title: 'BA54 project with no PCN',
+    why: 'Without a PCN or ASID the tracker can’t tell when this project gets a PR, so it will keep showing as not in EASi.',
+    test: function (p) { return p.source === 'ba54' && /^Row \d+/.test(p.pr) ? 'No PCN or ASID in the BA54 tracker' : ''; },
+    sortKey: function (p) { return -(p.estimate || 0); }
+  },
+  {
+    key: 'noBuilding', group: 'data', title: 'PR with no building in EASi',
+    why: 'EASi lists no building, so the tracker placed it from the title or an org code. Add the building in EASi so it lands in the right office.',
+    test: function (p) { return !isPlanned(p) && isOpen(p) && (p.placeNote === 'title' || p.placeNote === 'org') ? (p.placeNote === 'title' ? 'Placed by a building number in the title' : 'Placed by the OFM org code') : ''; },
+    sortKey: function (p) { return -p.committed; }
+  }
+];
+var ATTENTION_INDEX = {};
+ATTENTION_CHECKS.forEach(function (c) { ATTENTION_INDEX[c.key] = c; });
+
+/** What a check says about a project ('' when the project doesn't need it). */
+function attentionDetail(key, p) { var c = ATTENTION_INDEX[key]; return c ? c.test(p) : ''; }
+
+/** Every check with the projects it finds in the current filters. */
+function attentionResults() {
+  var list = filtered({ status: true, check: true });
+  return ATTENTION_CHECKS.map(function (c) {
+    var items = list.filter(function (p) { return !!c.test(p); });
+    items = sortRows(items, [{ key: 'k', dir: 1 }], { k: c.sortKey });
+    return { check: c, items: items, count: countOf(items) };
+  });
+}
+
+/** Opens the Projects tab showing everything one check finds. */
+function showCheck(key) {
+  S.filters.check = key;
+  S.filters.status = 'all';
+  S.filters.stage = '';
+  go('projects');
+}
+
+/** The Overview's summary: each check that finds something, with its count. */
+function attentionCard() {
+  var results = attentionResults().filter(function (r) { return r.count; });
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Needs attention'),
+      h('p', null, results.length ? 'Things the data says to look at in ' + scopeName() + '. Click one to see the projects.' : 'Nothing stands out in ' + scopeName() + '.')),
+      results.length ? h('button', { class: 'btn', type: 'button', onClick: function () { go('attention'); } }, 'See details', icon('arrow')) : null),
+    results.length ? h('div', { class: 'attention-grid' }, ATTENTION_GROUPS.map(function (g) {
+      var rows = results.filter(function (r) { return r.check.group === g.key; });
+      if (!rows.length) return null;
+      return h('div', { class: 'attention-group' }, h('h3', null, g.label), rows.map(function (r) {
+        return h('button', { class: 'attention-item', type: 'button', onClick: function () { showCheck(r.check.key); } },
+          h('span', { class: 'count' }, fmtInt(r.count)), h('span', null, r.check.title));
+      }));
+    })) : null);
+}
+
+/** The Needs attention tab: every check, why it matters, and its most pressing projects. */
+function attentionView() {
+  var results = attentionResults();
+  var found = results.filter(function (r) { return r.count; });
+  var wrap = h('div', { class: 'stack' });
+  wrap.appendChild(h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('div', null,
+    h('h2', null, 'Needs attention · ' + scopeName()),
+    h('p', null, found.length ? plural(found.length, 'check') + ' found something. Each lists the most pressing first; open one to see them all in Projects.' : 'None of the checks found anything in these filters.')))));
+  ATTENTION_GROUPS.forEach(function (g) {
+    var rows = results.filter(function (r) { return r.check.group === g.key && r.count; });
+    if (!rows.length) return;
+    wrap.appendChild(h('h2', { class: 'group-heading' }, g.label));
+    rows.forEach(function (r) {
+      var c = r.check;
+      var top = r.items.slice(0, 8);
+      wrap.appendChild(h('section', { class: 'card attention-check', id: 'check-' + c.key },
+        h('div', { class: 'card-head' }, h('div', null, h('h3', null, c.title, h('span', { class: 'count-pill' }, fmtInt(r.count))), h('p', null, c.why)),
+          h('button', { class: 'btn', type: 'button', onClick: function () { showCheck(c.key); } }, r.items.length > top.length ? 'See all ' + fmtInt(r.items.length) : 'Open in Projects', icon('arrow'))),
+        h('div', { class: 'table-wrap' }, h('table', null,
+          h('thead', null, h('tr', null, ['Number', 'Project', 'Field office', 'Assigned to', 'What the data says'].map(function (t) { return h('th', { scope: 'col' }, t); }))),
+          h('tbody', null, top.map(function (p) {
+            var tr = h('tr', { class: 'clickable' },
+              h('td', { class: 'nowrap' }, p.pr, isPlanned(p) ? h('div', { class: 'sub' }, p.sourceLabel) : null),
+              h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title), h('div', { class: 'sub' }, stageOf(p).short)),
+              h('td', { class: 'office-cell' }, officeLabel(p)),
+              h('td', null, p.lead.length ? peopleNames(p.lead) : '–'),
+              h('td', null, c.test(p)));
+            activateRow(tr, function () { openDrawer(p); });
+            return tr;
+          }))))));
+    });
+  });
+  return wrap;
+}
+</script>

@@ -399,6 +399,68 @@ test('RWA dashboard: RWAs with no PR and no money are added; PRs show their RWA'
   assert.ok(off.prs.every((p) => p.source !== 'rwa') && !off.rwa.read);
 });
 
+test('a planning sheet whose columns changed is left out, and the page says why', () => {
+  const src = demoSources();
+  src.rwa[1] = src.rwa[1].map((h) => (h === 'RWA No' ? 'RWA Number' : h));
+  const d = load(runtimeWith(src)).data;
+  assert.ok(d.prs.length > 420, 'the rest still builds');
+  assert.ok(d.prs.every((p) => p.source !== 'rwa'));
+  assert.strictEqual(d.rwa.read, false);
+  const rwa = d.sources.filter((s) => s.key === 'rwa')[0];
+  assert.ok(/RWA No/.test(rwa.error), rwa.error);
+  // A sheet turned OFF is not listed as a problem.
+  const off = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { RWA_ID: 'OFF' } }).ctx.apiLoad())).data;
+  assert.ok(off.sources.filter((s) => s.key === 'rwa')[0].off);
+});
+
+test('people are shown by their directory name when the directory has one', () => {
+  const src = demoSources();
+  const someone = src.pipeline[1][src.pipeline[0].indexOf('Contact_Requestor')];
+  const rt = createRuntime({ quiet: true, sheets: sheetsFrom(src), directoryNames: { [someone]: 'Dana Q. Example - PMCGC' } });
+  const d = load(rt).data;
+  assert.strictEqual(d.people[someone], 'Dana Q. Example');
+  assert.strictEqual(d.orgs[someone], 'PMCGC');
+});
+
+test('stage history: days in stage, changes between refreshes, plans before their PR', () => {
+  const rt = runtimeWith(demoSources());
+  const d = load(rt).data;
+  // The first refresh: real dates where a source has one, else "by today".
+  const awarded = d.prs.filter((p) => p.stage === 'awarded' && p.executed)[0];
+  assert.strictEqual(awarded.since, awarded.executed);
+  assert.strictEqual(awarded.sinceKnown, true);
+  const unseeded = d.prs.filter((p) => !p.source && p.stage === 'review')[0];
+  assert.ok(unseeded.since && !unseeded.sinceKnown);
+  assert.strictEqual(d.historyStarted, unseeded.since);
+  const rwaPlan = d.prs.filter((p) => p.source === 'rwa' && p.stage === 'noPr')[0];
+  assert.ok(rwaPlan && rwaPlan.since && rwaPlan.seedDate === undefined);
+  // The history is saved in the snapshot sheet and read back.
+  const ctx = rt.ctx;
+  const saved = ctx.readHistory_();
+  assert.ok(saved && saved.items[unseeded.pr]);
+  // A later refresh that sees a stage change dates it that day, and keeps the earlier stage.
+  const later = JSON.parse(JSON.stringify(d));
+  const moved = later.prs.filter((p) => p.pr === unseeded.pr)[0];
+  moved.stage = 'approved';
+  const plan = later.prs.filter((p) => p.source === 'portal')[0];
+  const next = ctx.updateHistory_(later, saved, '2099-01-15');
+  assert.strictEqual(moved.since, '2099-01-15');
+  assert.strictEqual(moved.sinceKnown, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(moved.history)).map((x) => x[0]), ['review']);
+  // A new project seen after the first day reached its stage that day.
+  later.prs.push({ pr: 'EQNEW-99-0001', stage: 'draft', plans: [] });
+  ctx.updateHistory_(later, next, '2099-01-16');
+  assert.strictEqual(later.prs[later.prs.length - 1].sinceKnown, true);
+  // A PR carrying a planned project gets that plan's history (the time before its PR).
+  const carrier = { pr: 'EQCARRY-99-0001', stage: 'review', plans: [{ source: 'portal', id: plan.pr }] };
+  later.prs.push(carrier);
+  ctx.updateHistory_(later, next, '2099-01-17');
+  assert.ok(carrier.plans[0].history && carrier.plans[0].history[0][0] === plan.stage);
+  // Long-gone projects are forgotten.
+  const gone = ctx.updateHistory_({ prs: [] }, next, '2101-06-01');
+  assert.strictEqual(Object.keys(gone.items).length, 0);
+});
+
 test('helpers: dates, money, names, emails', () => {
   const c = runtimeWith(demoSources(1)).ctx;
   assert.strictEqual(c.pipelineDate_('Tue Oct 20 2026 03:00:00 GMT-0400 (Eastern Daylight Time)'), '2026-10-20');

@@ -177,7 +177,7 @@ function demoSources(count) {
     'OFM Field Office', 'RWA Type', 'RWA No', 'Sev/Nonsev', 'RWA Status', 'RWA Value Category', 'RWA is Accepted', 'PENDING Authorized Amount', 'PENDING Amendment Value',
     'ACTUAL Authorized Amount', 'Open Commitments', 'Obligated', 'Expensed', 'Billed', 'Collected', 'AB Code', 'Agency', 'Bureau', 'Agency POC', 'RETA GSA PM/POC',
     'Kahua GSA PM', 'Primary Kahua Project', 'Kahua Status', 'Planned Construction/Lease Award', 'Planned Construction NTP', 'Planned Substantial Completion',
-    'WR Sent Date', 'RWA Accepted Date', 'RWA Accepted FY', 'Description'];
+    'WR Sent Date', 'RWA Accepted Date', 'RWA Accepted FY', 'Next Fund Closing Date', 'Description'];
   const rwa = [['Data as of: 10/30/2026 01:09 PM ET'], rwaHeader];
   const colR = (name) => rwaHeader.indexOf(name);
   const rwaCol = HEADER.indexOf('FE_RWA_List');
@@ -218,6 +218,10 @@ function demoSources(count) {
     row[colR('RETA GSA PM/POC')] = x[6] || null;
     row[colR('Kahua GSA PM')] = x[7] || null;
     row[colR('RWA Accepted FY')] = 2026;
+    // Accepted in June with money closing at the end of December and an award planned for August:
+    // the Needs attention view has something to show.
+    if (x[3] === 'Accepted') { row[colR('RWA Accepted Date')] = '2026-06-01T05:00:00.000Z'; row[colR('Planned Construction/Lease Award')] = '2026-08-31T05:00:00.000Z'; }
+    row[colR('Next Fund Closing Date')] = x[3] === 'Accepted' ? '12/31/2026' : 'NO-YEAR';
     row[colR('Description')] = pick(WORK) + ' for the customer (RWA)';
     rwa.push(row);
   });

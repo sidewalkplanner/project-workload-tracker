@@ -78,6 +78,24 @@ const assert = require('assert');
   const [download] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text("Download for Excel")')]);
   assert.ok(/\.csv$/.test(download.suggestedFilename()));
 
+  // Needs attention: the tab lists checks; opening one filters Projects to it, and the count matches.
+  await page.goto(base + '/?view=attention');
+  await page.waitForSelector('.card-head h2');
+  const checks = await page.$$('.attention-check');
+  if (checks.length) {
+    const want = Number((await checks[0].$eval('.count-pill', (e) => e.textContent)).replace(/,/g, ''));
+    await (await checks[0].$('button.btn')).click();
+    await page.waitForSelector('.pill');
+    const got = Number((await page.textContent('.card-head h2')).replace(/,/g, '').match(/^\d+/)[0]);
+    assert.strictEqual(got, want, 'the check opens its ' + want + ' projects');
+    // Keyboard: a focused row opens its panel with Enter, and Escape closes it.
+    await page.focus('tbody tr.clickable');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.drawer');
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.$('.drawer'), null);
+  }
+
   // Field office filter via URL, and the manager banner.
   await page.goto(base + '/?as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
   await page.waitForSelector('.stat');

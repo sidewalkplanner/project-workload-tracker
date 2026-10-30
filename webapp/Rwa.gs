@@ -23,7 +23,7 @@ var RWA_HEADERS = {
   commitments: 'Open Commitments', obligated: 'Obligated', expensed: 'Expensed', billed: 'Billed', agency: 'Agency', bureau: 'Bureau',
   agencyPoc: 'Agency POC', pm: 'RETA GSA PM/POC', kahuaPm: 'Kahua GSA PM', kahuaProject: 'Primary Kahua Project', kahuaStatus: 'Kahua Status',
   plannedAward: 'Planned Construction/Lease Award', plannedNtp: 'Planned Construction NTP', plannedComplete: 'Planned Substantial Completion',
-  wrSent: 'WR Sent Date', accepted: 'RWA Accepted Date', acceptedFy: 'RWA Accepted FY', description: 'Description'
+  wrSent: 'WR Sent Date', accepted: 'RWA Accepted Date', acceptedFy: 'RWA Accepted FY', fundsClose: 'Next Fund Closing Date', description: 'Description'
 };
 
 /** RWA status -> the tracker's stage, for RWAs with no PR and no money yet. */
@@ -65,6 +65,13 @@ function rwaNumbersIn_(text) {
   return out;
 }
 
+/** A date cell, or text like "09/30/2029", as 'yyyy-mm-dd' ('' when it isn't one). */
+function usDate_(value) {
+  if (isDateValue_(value) || /^\d{4}-\d{2}-\d{2}/.test(str_(value))) return pipelineDate_(value);
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str_(value));
+  return m ? m[3] + '-' + pad2_(Number(m[1])) + '-' + pad2_(Number(m[2])) : '';
+}
+
 /** RETA writes RWA numbers as numbers or text ("3779613", 3779613, "3779613.0"). */
 function rwaNumber_(value) {
   return str_(value).replace(/\.0+$/, '').toUpperCase();
@@ -100,20 +107,24 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
     var pm = people.find(get('pm'));
     if (!pm.length) pm = people.find(get('kahuaPm'));
     // "UNITED STATES GEOLOGICAL SURVEY (USGS)" -> "United States Geological Survey (USGS)"
-    var customer = [str_(get('agency')), str_(get('bureau'))].filter(Boolean).map(function (t) {
+    var customer = uniqueList_([str_(get('agency')), str_(get('bureau'))].filter(Boolean)).map(function (t) {
       return titleCase_(t).replace(/\(([A-Za-z&]+)\)/g, function (m, a) { return '(' + a.toUpperCase() + ')'; });
     }).join(' · ');
     var severable = /^severable$/i.test(str_(get('sev')));
     var link = rowLink ? rowLink + '&range=A' + (i + 1) : '';
     var description = str_(get('description')).replace(/\s+/g, ' ');
+    // When the customer's money expires ('' for no-year funds).
+    var fundsClose = /^no/i.test(str_(get('fundsClose'))) ? '' : usDate_(get('fundsClose'));
 
     var prs = inEasi.rwas[number] || [];
     if (prs.length) {
       out.plans.push({ prs: prs, plan: {
         source: 'rwa', sourceLabel: 'RWA', id: number, title: description.slice(0, 200), status: status,
         estimate: authorized, person: pm.map(function (k) { return k.indexOf('@') === -1 ? people.names[k] : k; }).join(', '),
-        fy: planFiscalYear_(get('acceptedFy')), link: link, note: customer ? 'Customer: ' + customer : '',
-        how: prs.every(function (n) { return inEasi.rwaInTitle[number + '|' + n]; }) ? 'RWA number in the PR title' : 'RWA number on the PR'
+        fy: planFiscalYear_(get('acceptedFy')), link: link,
+        note: [customer ? 'Customer: ' + customer : '', fundsClose ? 'Funds close ' + fundsClose.slice(5, 7).replace(/^0/, '') + '/' + fundsClose.slice(8).replace(/^0/, '') + '/' + fundsClose.slice(0, 4) : ''].filter(Boolean).join(' · '),
+        how: prs.every(function (n) { return inEasi.rwaInTitle[number + '|' + n]; }) ? 'RWA number in the PR title' : 'RWA number on the PR',
+        fundsClose: fundsClose
       } });
       out.counts.inEasi++;
       continue;
@@ -136,6 +147,9 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
       estimate: authorized,
       cor: pm,
       place: place,
+      seedDate: stage === 'noPr' ? monthOrDate_(get('accepted')) : monthOrDate_(get('wrSent')),
+      dueBy: planDueDate_(get('plannedAward'), null), dueWhat: 'Planned award',
+      fundsClose: fundsClose,
       details: [
         ['Customer', customer],
         ['Customer contact', str_(get('agencyPoc'))],
@@ -145,6 +159,7 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
         ['Kahua project', [str_(get('kahuaProject')), str_(get('kahuaStatus'))].filter(Boolean).join(' · ')],
         ['Work request sent', monthOrDate_(get('wrSent'))],
         ['Accepted', monthOrDate_(get('accepted'))],
+        ['Funds close', fundsClose || (/^no/i.test(str_(get('fundsClose'))) ? 'No-year funds' : '')],
         ['Planned award', monthOrDate_(get('plannedAward'))],
         ['Planned construction start', monthOrDate_(get('plannedNtp'))],
         ['Planned substantial completion', monthOrDate_(get('plannedComplete'))]

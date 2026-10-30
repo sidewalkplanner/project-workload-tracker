@@ -5,11 +5,12 @@
 var VIEWS = [
   { key: 'overview', label: 'Overview' },
   { key: 'projects', label: 'Projects' },
-  { key: 'workload', label: 'People' }
+  { key: 'workload', label: 'People' },
+  { key: 'attention', label: 'Needs attention' }
 ];
 
 var PROJECT_COLUMNS = [
-  { key: 'pr', label: 'PR number' },
+  { key: 'pr', label: 'Number' },
   { key: 'title', label: 'Project' },
   { key: 'program', label: 'Program' },
   { key: 'stageOrder', label: 'Status' },
@@ -22,13 +23,16 @@ var PROJECT_COLUMNS = [
 var PROJECT_ACCESSORS = {
   program: function (p) { return programLabels(p).join('/'); },
   office: function (p) { return officeLabel(p); },
-  leadName: function (p) { return peopleNames(p.lead); }
+  leadName: function (p) { return peopleNames(p.lead); },
+  // Planned projects sort by their estimate: the money that will be committed.
+  committed: function (p) { return isPlanned(p) ? p.estimate : p.committed; }
 };
 /** The CSV export: everything, at full precision, whatever the table shows. */
 var PROJECT_CSV = [
   ['PR', function (p) { return p.pr; }], ['Title', function (p) { return p.title; }],
   ['Projects', function (p) { return unitsOf(p); }], ['Sub-projects', function (p) { return (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join('; '); }], ['Program', function (p) { return programLabels(p).join(' / '); }],
-  ['Status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
+  ['Status', function (p) { return stageOf(p).label; }], ['In this stage since', function (p) { var a = stageAge(p); return a ? (a.known ? '' : 'by ') + a.since : ''; }],
+  ['Days in this stage', function (p) { var a = stageAge(p); return a ? a.days : ''; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
   ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Submitter', function (p) { return peopleNames(p.requestor); }],
   ['Planned in', function (p) { return p.sourceLabel || 'EASi'; }], ['Estimated cost (not in EASi yet)', function (p) { return isPlanned(p) ? p.estimate : ''; }],
@@ -73,12 +77,12 @@ function load(refresh) {
   if (!refresh && !S.data && BOOT.preload && typeof DecompressionStream === 'function') {
     var pre = BOOT.preload;
     BOOT.preload = null;
-    renderState('Loading the project workload…', '', true);
+    renderState('Loading NEH Projects…', '', true);
     gunzipJson(pre.gz).then(function (data) { show(data, pre.user, false); }).catch(function () { load(false); });
     return;
   }
   var fn = refresh ? 'apiRefresh' : 'apiLoad';
-  if (!S.data) renderState('Loading the project workload…', 'This can take up to a minute the first time each morning, while the EASi report is read.', true);
+  if (!S.data) renderState('Loading NEH Projects…', 'This can take up to a minute the first time each morning, while the source sheets are read.', true);
   var fail = function (err) {
     if (S.data) { toast('Could not refresh: ' + (err && err.message || err)); render(); return; }
     renderState('The tracker could not load', 'Please reload the page in a minute. If it keeps happening, tell the person who sent you the link. (' + ((err && err.message) || String(err)) + ')', false);
@@ -88,7 +92,7 @@ function load(refresh) {
   google.script.run
     .withSuccessHandler(function (json) {
       var res = JSON.parse(json);
-      (res.gz ? gunzipJson(res.gz) : Promise.resolve(res.data)).then(function (data) { show(data, res.user, refresh); }).catch(fail);
+      (res.gz ? gunzipJson(res.gz) : Promise.resolve(res.data)).then(function (data) { show(data, res.user, refresh ? res.refresh || 'done' : ''); }).catch(fail);
     })
     .withFailureHandler(fail)[fn]({ packed: packed });
 }
@@ -100,7 +104,9 @@ function show(data, user, refreshed) {
   prepareData(S.data);
   if (first) applyDefaultsForUser();
   render();
-  if (refreshed) toast('Refreshed from the EASi report.');
+  if (refreshed === 'done') toast('Read all the sources again. Everything is up to date.');
+  else if (refreshed === 'recent') toast('The sources were read less than 10 minutes ago, so this is that copy.');
+  else if (refreshed === 'busy') toast('Someone else is refreshing right now. This is the latest copy.');
 }
 
 /** base64 gzip -> parsed JSON, with the browser's own decompressor. */
@@ -132,6 +138,7 @@ function applyRoute(r) {
   if (r.role) S.workload.role = r.role;
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
   if (r.group) S.projects.group = r.group;
+  if (r.check && ATTENTION_INDEX[r.check]) f.check = r.check;
   S.routeHadScope = !!(r.office || r.sc);
 }
 
@@ -180,6 +187,7 @@ function syncUrl() {
     if (f.person) { p.person = f.person.email; p.role = f.person.role; }
     else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
     if (S.view === 'projects' && S.projects.group) p.group = S.projects.group;
+    if (f.check) p.check = f.check;
     google.script.history.replace(null, p);
   } catch (e) { /* outside Apps Script */ }
 }
@@ -202,6 +210,7 @@ function render() {
   if (banner) main.appendChild(banner);
   if (S.view === 'overview') main.appendChild(overviewView());
   else if (S.view === 'projects') main.appendChild(projectsView());
+  else if (S.view === 'attention') main.appendChild(attentionView());
   else main.appendChild(workloadView());
   main.appendChild(footnote());
   app.appendChild(main);
@@ -222,14 +231,14 @@ function go(view) {
 
 function topBar() {
   var d = S.data;
-  var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read the EASi report again' }, 'Refresh');
+  var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read EASi and the other source sheets again (takes about a minute)' }, 'Refresh');
   refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
   var tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Views' }, VIEWS.map(function (v) {
     return h('button', { class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(S.view === v.key), onClick: function () { go(v.key); } }, v.label);
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
-      h('span', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
+      h('h1', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
       h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
     h('div', { class: 'freshness' },
       h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
@@ -302,7 +311,7 @@ function filterBar() {
   serviceBox.addEventListener('change', function () { f.type = serviceBox.checked ? 'all' : 'projects'; rerender(); });
   var plannedBox = h('input', { type: 'checkbox', checked: f.planned });
   plannedBox.addEventListener('change', function () { f.planned = plannedBox.checked; if (!f.planned && f.status === 'planned') f.status = 'open'; rerender(); });
-  var search = h('input', { type: 'search', placeholder: 'PR number, building, name…', value: f.q, 'aria-label': 'Search' });
+  var search = h('input', { type: 'search', placeholder: 'Number, building or name…', value: f.q, 'aria-label': 'Search' });
   var timer = null;
   search.addEventListener('input', function () {
     clearTimeout(timer);
@@ -321,6 +330,7 @@ function filterBar() {
   }
   if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
   if (f.team !== 'all') active.push(pill(teamLabel(f.team) + ' only', function () { f.team = 'all'; }));
+  if (f.check) active.push(pill('Needs attention: ' + ATTENTION_INDEX[f.check].title, function () { f.check = ''; f.status = 'open'; }));
   var mineBtn = null;
   if (S.user && S.user.email && !f.person) {
     var myRole = null;
@@ -330,7 +340,7 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned;
+  var any = f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned || !!f.check;
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
   // Service center, fiscal year and service contracts sit behind "More filters" unless one is in use.
@@ -367,7 +377,7 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true };
+  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' };
   S.scopeNote = '';
   rerender();
 }
@@ -405,6 +415,7 @@ function overviewView() {
     stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
     stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none', function () { S.workload.role = 'lead'; go('workload'); })));
 
+  wrap.appendChild(attentionCard());
   wrap.appendChild(h('div', { class: 'grid grid-main' },
     topPeopleCard(leads, avg),
     h('div', { class: 'stack' }, pipelineCard(), programCard(list))));
@@ -482,40 +493,56 @@ function topPeopleCard(leads, avg) {
 }
 
 /**
- * The steps before award, scaled among themselves so a few hundred awarded PRs don't flatten
- * them: planned projects not in EASi yet, then the EASi pre-award stages.
+ * The whole life cycle, phase by phase: planned (no PR yet), in EASi before award, and after
+ * award. Each phase is scaled on its own, so a thousand work requests don't flatten the six
+ * steps in EASi, and each shows the money that matters at that point: estimated, committed,
+ * obligated.
  */
 function pipelineCard() {
   var list = filtered({ status: true });
-  var counts = {}, dollars = {};
-  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + unitsOf(p); dollars[p.stage] = (dollars[p.stage] || 0) + (isPlanned(p) ? p.estimate : p.committed); });
-  var planned = hasPlanned() && S.filters.planned ? S.data.stages.filter(function (s) { return s.group === 'planned'; }) : [];
-  var pre = S.data.stages.filter(function (s) { return s.group === 'preaward'; });
-  var max = Math.max.apply(null, planned.concat(pre).map(function (s) { return counts[s.key] || 0; }).concat([1]));
+  var counts = {}, money = {};
+  list.forEach(function (p) {
+    counts[p.stage] = (counts[p.stage] || 0) + unitsOf(p);
+    var m = money[p.stage] = money[p.stage] || { estimate: 0, committed: 0, obligated: 0, remaining: 0 };
+    m.estimate += p.estimate || 0; m.committed += p.committed; m.obligated += p.obligated; m.remaining += p.remaining;
+  });
   var f = S.filters;
   var open = function (key) { f.stage = f.stage === key ? '' : key; S.view = 'projects'; render(); window.scrollTo(0, 0); };
-  var row = function (s, bar) {
-    var n = counts[s.key] || 0;
-    var money = s.group === 'planned' ? 'Estimated cost' : 'Committed';
-    var b = h('button', { class: 'hbar', type: 'button', 'aria-pressed': String(f.stage === s.key), 'aria-label': s.label + ': ' + n + ' projects. Show them.' },
-      h('span', { class: 'hbar-label' }, s.short),
-      bar ? stackedBar([{ value: n, color: GROUP_COLORS[s.group] }], max) : h('span', { class: 'hbar-note' }, fmtMoneyShort(dollars[s.key] || 0) + ' committed'),
-      h('span', { class: 'hbar-value' + (n ? '' : ' zero') }, fmtInt(n)));
-    b.addEventListener('click', function () { open(s.key); });
-    return withTooltip(b, s.label, function () { return [{ label: 'Projects', value: fmtInt(n) }, { label: money, value: fmtMoney(dollars[s.key] || 0) }]; });
+  var sum = function (stages, k) { return stages.reduce(function (t, s) { return t + (k ? (money[s.key] || {})[k] || 0 : counts[s.key] || 0); }, 0); };
+  var phase = function (title, stages, moneyKey, moneyWord, note) {
+    if (!stages.length) return null;
+    var max = Math.max.apply(null, stages.map(function (s) { return counts[s.key] || 0; }).concat([1]));
+    var total = sum(stages);
+    return h('div', { class: 'phase' },
+      h('div', { class: 'phase-head' }, h('span', null, title), h('span', { class: 'muted' }, plural(total, 'project') + ' · ' + fmtMoneyShort(sum(stages, moneyKey)) + ' ' + moneyWord)),
+      h('div', { class: 'hbars' }, stages.map(function (s) {
+        var n = counts[s.key] || 0;
+        var m = money[s.key] || {};
+        var b = h('button', { class: 'hbar', type: 'button', 'aria-pressed': String(f.stage === s.key), 'aria-label': s.label + ': ' + n + ' projects, ' + fmtMoneyShort(m[moneyKey] || 0) + ' ' + moneyWord + '. Show them.' },
+          h('span', { class: 'hbar-label' }, s.short),
+          stackedBar([{ value: n, color: GROUP_COLORS[s.group] }], max),
+          h('span', { class: 'hbar-value' + (n ? '' : ' zero') }, fmtInt(n)));
+        b.addEventListener('click', function () { open(s.key); });
+        return withTooltip(b, s.label, function () {
+          var rows = [{ label: 'Projects', value: fmtInt(n) }, { label: moneyWord.charAt(0).toUpperCase() + moneyWord.slice(1), value: fmtMoney(m[moneyKey] || 0) }];
+          if (s.key === 'awarded') rows.push({ label: 'Left to spend', value: fmtMoney(m.remaining || 0) });
+          return rows;
+        });
+      })),
+      note ? h('p', { class: 'phase-note small muted' }, note) : null);
   };
+  var by = function (group) { return S.data.stages.filter(function (s) { return s.group === group; }); };
+  var showPlanned = hasPlanned() && f.planned;
+  var awarded = money.awarded || { remaining: 0 };
   return h('section', { class: 'card' },
-    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'On the way to award'), h('p', null, 'Where projects are before they are awarded. Click a step to see them.'))),
-    planned.length ? [
-      h('div', { class: 'hbars-title' }, 'Planned, no PR in EASi yet'),
-      h('div', { class: 'hbars' }, planned.map(function (s) { return row(s, true); })),
-      h('div', { class: 'hbars-title' }, 'In EASi')
-    ] : null,
-    h('div', { class: 'hbars' }, pre.map(function (s) { return row(s, true); })),
-    h('div', { class: 'hbars after' }, S.data.stages.filter(function (s) { return s.group !== 'preaward' && s.group !== 'planned'; }).map(function (s) { return row(s, false); })));
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Where projects are'), h('p', null, 'From plan to paid in full. Click a step to see its projects.'))),
+    showPlanned ? phase('Planned, no PR in EASi yet', by('planned'), 'estimate', 'estimated') : null,
+    phase('In EASi, not awarded yet', by('preaward'), 'committed', 'committed'),
+    phase('Awarded and paid', by('awarded').concat(by('closed')), 'obligated', 'obligated', fmtMoneyShort(awarded.remaining) + ' still to spend on awarded projects.'));
 }
 
 function programCard(list) {
+  var showPlanned = hasPlanned() && S.filters.planned;
   var rows = PROGRAM_LABELS.map(function (l) {
     var t = totalsOf(list.filter(function (p) { return programLabels(p).indexOf(l) !== -1; }));
     t.label = l;
@@ -528,15 +555,16 @@ function programCard(list) {
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'By program'), h('p', null, 'Click a program to see only its projects.'))),
     h('div', { class: 'table-wrap' }, h('table', null,
-      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), h('th', { class: 'num', scope: 'col' }, 'Not awarded'), h('th', { class: 'num', scope: 'col' }, 'Left to spend'))),
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), showPlanned ? h('th', { class: 'num', scope: 'col' }, 'Not in EASi') : null, h('th', { class: 'num', scope: 'col' }, 'Not awarded'), h('th', { class: 'num', scope: 'col' }, 'Left to spend'))),
       h('tbody', null, rows.map(function (r) {
         var tr = h('tr', { class: 'clickable', title: names[r.label] + '. Show only ' + r.label + '.' },
           h('td', { class: 'nowrap' }, h('span', { class: 'stage' }, h('span', { class: 'swatch', style: { background: PROGRAM_COLORS[r.label] } }), h('strong', null, r.label))),
           h('td', { class: 'bar-cell' }, stackedBar([{ value: r.count, color: PROGRAM_COLORS[r.label] }], max, 'mini-bar')),
           h('td', { class: 'num' }, fmtInt(r.count)),
+          showPlanned ? h('td', { class: 'num' }, fmtInt(r.planned)) : null,
           h('td', { class: 'num' }, fmtInt(r.preaward)),
           h('td', { class: 'num' }, fmtMoneyShort(r.remaining)));
-        tr.addEventListener('click', function () { S.filters.programs = [r.label]; rerender(); });
+        activateRow(tr, function () { S.filters.programs = [r.label]; rerender(); });
         return tr;
       })))));
 }
@@ -547,6 +575,7 @@ function programCard(list) {
  */
 function officeCard() {
   var f = S.filters;
+  var showPlanned = hasPlanned() && f.planned;
   var comparing = !!f.office;
   var list = comparing ? filtered({ place: true }) : filtered();
   var mine = comparing ? S.data.offices.filter(function (o) { return o.name === f.office; })[0] : null;
@@ -580,10 +609,11 @@ function officeCard() {
   var cols = [
     { key: 'name', label: 'Field office' }, { key: 'manager', label: 'Manager', hideSm: true },
     { key: 'count', label: 'Projects', num: true }, { key: 'mix', label: 'Progress' },
+    showPlanned ? { key: 'planned', label: 'Not in EASi', num: true } : null,
     { key: 'preaward', label: 'Not awarded', num: true }, { key: 'awarded', label: 'Awarded', num: true },
     { key: 'remaining', label: 'Left to spend', num: true },
     { key: 'leads', label: 'People', num: true }, { key: 'perLead', label: 'Projects each', num: true }, { key: 'topCount', label: 'Busiest', num: true }
-  ];
+  ].filter(Boolean);
   var onSort = function (key, multi, dir) { if (key === 'mix') key = 'count'; S.officesSort = toggleSort(S.officesSort, key, multi, dir); rerender(); };
   var tbody = h('tbody', null, sorted.map(function (r) {
     var current = r.office.name === f.office;
@@ -593,19 +623,21 @@ function officeCard() {
       h('td', { class: 'nowrap hide-sm' }, r.managerName || '–'),
       h('td', { class: 'num' }, h('strong', null, fmtInt(r.count))),
       h('td', { class: 'bar-cell' }, stackedBar(groupSegments(r), max, 'mini-bar')),
+      showPlanned ? h('td', { class: 'num' }, fmtInt(r.planned)) : null,
       h('td', { class: 'num' }, fmtInt(r.preaward)),
       h('td', { class: 'num' }, fmtInt(r.awarded)),
       h('td', { class: 'num' }, fmtMoneyShort(r.remaining)),
       h('td', { class: 'num' }, fmtInt(r.leads)),
       h('td', { class: 'num' }, r.perLead ? r.perLead.toFixed(1) : '–'),
       h('td', { class: 'nowrap' }, r.top ? [h('button', { class: 'person-btn', type: 'button', onClick: function (e) { e.stopPropagation(); showPerson('lead', r.top.email); } }, r.top.name), h('span', { class: 'muted' }, ' ' + r.top.count)] : '–'));
-    tr.addEventListener('click', function () { if (current) return; f.office = r.office.name; f.sc = r.office.serviceCenter; f.zone = r.office.zone; rerender(); });
+    if (!current) activateRow(tr, function () { f.office = r.office.name; f.sc = r.office.serviceCenter; f.zone = r.office.zone; rerender(); });
     return tr;
   }));
   var place = comparing && mine ? 'Zone ' + mine.zone : scopeName();
   var foot = h('tfoot', null, h('tr', { class: 'total-row' },
     h('td', null, place + ' total'), h('td', { class: 'hide-sm' }),
     h('td', { class: 'num' }, fmtInt(zone.count)), h('td'),
+    showPlanned ? h('td', { class: 'num' }, fmtInt(zone.planned)) : null,
     h('td', { class: 'num' }, fmtInt(zone.preaward)), h('td', { class: 'num' }, fmtInt(zone.awarded)),
     h('td', { class: 'num' }, fmtMoneyShort(zone.remaining)), h('td', { class: 'num' }, fmtInt(zoneLeads)),
     h('td', { class: 'num' }, zoneLeads ? zoneAvg.toFixed(1) : '–'), h('td')));
@@ -632,7 +664,8 @@ function showPerson(role, email) {
 // Projects
 // ---------------------------------------------------------------------------
 function projectsView() {
-  var list = sortRows(filtered(), S.projects.sort, PROJECT_ACCESSORS);
+  // Ties go largest first (committed, or the estimate for planned projects), without marking that column.
+  var list = sortRows(filtered(), S.projects.sort.concat(S.projects.sort.some(function (s) { return s.key === 'committed'; }) ? [] : [{ key: 'committed', dir: -1 }]), PROJECT_ACCESSORS);
   var t = totalsOf(list);
   var card = h('section', { class: 'card' });
   var groupSel = h('select', { 'aria-label': 'Group by' }, GROUPS.map(function (g) { return h('option', { value: g.key, selected: S.projects.group === g.key }, g.label); }));
@@ -741,10 +774,15 @@ function projectRow(p, cols) {
       return h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title),
         h('div', { class: 'sub', title: p.buildingNames.join('\n') || null }, more(p.buildings, 2) || 'No building listed',
           p.subprojects && p.subprojects.length ? h('span', { class: 'tag', title: p.subprojects.map(function (s) { return s.id + ' ' + s.title; }).join('\n') }, p.subprojects.length + ' projects') : null,
-          p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null));
+          p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null),
+        S.filters.check ? h('div', { class: 'attention-note' }, attentionDetail(S.filters.check, p)) : null);
     },
     program: function () { return h('td', { class: 'tags-cell' }, programTags(p)); },
-    stageOrder: function () { return h('td', null, stageBadge(p)); },
+    stageOrder: function () {
+      var age = stageAgeText(p);
+      var a = stageAge(p);
+      return h('td', null, stageBadge(p), age ? h('div', { class: 'sub', title: a.known ? 'In this stage since ' + fmtDate(a.since) : 'In this stage at least since ' + fmtDate(a.since) + ', when the tracker began recording' }, age) : null);
+    },
     office: function () { return h('td', { class: 'office-cell', title: p.offices.join('\n') || null }, p.offices.length ? more(p.offices.map(officeShort), 1) : officeLabel(p)); },
     leadName: function () {
       if (!p.lead.length) return h('td', { class: 'muted' }, '–');
@@ -769,7 +807,7 @@ function projectRow(p, cols) {
     }
   };
   var tr = h('tr', { class: 'clickable' }, (cols || projectColumns()).map(function (c) { return cells[c.key](); }));
-  tr.addEventListener('click', function () { openDrawer(p); });
+  activateRow(tr, function () { openDrawer(p); });
   return tr;
 }
 
@@ -834,7 +872,7 @@ function workloadView() {
       h('td', { class: 'num' }, fmtMoneyShort(r.committed)),
       h('td', { class: 'num' }, r.remaining ? fmtMoneyShort(r.remaining) : '–'),
       h('td', { class: 'num' }, r.oldestFy ? 'FY' + String(r.oldestFy).slice(2) : '–'));
-    tr.addEventListener('click', function () {
+    activateRow(tr, function () {
       S.filters.person = { role: w.role, email: r.email };
       if (w.byOffice && r.office) { S.filters.office = r.office; }
       go('projects');
@@ -869,6 +907,8 @@ function openDrawer(p) {
   var people = function (list) { return list.length ? list.map(function (e) { return personName(e) + (e.indexOf('@') !== -1 ? ' (' + e + ')' : ' (as written in ' + plannedName(p) + ')'); }).join(', ') : '–'; };
   var planned = isPlanned(p);
   var item = function (label, value) { return [h('dt', null, label), h('dd', null, value === '' || value === null || value === undefined ? '–' : value)]; };
+  // Fields that are only filled in later (solicitation, award) are left out until they are.
+  var itemIf = function (label, value) { return value === '' || value === null || value === undefined ? null : item(label, value); };
   var close = h('button', { class: 'close-btn', type: 'button', 'aria-label': 'Close' }, icon('close'));
   var drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': p.pr },
     h('div', { class: 'drawer-head' }, h('div', null,
@@ -892,7 +932,7 @@ function openDrawer(p) {
       h('div', { class: 'section-title' }, 'In ' + plannedName(p)),
       h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, planSource(p).match(p) + ' It moves to its EASi status once one does.'),
       h('dl', { class: 'dl' },
-        item('Where it is now', st.label),
+        item('Where it is now', st.label + sinceLine(p)),
         item('Status in the ' + planSource(p).short, p.planStatus),
         (p.details || []).map(function (x) { return item(x[0], /^\d{4}-\d{2}-\d{2}$/.test(x[1]) ? fmtDate(x[1]) : x[1]); }),
         item('Fiscal year', p.fy ? 'FY' + p.fy : ''))
@@ -900,20 +940,21 @@ function openDrawer(p) {
     !planned && p.plans && p.plans.length ? planSection(p, item) : null,
     planned ? null : h('div', { class: 'section-title' }, 'Status in EASi'),
     planned ? null : h('dl', { class: 'dl' },
-      item('Where it is now', st.label),
+      item('Where it is now', st.label + sinceLine(p)),
       item('PR status', p.prStatus),
       item('Acquisition status', p.acquisitionStatus),
-      item('Solicitation status', p.solicitationStatus),
-      item('Award status', p.awardStatus),
+      itemIf('Solicitation status', p.solicitationStatus),
+      itemIf('Award status', p.awardStatus),
       p.reviewers.length ? item('Waiting on', people(p.reviewers)) : null,
-      item('Award number', p.awardNumber),
-      item('Awarded', fmtDate(p.executed)),
-      item('Vendor', p.vendor),
-      item('Award type', p.awardType),
-      item('Category', p.category),
-      item('Procurement category', p.procurementCategory),
+      itemIf('Award number', p.awardNumber),
+      itemIf('Awarded', fmtDate(p.executed)),
+      itemIf('Vendor', p.vendor),
+      itemIf('Award type', p.awardType),
+      itemIf('Category', p.category),
+      itemIf('Procurement category', p.procurementCategory),
       p.service ? item('Service contract', p.service + '. Service contracts are hidden unless Type includes them.') : null,
       item('PR fiscal year', p.fy ? 'FY' + p.fy : '')),
+    timelineSection(p),
     h('div', { class: 'section-title' }, 'Location'),
     h('dl', { class: 'dl' },
       item('Field office', p.offices.join(', ') || '(service center level)'),
@@ -948,6 +989,44 @@ function openDrawer(p) {
   close.focus();
 }
 
+/** "\nSince Oct 3, 2026 (27 days)" for the project panel ('' when the tracker doesn't know). */
+function sinceLine(p) {
+  var a = stageAge(p);
+  if (!a) return '';
+  if (a.known) return '\nSince ' + fmtDate(a.since) + ' (' + plural(a.days, 'day') + ')';
+  return '\nAt least since ' + fmtDate(a.since) + ', when the tracker began recording';
+}
+
+/**
+ * The project's timeline, oldest first: its plan's stages before it had a PR (BA61 portal,
+ * BA54 tracker, RWA), then its own. Empty when there is only the current stage.
+ */
+function timelineOf(p) {
+  var steps = [];
+  (p.plans || []).forEach(function (x) {
+    (x.history || []).forEach(function (e) { steps.push({ stage: e[0], date: e[1], known: !!e[2], where: x.sourceLabel + ' ' + x.id }); });
+  });
+  (p.history || []).forEach(function (e) { steps.push({ stage: e[0], date: e[1], known: !!e[2], where: p.source ? p.sourceLabel : '' }); });
+  if (!steps.length) return [];
+  steps.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  steps.push({ stage: p.stage, date: p.since, known: !!p.sinceKnown, where: p.source ? p.sourceLabel : '', now: true });
+  return steps;
+}
+
+function timelineSection(p) {
+  var steps = timelineOf(p);
+  if (!steps.length) return null;
+  return [
+    h('div', { class: 'section-title' }, 'Timeline'),
+    h('ol', { class: 'timeline' }, steps.map(function (s) {
+      var st = S.stageIndex[s.stage] || { label: s.stage, short: s.stage };
+      return h('li', { class: s.now ? 'now' : null },
+        h('span', { class: 'when' }, s.date ? (s.known ? '' : 'by ') + fmtDate(s.date) : ''),
+        h('span', null, (s.now ? 'Now: ' : '') + (st.group === 'planned' ? st.short : st.label), s.where ? h('span', { class: 'muted' }, ' · ' + s.where) : null));
+    }))
+  ];
+}
+
 /** Where a PR's planned projects come from: ['the BA61 portal', 'the BA54 tracker'] */
 function uniqueLabels(plans) { return (plans || []).map(function (x) { return 'the ' + x.sourceLabel; }).filter(function (l, i, a) { return a.indexOf(l) === i; }); }
 
@@ -971,6 +1050,19 @@ function planSection(p, item) {
   ];
 }
 
+/**
+ * A table row that does something when clicked, and from the keyboard too: it takes focus
+ * (Tab) and acts on Enter or Space. Clicks on links and buttons inside it stay theirs.
+ */
+function activateRow(tr, fn) {
+  tr.setAttribute('tabindex', '0');
+  tr.addEventListener('click', function (e) { if (!e.target.closest('a, button')) fn(); });
+  tr.addEventListener('keydown', function (e) {
+    if (e.target !== tr) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+  });
+}
+
 /** ['a', 'b', 'c'] -> "a, b and c" */
 function andList(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''); }
 
@@ -982,20 +1074,34 @@ function footnote() {
   var d = S.data;
   var service = d.prs.filter(function (p) { return p.service; }).length;
   var when = function (s) {
-    if (!s.updated) return 'read at the last refresh';
-    if (/T/.test(s.updated)) return 'updated ' + fmtDateTime(s.updated);
-    return (s.key === 'portal' ? 'last project change ' : s.key === 'ba54' || s.key === 'rwa' ? 'data as of ' : 'updated ') + (/^\d{4}-/.test(s.updated) ? fmtDate(s.updated) : s.updated);
+    if (!s.updated) return 'Read at the last refresh';
+    if (/T/.test(s.updated)) return fmtDateTime(s.updated);
+    return (/^\d{4}-/.test(s.updated) ? fmtDate(s.updated) : s.updated) + (s.key === 'portal' ? ' (latest project change)' : '');
   };
-  var sources = (d.sources || []).filter(function (s) { return s.read !== false; });
+  var sources = (d.sources || []).filter(function (s) { return !s.off; });
+  var rules = [
+    'A project is here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.',
+    '“Not in EASi yet” projects are planned or approved in ' + andList(plannedSources()) + ', with no PR yet. One moves to its EASi status the morning a PR carries it: a BA61 portal number in the PR title or as its EQ number, a BA54 PCN or ASID in its project codes, an RWA number on the PR or in its title (RWAs are BA80).',
+    'Their amounts are estimates (budget, total cost or RWA authorized) and are never added to what EASi has committed or obligated.',
+    'RWAs and work requests count only while nothing is committed or obligated on them; one with money but no PR is funded another way, such as a lease or a purchase card.',
+    fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities, severable RWAs) are left out unless you include them under More filters.',
+    '“Paid in full” means Pegasys shows all the obligated money spent.'
+  ];
+  if (!hasPlanned()) rules.splice(1, 3);
   return h('section', { class: 'sources', 'aria-label': 'Where this comes from' },
-    sources.length ? [h('h2', null, 'Where this comes from'), h('ul', null, sources.map(function (s) {
-      return h('li', null, s.link ? h('a', { href: s.link, target: '_blank', rel: 'noopener' }, s.name) : h('strong', null, s.name),
-        h('span', { class: 'muted' }, ' · ' + when(s) + ' · ' + plural(s.rows, s.key === 'directory' ? 'building' : 'row')), h('div', { class: 'small muted' }, s.gives));
-    }))] : null,
-    h('p', { class: 'footnote' },
-    'A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
-    '“Paid in full” means Pegasys shows all the obligated money spent.' +
-    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes, an RWA’s number on the PR or in its title (RWAs are BA80). RWAs and work requests count only while nothing is committed or obligated on them (one with money but no PR is funded another way, such as a lease or purchase card); severable RWAs count as service contracts. Then the PR shows the plan next to what EASi has committed.' : '')));
+    h('h2', null, 'Where this comes from'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'sources-table' },
+      h('thead', null, h('tr', null, ['Source', 'What it adds', 'Data as of', 'Rows'].map(function (t, i) { return h('th', { scope: 'col', class: i === 3 ? 'num' : null }, t); }))),
+      h('tbody', null, sources.map(function (s) {
+        var failed = s.read === false || s.error;
+        return h('tr', null,
+          h('td', { class: 'nowrap' }, s.link ? h('a', { href: s.link, target: '_blank', rel: 'noopener' }, s.name) : s.name),
+          h('td', null, s.gives, failed ? h('div', { class: 'source-error' }, 'Couldn’t be read at the last refresh, so it is left out' + (s.error ? ': ' + s.error : '.')) : null),
+          h('td', { class: 'nowrap' }, failed ? '–' : when(s)),
+          h('td', { class: 'num' }, failed ? '–' : fmtInt(s.rows)));
+      })))),
+    h('details', { class: 'rules' }, h('summary', null, 'How the numbers work'),
+      h('ul', null, rules.map(function (r) { return h('li', null, r); }))));
 }
 
 window.addEventListener('load', start);

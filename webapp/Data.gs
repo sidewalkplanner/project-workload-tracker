@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 9;
+var DATASET_VERSION = 10;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -45,16 +45,22 @@ function cachedOrSavedPacked_() {
 var SNAPSHOT_SHEET_PROP = 'SNAPSHOT_SHEET_ID';
 var SNAPSHOT_CELL = 45000;   // A cell holds up to 50,000 characters.
 
-function savedSnapshotSheet_(create) {
+/** The spreadsheet the tracker keeps its own copies in (created on first use when create is true). */
+function snapshotSpreadsheet_(create) {
   var props = PropertiesService.getScriptProperties();
   var id = props.getProperty(SNAPSHOT_SHEET_PROP);
   if (id) {
-    try { return SpreadsheetApp.openById(id).getSheets()[0]; } catch (e) { if (!create) return null; }
+    try { return SpreadsheetApp.openById(id); } catch (e) { if (!create) return null; }
   }
   if (!create) return null;
-  var ss = SpreadsheetApp.create('NEH Project Workload Tracker - saved snapshot (do not edit)');
+  var ss = SpreadsheetApp.create('NEH Projects - saved snapshot (do not edit)');
   props.setProperty(SNAPSHOT_SHEET_PROP, ss.getId());
-  return ss.getSheets()[0];
+  return ss;
+}
+
+function savedSnapshotSheet_(create) {
+  var ss = snapshotSpreadsheet_(create);
+  return ss ? ss.getSheets()[0] : null;
 }
 
 /** Saves the packed snapshot (JSON text) into column A: a header row, then the text in pieces. */
@@ -64,6 +70,30 @@ function writeSavedSnapshot_(packedJson) {
   for (var i = 0; i < packedJson.length; i += SNAPSHOT_CELL) rows.push([packedJson.slice(i, i + SNAPSHOT_CELL)]);
   sheet.clear();
   sheet.getRange(1, 1, rows.length, 1).setValues(rows);
+}
+
+/**
+ * The stage history (History.gs), kept as JSON in a "History" tab of the saved-snapshot sheet.
+ * null when there is none yet; false when it couldn't be read (then it isn't overwritten).
+ */
+var HISTORY_TAB = 'History';
+
+function readHistory_() {
+  var ss = snapshotSpreadsheet_(false);
+  var tab = ss && ss.getSheetByName(HISTORY_TAB);
+  if (!tab || tab.getLastRow() < 1) return null;
+  var text = tab.getRange(1, 1, tab.getLastRow(), 1).getValues().map(function (r) { return String(r[0]); }).join('');
+  try { return JSON.parse(text); } catch (e) { console.warn('Stage history unreadable: ' + e); return false; }
+}
+
+function writeHistory_(history) {
+  var ss = snapshotSpreadsheet_(true);
+  var tab = ss.getSheetByName(HISTORY_TAB) || ss.insertSheet(HISTORY_TAB);
+  var text = JSON.stringify(history);
+  var rows = [];
+  for (var i = 0; i < text.length; i += SNAPSHOT_CELL) rows.push([text.slice(i, i + SNAPSHOT_CELL)]);
+  tab.clear();
+  tab.getRange(1, 1, rows.length, 1).setValues(rows);
 }
 
 function readSavedSnapshot_() {
@@ -131,6 +161,8 @@ function refreshDataset_() {
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
       portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link, ba54Updated: ba54.asOf,
       rwaValues: rwa.values, rwaLink: rwa.link,
+      portalOff: !!portal.off, ba54Off: !!ba54.off, rwaOff: !!rwa.off,
+      readErrors: { portal: portal.error || '', ba54: ba54.error || '', rwa: rwa.error || '' },
       pipelineLink: 'https://docs.google.com/spreadsheets/d/' + setting_('PIPELINE_ID') + '/edit', directoryLink: 'https://docs.google.com/spreadsheets/d/' + setting_('DIRECTORY_ID') + '/edit',
       nameEmails: setting_('NAME_EMAILS') }
   );
@@ -139,6 +171,13 @@ function refreshDataset_() {
   } catch (e) {
     // Teams still come from the building contacts; only org codes are missing.
     console.warn('Org codes not read from the directory: ' + e);
+  }
+  try {
+    var history = readHistory_();
+    if (history !== false) writeHistory_(updateHistory_(dataset, history, todayIso_()));
+  } catch (e) {
+    // Days in stage are missing this time; the history itself is kept for the next refresh.
+    console.warn('Stage history not updated: ' + e);
   }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
@@ -161,7 +200,7 @@ function refreshDataset_() {
  */
 function readPlanTab_(idKey, tabKey, what, asOfTab) {
   var id = setting_(idKey);
-  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '', asOf: '' };
+  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '', asOf: '', off: true };
   try {
     var ss = SpreadsheetApp.openById(id);
     var tab = ss.getSheetByName(setting_(tabKey));
@@ -173,7 +212,7 @@ function readPlanTab_(idKey, tabKey, what, asOfTab) {
     return { values: tab.getDataRange().getValues(), link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + gid, asOf: asOf };
   } catch (e) {
     console.warn(what + ' not read: ' + e);
-    return { values: [], link: '', asOf: '' };
+    return { values: [], link: '', asOf: '', error: String(e && e.message || e) };
   }
 }
 

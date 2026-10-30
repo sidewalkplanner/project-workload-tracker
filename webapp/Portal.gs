@@ -90,6 +90,8 @@ function portalProjects_(portalValues, inEasi, directory, people, portalUrl) {
       requestor: parseEmailList_(get('requester')),
       place: place,
       portalNumbers: [number],
+      dueBy: planDueDate_(get('commitmentMonth'), planFiscalYear_(get('fiscalYear'))), dueWhat: 'Planned commitment',
+      seedDate: stage === 'noPr' ? pipelineDate_(get('decidedAt')) : stage === 'pending' ? pipelineDate_(get('submittedAt')) : pipelineDate_(get('createdAt')),
       details: [
         ['Request type', str_(get('requestType'))],
         ['Priority', str_(get('priority'))],
