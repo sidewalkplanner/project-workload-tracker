@@ -277,7 +277,10 @@ test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   const rt = runtimeWith(demoSources(5));
   const idx = rt.ctx.personIndex_(['robert.sells@gsa.gov', 'india.stewart@gsa.gov', 'india.stewart@gsa.com', 'luis.ramirez-figueroa@gsa.gov',
     'christopher.oneill@gsa.gov', 'temesgen.wolday@gsa.gov', 'robert.smith@gsa.gov', 'robert.l.smith@gsa.gov', 'shelly.baxter@gsa.gov',
-    'juan.juarez@gsa.gov', 'dana.cole@gsa.gov', 'dana.cale@gsa.gov']);
+    'juan.juarez@gsa.gov', 'dana.cole@gsa.gov', 'dana.cale@gsa.gov', 'brian.green@gsa.gov', 'brian.fuller@gsa.gov', 'jennifer.richter@gsa.gov']);
+  assert.strictEqual(idx.find('Bob Green'), '', 'Bob is Robert, not Brian');
+  assert.strictEqual(idx.find('Brian Muller'), '', 'a slip in the first letter is a different name');
+  assert.strictEqual(idx.find('Jena Richter'), 'jennifer.richter@gsa.gov');
   assert.strictEqual(idx.find('Bobby Sells'), 'robert.sells@gsa.gov');
   assert.strictEqual(idx.find('India Stewart'), 'india.stewart@gsa.gov');
   assert.strictEqual(idx.find('Luis Ramirez'), 'luis.ramirez-figueroa@gsa.gov');
@@ -292,11 +295,12 @@ test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   assert.strictEqual(idx.find('Pat Baxter'), '', 'the first name must match');
   ['baxter|baxer', 'baxter|baxtre', 'baxter|baxters', 'baxter|bexter'].forEach((pair) => assert.ok(rt.ctx.oneEditApart_(...pair.split('|')), pair));
   ['baxter|baxter', 'baxter|bxtaer', 'baxter|baxt'].forEach((pair) => assert.ok(!rt.ctx.oneEditApart_(...pair.split('|')), pair));
-  assert.strictEqual(rt.ctx.portalFiscalYear_('FY27'), 2027);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(rt.ctx.corAliases_('Pat Unlisted = Pat.Former@gsa.gov;\n Lee  Q. Smith: lee.jones@gsa.gov; junk; = x@gsa.gov'))),
+  assert.strictEqual(rt.ctx.planFiscalYear_('FY27'), 2027);
+  assert.strictEqual(rt.ctx.planFiscalYear_(2027.0), 2027);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rt.ctx.nameAliases_('Pat Unlisted = Pat.Former@gsa.gov;\n Lee  Q. Smith: lee.jones@gsa.gov; junk; = x@gsa.gov'))),
     { 'pat unlisted': 'pat.former@gsa.gov', 'lee smith': 'lee.jones@gsa.gov' });
-  // PORTAL_COR_EMAILS ties a name the matching can't work out to its email.
-  const aliased = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_COR_EMAILS: 'Pat Unlisted = pat.former@gsa.gov' } }).ctx.apiLoad()).data;
+  // NAME_EMAILS ties a name the matching can't work out to its email.
+  const aliased = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { NAME_EMAILS: 'Pat Unlisted = pat.former@gsa.gov' } }).ctx.apiLoad()).data;
   const pat = aliased.prs.filter((p) => p.source && p.cor[0] === 'pat.former@gsa.gov');
   assert.strictEqual(pat.length, 1);
   assert.strictEqual(pat[0].lead[0], 'pat.former@gsa.gov');
@@ -305,11 +309,35 @@ test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   const off = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_ID: 'OFF' } });
   const d = JSON.parse(off.ctx.apiLoad()).data;
   assert.strictEqual(d.portal.read, false);
-  assert.ok(d.prs.every((p) => !p.source));
+  assert.ok(d.prs.every((p) => p.source !== 'portal'));
   // A portal the deployer can't open leaves its projects out instead of failing the build.
   const src = demoSources();
   delete src.portal;
-  assert.ok(load(runtimeWith(src)).data.prs.length === 420);
+  assert.ok(load(runtimeWith(src)).data.prs.every((p) => p.source !== 'portal'));
+});
+
+test('BA54 tracker: current-program projects with no recent PR are added', () => {
+  const src = demoSources();
+  const d = load(runtimeWith(src)).data;
+  const ba54 = d.prs.filter((p) => p.source === 'ba54');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.ba54.counts)), { rows: 14, inEasi: 1, notInEasi: 10, otherZones: 1, closed: 2 });
+  assert.strictEqual(ba54.length, 10);
+  const numbers = ba54.map((p) => p.pr);
+  assert.ok(numbers.indexOf('RCO90001') === -1, 'a recent PR has its project code');
+  assert.ok(numbers.indexOf('RCO90002') !== -1, 'a PR from years before the plan does not count');
+  assert.ok(numbers.some((n) => /^Row \d+ \(no PCN\)$/.test(n)), 'a project with no PCN keeps its row');
+  assert.ok(numbers.indexOf('RCO90004 (2)') !== -1, 'two phases on one code are two projects');
+  assert.ok(ba54.every((p) => p.programs[0] === 'PG54' && p.estimate > 0 && p.committed === 0 && /&range=A\d+$/.test(p.link)));
+  assert.deepStrictEqual(ba54.map((p) => p.stage).filter((s, i, a) => a.indexOf(s) === i).sort(), ['noPr', 'pending', 'planning']);
+  // The project manager is the person assigned; "(COR)" picks one of two; blanks have nobody.
+  const marked = ba54.filter((p) => p.pr === 'RCO90005')[0];
+  assert.strictEqual(marked.lead.length, 1);
+  assert.ok(ba54.some((p) => !p.lead.length));
+  assert.ok(ba54.filter((p) => p.lead.length).every((p) => p.lead[0].indexOf('@') !== -1));
+  assert.ok(ba54.every((p) => p.details.some((x) => x[0] === 'Project type')));
+  // BA54_ID OFF leaves them out.
+  const off = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { BA54_ID: 'OFF' } }).ctx.apiLoad()).data;
+  assert.ok(off.prs.every((p) => p.source !== 'ba54') && !off.ba54.read);
 });
 
 test('helpers: dates, money, names, emails', () => {

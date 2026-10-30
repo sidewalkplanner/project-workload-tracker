@@ -31,12 +31,12 @@ var PROJECT_CSV = [
   ['Status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
   ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Submitter', function (p) { return peopleNames(p.requestor); }],
-  ['Budgeted in BA61 portal (not in EASi yet)', function (p) { return isPortal(p) ? p.estimate : ''; }],
+  ['Planned in', function (p) { return p.sourceLabel || 'EASi'; }], ['Estimated cost (not in EASi yet)', function (p) { return isPlanned(p) ? p.estimate : ''; }],
   ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Left to spend', function (p) { return p.remaining; }],
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
   ['Contracting officer', function (p) { return peopleNames(p.co); }], ['Contract specialist', function (p) { return peopleNames(p.cs); }], ['Building manager', function (p) { return peopleNames(p.buildingManager); }],
-  ['BA61 portal number', function (p) { return p.portalNumbers.join(' '); }], ['BA61 portal status', function (p) { return p.portalStatus || ''; }],
+  ['BA61 portal number', function (p) { return p.portalNumbers.join(' '); }], ['Status in the plan', function (p) { return p.planStatus || ''; }],
   ['Service contract', function (p) { return p.service; }], ['Link', function (p) { return p.link; }]
 ];
 var GROUPS = [
@@ -114,7 +114,7 @@ function applyRoute(r) {
       .filter(function (p) { return PROGRAM_LABELS.indexOf(p) !== -1; });
     if (list.length) f.programs = list;
   }
-  if (r.portal === '0') f.portal = false;
+  if (r.planned === '0') f.planned = false;
   if (r.status && STATUS_OPTIONS.some(function (s) { return s.key === r.status; })) f.status = r.status;
   if (r.fy && /^\d{4}$/.test(r.fy)) f.fy = r.fy;
   if (r.type && TYPE_OPTIONS.some(function (t) { return t.key === r.type; })) f.type = r.type;
@@ -165,7 +165,7 @@ function syncUrl() {
     if (f.status !== 'open') p.status = f.status;
     if (f.fy) p.fy = f.fy;
     if (f.type !== 'projects') p.type = f.type;
-    if (!f.portal) p.portal = '0';
+    if (!f.planned) p.planned = '0';
     if (f.team !== 'all') p.team = f.team;
     if (f.q) p.q = f.q;
     if (f.person) { p.person = f.person.email; p.role = f.person.role; }
@@ -221,7 +221,7 @@ function topBar() {
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
       h('span', { class: 'brand-title' }, d.scopeLabel + ' Project Workload'),
-      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' projects from EASi' + (hasPortal() ? ' and the BA61 portal' : ''))),
+      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' projects from ' + andList(['EASi'].concat(plannedSources())))),
     h('div', { class: 'freshness' },
       h('span', null, 'Updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
@@ -291,8 +291,8 @@ function filterBar() {
   fySel.addEventListener('change', function () { f.fy = fySel.value; rerender(); });
   var serviceBox = h('input', { type: 'checkbox', checked: f.type !== 'projects' });
   serviceBox.addEventListener('change', function () { f.type = serviceBox.checked ? 'all' : 'projects'; rerender(); });
-  var portalBox = h('input', { type: 'checkbox', checked: f.portal });
-  portalBox.addEventListener('change', function () { f.portal = portalBox.checked; if (!f.portal && f.status === 'planned') f.status = 'open'; rerender(); });
+  var plannedBox = h('input', { type: 'checkbox', checked: f.planned });
+  plannedBox.addEventListener('change', function () { f.planned = plannedBox.checked; if (!f.planned && f.status === 'planned') f.status = 'open'; rerender(); });
   var search = h('input', { type: 'search', placeholder: 'PR number, building, name…', value: f.q, 'aria-label': 'Search' });
   var timer = null;
   search.addEventListener('input', function () {
@@ -321,16 +321,16 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.portal;
+  var any = f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned;
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
   // Service center, fiscal year and service contracts sit behind "More filters" unless one is in use.
-  var more = S.moreFilters || !!f.fy || f.type !== 'projects' || !f.portal || (!!f.sc && !f.office);
+  var more = S.moreFilters || !!f.fy || f.type !== 'projects' || !f.planned || (!!f.sc && !f.office);
   var moreBtn = h('button', { class: 'link-btn more-btn', type: 'button', 'aria-expanded': String(more), onClick: function () { S.moreFilters = !more; rerender(); } }, more ? 'Fewer filters' : 'More filters');
 
   // On a phone the filters fold into one line that says what is showing.
   var summary = [scopeName(), statusLabel(), f.programs.length < PROGRAM_LABELS.length ? f.programs.join(', ') : 'all programs',
-    f.fy ? 'FY' + String(f.fy).slice(2) : '', !f.portal ? 'EASi only' : '', f.type !== 'projects' ? TYPE_OPTIONS.filter(function (t) { return t.key === f.type; })[0].label.toLowerCase() : '', f.q ? '“' + f.q + '”' : '']
+    f.fy ? 'FY' + String(f.fy).slice(2) : '', !f.planned ? 'EASi only' : '', f.type !== 'projects' ? TYPE_OPTIONS.filter(function (t) { return t.key === f.type; })[0].label.toLowerCase() : '', f.q ? '“' + f.q + '”' : '']
     .filter(Boolean).join(' · ');
   var toggle = h('button', { class: 'filters-toggle', type: 'button', 'aria-expanded': String(!!S.filtersOpen), 'aria-controls': 'filter-row' },
     icon('filter'), h('span', { class: 'filters-summary' }, summary), h('span', { class: 'filters-action' }, S.filtersOpen ? 'Done' : 'Filters'));
@@ -349,7 +349,7 @@ function filterBar() {
       h('label', { class: 'field' }, h('span', null, 'Service center'), scSel),
       h('label', { class: 'field' }, h('span', null, 'Fiscal year'), fySel),
       h('label', { class: 'check', title: 'Custodial, O&M, snow removal, utilities, option years and other recurring contracts. They are not projects, so they are left out unless you tick this.' }, serviceBox, h('span', null, 'Include service contracts')),
-      hasPortal() ? h('label', { class: 'check', title: 'BA61 projects planned or approved in the BA61 Project Portal that have no PR in EASi yet. Untick to count only what is in EASi.' }, portalBox, h('span', null, 'Include BA61 portal projects not in EASi yet')) : null) : null,
+      hasPlanned() ? h('label', { class: 'check', title: 'Projects planned or approved in ' + andList(plannedSources()) + ' that have no PR in EASi yet. Untick to count only what is in EASi.' }, plannedBox, h('span', null, 'Include planned projects not in EASi yet')) : null) : null,
     (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null);
 }
 
@@ -358,7 +358,7 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', portal: true };
+  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true };
   S.scopeNote = '';
   rerender();
 }
@@ -385,12 +385,12 @@ function overviewView() {
   var withContracting = countOf(list.filter(function (p) { return p.stage === 'assigned' || p.stage === 'solicitation' || p.stage === 'drafting'; }));
   var top = leads[0];
 
-  var planned = list.filter(isPortal);
+  var planned = list.filter(isPlanned);
   var approvedNoPr = countOf(planned.filter(function (p) { return p.stage === 'noPr'; }));
-  var showPlanned = hasPortal() && S.filters.portal;
+  var showPlanned = hasPlanned() && S.filters.planned;
   wrap.appendChild(h('section', { class: 'card summary' + (showPlanned ? ' six' : ''), 'aria-label': 'Summary' },
     stat(S.filters.status === 'all' && !S.filters.stage ? 'Projects' : statusLabel() + ' projects', fmtInt(t.count), scopeName(), function () { showProjects(''); }),
-    showPlanned ? stat('Not in EASi yet', fmtInt(t.planned), t.planned ? fmtInt(approvedNoPr) + ' approved, ' + fmtMoneyShort(t.estimate) + ' budgeted (BA61 portal)' : 'none in the BA61 portal', function () { showProjects('planned'); }) : null,
+    showPlanned ? stat('Not in EASi yet', fmtInt(t.planned), t.planned ? fmtInt(approvedNoPr) + ' approved, ' + fmtMoneyShort(t.estimate) + ' estimated' : 'none planned without a PR', function () { showProjects('planned'); }) : null,
     stat('Not awarded yet', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting', function () { showProjects('preaward'); }),
     stat('Awarded', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend', function () { showProjects('awarded'); }),
     stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
@@ -474,20 +474,20 @@ function topPeopleCard(leads, avg) {
 
 /**
  * The steps before award, scaled among themselves so a few hundred awarded PRs don't flatten
- * them: BA61 portal projects not in EASi yet, then the EASi pre-award stages.
+ * them: planned projects not in EASi yet, then the EASi pre-award stages.
  */
 function pipelineCard() {
   var list = filtered({ status: true });
   var counts = {}, dollars = {};
-  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + unitsOf(p); dollars[p.stage] = (dollars[p.stage] || 0) + (isPortal(p) ? p.estimate : p.committed); });
-  var planned = hasPortal() && S.filters.portal ? S.data.stages.filter(function (s) { return s.group === 'planned'; }) : [];
+  list.forEach(function (p) { counts[p.stage] = (counts[p.stage] || 0) + unitsOf(p); dollars[p.stage] = (dollars[p.stage] || 0) + (isPlanned(p) ? p.estimate : p.committed); });
+  var planned = hasPlanned() && S.filters.planned ? S.data.stages.filter(function (s) { return s.group === 'planned'; }) : [];
   var pre = S.data.stages.filter(function (s) { return s.group === 'preaward'; });
   var max = Math.max.apply(null, planned.concat(pre).map(function (s) { return counts[s.key] || 0; }).concat([1]));
   var f = S.filters;
   var open = function (key) { f.stage = f.stage === key ? '' : key; S.view = 'projects'; render(); window.scrollTo(0, 0); };
   var row = function (s, bar) {
     var n = counts[s.key] || 0;
-    var money = s.group === 'planned' ? 'Budgeted (estimate)' : 'Committed';
+    var money = s.group === 'planned' ? 'Estimated cost' : 'Committed';
     var b = h('button', { class: 'hbar', type: 'button', 'aria-pressed': String(f.stage === s.key), 'aria-label': s.label + ': ' + n + ' projects. Show them.' },
       h('span', { class: 'hbar-label' }, s.short),
       bar ? stackedBar([{ value: n, color: GROUP_COLORS[s.group] }], max) : h('span', { class: 'hbar-note' }, fmtMoneyShort(dollars[s.key] || 0) + ' committed'),
@@ -498,7 +498,7 @@ function pipelineCard() {
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'On the way to award'), h('p', null, 'Where projects are before they are awarded. Click a step to see them.'))),
     planned.length ? [
-      h('div', { class: 'hbars-title' }, 'In the BA61 portal, no PR in EASi yet'),
+      h('div', { class: 'hbars-title' }, 'Planned, no PR in EASi yet'),
       h('div', { class: 'hbars' }, planned.map(function (s) { return row(s, true); })),
       h('div', { class: 'hbars-title' }, 'In EASi')
     ] : null,
@@ -632,7 +632,7 @@ function projectsView() {
   card.appendChild(h('div', { class: 'card-head' },
     h('div', null, h('h2', null, projectsPhrase(t.count) + ' · ' + scopeName()),
       h('p', null, [t.count > t.planned ? fmtMoneyShort(t.committed) + ' committed, ' + fmtMoneyShort(t.obligated) + ' obligated, ' + fmtMoneyShort(t.remaining) + ' left to spend' : '',
-        t.planned ? fmtMoneyShort(t.estimate) + ' budgeted in the BA61 portal' + (t.count > t.planned ? ' on the ' + plural(t.planned, 'project') + ' not in EASi yet' : '') : '']
+        t.planned ? fmtMoneyShort(t.estimate) + ' estimated' + (t.count > t.planned ? ' on the ' + plural(t.planned, 'project') + ' not in EASi yet' : '') : '']
         .filter(Boolean).join('; ') + '. Click a project for details.'))));
   card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
   if (!list.length) { card.appendChild(emptyState()); return card; }
@@ -712,8 +712,8 @@ function projectRow(p, cols) {
   var more = function (list, n) { return list.slice(0, n).join(', ') + (list.length > n ? ' +' + (list.length - n) : ''); };
   var cells = {
     pr: function () {
-      var number = p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', title: isPortal(p) ? 'Open in the BA61 portal' : 'Open in EASi', onClick: function (e) { e.stopPropagation(); } }, p.pr) : p.pr;
-      return h('td', { class: 'nowrap' }, number, isPortal(p) ? h('div', { class: 'sub', title: 'A BA61 portal project number: there is no PR in EASi yet' }, 'BA61 portal') : null);
+      var number = p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener', title: isPlanned(p) ? 'Open in ' + plannedName(p) : 'Open in EASi', onClick: function (e) { e.stopPropagation(); } }, p.pr) : p.pr;
+      return h('td', { class: 'nowrap' }, number, isPlanned(p) ? h('div', { class: 'sub', title: (p.source === 'ba54' ? 'The project’s PCN in the BA54 tracker' : 'The project’s BA61 portal number') + ': there is no PR in EASi yet' }, p.sourceLabel) : null);
     },
     title: function () {
       return h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title),
@@ -733,7 +733,7 @@ function projectRow(p, cols) {
         !p.cor.length ? h('div', { class: 'sub', title: 'The person who submitted the PR is shown until EASi names a COR' }, 'Submitter, COR not named yet') : null);
     },
     committed: function () {
-      if (isPortal(p)) return h('td', { class: 'num', title: fmtMoney(p.estimate) + ' budgeted in the BA61 portal. Nothing is committed in EASi yet.' }, fmtMoneyShort(p.estimate), h('div', { class: 'sub' }, 'budgeted'));
+      if (isPlanned(p)) return h('td', { class: 'num', title: fmtMoney(p.estimate) + (p.source === 'ba54' ? ' total cost in the BA54 tracker' : ' budgeted in the BA61 portal') + '. Nothing is committed in EASi yet.' }, p.estimate ? [fmtMoneyShort(p.estimate), h('div', { class: 'sub' }, 'estimated')] : '–');
       return h('td', { class: 'num', title: fmtMoney(p.committed) }, fmtMoneyShort(p.committed));
     },
     remaining: function () { return h('td', { class: 'num', title: p.remaining ? fmtMoney(p.remaining) : null }, p.remaining ? fmtMoneyShort(p.remaining) : '–'); },
@@ -772,7 +772,7 @@ function workloadView() {
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
   var total = countOf(list);
   var avg = people.length ? people.reduce(function (s, r) { return s + r.count; }, 0) / people.length : 0;
-  var showPlanned = hasPortal() && S.filters.portal;
+  var showPlanned = hasPlanned() && S.filters.planned;
 
   var cols = [
     { key: 'rank', label: '#', num: true },
@@ -792,7 +792,7 @@ function workloadView() {
   var thead = h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, w.sort, onSort); })));
   var tbody = h('tbody', null, rows.map(function (r, i) {
     var mine = S.user && r.email && r.email === S.user.email;
-    var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'COR named in the BA61 portal. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
+    var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'Named in the BA61 portal or BA54 tracker. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
       h('td', { class: 'nowrap' }, r.email ? h('strong', null, r.name) : h('em', null, r.name), mine ? h('span', { class: 'you' }, 'You') : null),
       h('td', { class: 'nowrap hide-sm', title: r.team ? teamLabel(r.team) + (r.org ? ', org code ' + r.org : ', no org code in the directory') : null }, r.team ? [h('span', { class: 'tag team-' + r.team }, teamLabel(r.team, true)), r.org ? h('span', { class: 'muted' }, ' ' + r.org) : null] : '–'),
@@ -816,7 +816,7 @@ function workloadView() {
     return tr;
   }));
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () {
-    var header = ['Rank', role.short, 'Email', 'Role', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Not in EASi yet (BA61 portal)', 'Not awarded yet', 'Awarded', 'Paid in full', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Left to spend', 'Oldest open FY'];
+    var header = ['Rank', role.short, 'Email', 'Role', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Not in EASi yet', 'Not awarded yet', 'Awarded', 'Paid in full', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Left to spend', 'Oldest open FY'];
     var data = rows.map(function (r, i) { return [i + 1, r.name, r.email.indexOf('@') !== -1 ? r.email : '', teamLabel(r.team), r.org, r.office ? officeShort(r.office) : '', r.count, r.planned, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
     downloadFile(d.scopeLabel + ' workload by ' + role.short + ' - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(data)), 'text/csv;charset=utf-8');
   } }, 'Download for Excel');
@@ -840,17 +840,17 @@ function workloadView() {
 function openDrawer(p) {
   hideTooltip();
   var st = stageOf(p);
-  var people = function (list) { return list.length ? list.map(function (e) { return personName(e) + (e.indexOf('@') !== -1 ? ' (' + e + ')' : ' (as written in the BA61 portal)'); }).join(', ') : '–'; };
-  var portal = isPortal(p);
+  var people = function (list) { return list.length ? list.map(function (e) { return personName(e) + (e.indexOf('@') !== -1 ? ' (' + e + ')' : ' (as written in ' + plannedName(p) + ')'); }).join(', ') : '–'; };
+  var planned = isPlanned(p);
   var item = function (label, value) { return [h('dt', null, label), h('dd', null, value === '' || value === null || value === undefined ? '–' : value)]; };
   var close = h('button', { class: 'close-btn', type: 'button', 'aria-label': 'Close' }, icon('close'));
   var drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': p.pr },
     h('div', { class: 'drawer-head' }, h('div', null,
-      p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener' }, p.pr + (portal ? ' · open in the BA61 portal' : ' · open in EASi'), icon('external')) : h('span', { class: 'pr-link' }, p.pr),
+      p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener' }, p.pr + (planned ? ' · open in ' + plannedName(p) : ' · open in EASi'), icon('external')) : h('span', { class: 'pr-link' }, p.pr),
       h('h2', null, p.title),
       h('div', null, programTags(p), ' ', stageBadge(p), p.service ? [' ', h('span', { class: 'tag' }, 'Service contract')] : null)), close),
-    portal ? h('div', { class: 'money-row' },
-      h('div', null, h('div', { class: 'label' }, 'Budgeted in the portal'), h('div', { class: 'value' }, fmtMoney(p.estimate))),
+    planned ? h('div', { class: 'money-row' },
+      h('div', null, h('div', { class: 'label' }, p.source === 'ba54' ? 'Total cost (BA54 tracker)' : 'Budgeted in the portal'), h('div', { class: 'value' }, fmtMoney(p.estimate))),
       h('div', null, h('div', { class: 'label' }, 'Committed in EASi'), h('div', { class: 'value' }, 'Not yet'))) :
     h('div', { class: 'money-row' },
       h('div', null, h('div', { class: 'label' }, 'Committed'), h('div', { class: 'value' }, fmtMoney(p.committed))),
@@ -862,23 +862,19 @@ function openDrawer(p) {
       h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, 'One award funds all of them, so EASi shows one PR. The tracker counts each project.'),
       h('ol', { class: 'subprojects' }, p.subprojects.map(function (s) { return h('li', null, h('strong', null, s.id), ' ', s.title); }))
     ] : null,
-    portal ? [
-      h('div', { class: 'section-title' }, 'Status in the BA61 portal'),
-      h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, 'No PR in EASi has this project’s number in its title or as its EQ number yet. It moves to its EASi status once one does.'),
+    planned ? [
+      h('div', { class: 'section-title' }, 'In ' + plannedName(p)),
+      h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, (p.source === 'ba54'
+        ? 'No PR in EASi' + (p.fy ? ' from FY' + String(p.fy - 1).slice(2) + ' on' : '') + ' lists this project’s PCN or ASID among its project codes yet.'
+        : 'No PR in EASi has this project’s number in its title or as its EQ number yet.') + ' It moves to its EASi status once one does.'),
       h('dl', { class: 'dl' },
         item('Where it is now', st.label),
-        item('Portal status', p.portalStatus),
-        item('Request type', p.requestType),
-        item('Priority', p.priority),
-        item('Spend category', p.spendCategory),
-        item('Planned commitment', p.commitmentMonth),
-        item('Submitted for approval', fmtDate(p.submittedAt)),
-        item('Decided', fmtDate(p.decidedAt)),
-        p.eqNumber ? item('EQ number', p.eqNumber + ' (not in the EASi report)') : null,
+        item('Status in the ' + (p.source === 'ba54' ? 'tracker' : 'portal'), p.planStatus),
+        (p.details || []).map(function (x) { return item(x[0], /^\d{4}-\d{2}-\d{2}$/.test(x[1]) ? fmtDate(x[1]) : x[1]); }),
         item('Fiscal year', p.fy ? 'FY' + p.fy : ''))
     ] : null,
-    portal ? null : h('div', { class: 'section-title' }, 'Status in EASi'),
-    portal ? null : h('dl', { class: 'dl' },
+    planned ? null : h('div', { class: 'section-title' }, 'Status in EASi'),
+    planned ? null : h('dl', { class: 'dl' },
       item('Where it is now', st.label),
       item('PR status', p.prStatus),
       item('Acquisition status', p.acquisitionStatus),
@@ -898,15 +894,15 @@ function openDrawer(p) {
       item('Field office', p.offices.join(', ') || '(service center level)'),
       item('Service center', p.serviceCenters.join(', ')),
       item('Buildings', p.buildings.length ? p.buildings.map(function (b, i) { return b + ' · ' + (p.buildingNames[i] || ''); }).join('\n') : ''),
-      p.placeNote ? item('Matched by', { title: 'Building number in the PR title (no building in EASi)', org: 'OFM org code (no building in EASi)', 'portal-office': 'Field office in the BA61 portal (no building number)' }[p.placeNote]) : null),
+      p.placeNote ? item('Matched by', { title: 'Building number in the PR title (no building in EASi)', org: 'OFM org code (no building in EASi)', 'plan-office': 'Field office in ' + plannedName(p) + ' (no building number in the directory)' }[p.placeNote]) : null),
     h('div', { class: 'section-title' }, 'People'),
     h('dl', { class: 'dl' },
-      item('COR', people(p.cor)),
-      item(portal ? 'Submitter (requester in the portal)' : 'Submitter', people(p.requestor)),
+      item(p.source === 'ba54' ? 'Project manager (COR)' : 'COR', people(p.cor)),
+      p.source === 'ba54' ? null : item(planned ? 'Submitter (requester in the portal)' : 'Submitter', people(p.requestor)),
       item('Building manager', people(p.buildingManager)),
-      portal ? null : [item('Program manager', people(p.programManager)), item('Contracting officer', people(p.co)), item('Contract specialist', people(p.cs))]),
-    portal ? null : h('div', { class: 'section-title' }, 'Funding'),
-    portal ? null : h('dl', { class: 'dl' },
+      planned ? (p.co.length ? item('Contracting officer', people(p.co)) : null) : [item('Program manager', people(p.programManager)), item('Contracting officer', people(p.co)), item('Contract specialist', people(p.cs))]),
+    planned ? null : h('div', { class: 'section-title' }, 'Funding'),
+    planned ? null : h('dl', { class: 'dl' },
       item('Program codes', p.programs.join(', ') + (p.programFromTitle ? ' (from the PR title; EASi has no program code yet)' : '')),
       item('RWA', p.rwas.join(', ')),
       item('Project codes', p.projectCodes.join(', ')),
@@ -927,13 +923,19 @@ function openDrawer(p) {
   close.focus();
 }
 
+/** ['a', 'b', 'c'] -> "a, b and c" */
+function andList(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''); }
+
+/** "the BA61 portal" / "the BA54 tracker" */
+function plannedName(p) { return p.source === 'ba54' ? 'the BA54 tracker' : 'the BA61 portal'; }
+
 function footnote() {
   var d = S.data;
   var service = d.prs.filter(function (p) { return p.service; }).length;
   return h('p', { class: 'footnote' },
     'From the EASi BA61 Pipeline report' + (d.generatedAt ? ', updated ' + fmtDateTime(d.generatedAt) : '') + '. A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
     '“Paid in full” means Pegasys shows all the obligated money spent.' +
-    (hasPortal() ? ' BA61 projects planned or approved in the BA61 Project Portal are listed as “Not in EASi yet” until a PR carries their portal number in its title or as its EQ number.' : ''));
+    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes.' : ''));
 }
 
 window.addEventListener('load', start);

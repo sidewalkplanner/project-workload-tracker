@@ -10,8 +10,8 @@
  * (P00MCF00 = Heartland, P00MCA00 = New England, ...) is kept under its service center.
  * A PR on buildings in several field offices is listed under each of them.
  *
- * BA61 portal projects with no PR in EASi yet are added from the portal's Projects tab
- * (Portal.gs), when options.portalValues has it.
+ * Projects planned in the BA61 portal or the BA54 tracker with no PR in EASi yet are added
+ * from those sheets (Planned.gs, Portal.gs, Ba54.gs), when the options carry them.
  */
 
 /**
@@ -19,7 +19,9 @@
  * @param {Array[]} buildingValues  The Buildings tab (the header row is found by "Building Number").
  * @param {Array[]} orgValues       The Org Relationships tab (optional).
  * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes,
- *                                    portalValues (the BA61 portal's Projects tab), portalUrl, corNames }
+ *                                    portalValues (the BA61 portal's Projects tab), portalUrl,
+ *                                    ba54Values (the BA54 tracker's Current Program tab), ba54Link,
+ *                                    nameEmails (Script property NAME_EMAILS) }
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   options = options || {};
@@ -30,9 +32,10 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   var header = (pipelineValues && pipelineValues[0]) || [];
   var col = headerIndex_(header, PIPELINE_HEADERS);
   if (col.prNumber === -1) throw new Error('The pipeline report has no "PR_Number" column. Check that the tab is the EASi Pipeline table.');
-  // Every PR number, and the portal numbers PRs carry, in any zone: what the BA61 portal has in EASi.
-  // And everyone named on a PR anywhere, to match portal CORs (written as names) to emails.
-  var inEasi = { eq: {}, mentioned: {} };
+  // What is in EASi, from every PR in any zone: PR numbers, the portal numbers PRs carry, and
+  // project codes with the PRs' fiscal years. And everyone named on a PR anywhere, to match the
+  // names the BA61 portal and BA54 tracker give to emails.
+  var inEasi = { eq: {}, mentioned: {}, codes: {} };
   var known = [];
 
   for (var i = 1; i < pipelineValues.length; i++) {
@@ -43,6 +46,8 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     var title = str_(get('title'));
     inEasi.eq[number] = true;
     portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { inEasi.mentioned[n] = true; });
+    var prFy = fiscalYear_(get('fiscalYear'));
+    codeList_(get('projectCodes')).forEach(function (c) { (inEasi.codes[c] = inEasi.codes[c] || []).push(prFy); });
     known = known.concat(parseEmailList_(get('cor')), parseEmailList_(get('requestor')));
     var place = placeOf_(get('buildingCodes'), title, get('orgCodes'), directory);
     if (!place.offices.length && !place.serviceCenters.length) {
@@ -54,19 +59,23 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
 
   known = known.concat(Object.keys(directory.contacts));
   directory.offices.forEach(function (o) { if (o.manager) known.push(o.manager); });
-  var portal = portalProjects_(options.portalValues, inEasi, directory, known, str_(options.portalUrl), options.corNames);
+  known = known.concat(portalEmails_(options.portalValues), ba54Emails_(options.ba54Values));
+  var named = plannedPeople_(known, options.nameEmails);
+  var portal = portalProjects_(options.portalValues, inEasi, directory, named, str_(options.portalUrl));
+  var ba54 = ba54Projects_(options.ba54Values, inEasi, directory, named, str_(options.ba54Link));
   // A PR found through a portal project's EQ number shows that project's number too.
   prs.forEach(function (p) {
     (portal.matchedByEq[p.pr] || []).forEach(function (n) { if (p.portalNumbers.indexOf(n) === -1) p.portalNumbers.push(n); });
   });
-  prs = prs.concat(portal.projects);
+  var planned = portal.projects.concat(ba54.projects);
+  prs = prs.concat(planned);
   prs.sort(function (a, b) { return a.pr < b.pr ? -1 : a.pr > b.pr ? 1 : 0; });
 
-  // Everyone on a project: email -> name ('name:…' keys are portal CORs without a known email).
+  // Everyone on a project: email -> name ('name:…' keys are people the plans name without a known email).
   var people = {};
   prs.forEach(function (p) {
     ROLES.forEach(function (role) {
-      (p[role.key] || []).forEach(function (email) { if (!people[email]) people[email] = portal.names[email] || nameFromEmail_(email); });
+      (p[role.key] || []).forEach(function (email) { if (!people[email]) people[email] = named.names[email] || nameFromEmail_(email); });
     });
   });
 
@@ -95,7 +104,8 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     teamNames: TEAMS,
     prs: prs,
     portal: { read: !!(options.portalValues && options.portalValues.length > 1), url: str_(options.portalUrl), counts: portal.counts },
-    counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - portal.projects.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
+    ba54: { read: !!(options.ba54Values && options.ba54Values.length > 1), url: str_(options.ba54Link), counts: ba54.counts },
+    counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
 }
 

@@ -1,6 +1,6 @@
 """Converts the real source workbooks to JSON for local tests and the preview server.
 
-  python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json ["NEH BA61 Portal - Data.xlsx"]
+  python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json ["NEH BA61 Portal - Data.xlsx" ["BA54 National Tracker.xlsx"]]
 
 Download each Google Sheet with File > Download > Microsoft Excel (.xlsx) first.
 The output holds real data: keep it out of the repository (.gitignore blocks *.json).
@@ -21,7 +21,7 @@ def rows(ws):
     return out
 
 
-def main(pipeline_path, directory_path, out_path, portal_path=None):
+def main(pipeline_path, directory_path, out_path, portal_path=None, ba54_path=None):
     pipeline = openpyxl.load_workbook(pipeline_path, read_only=True, data_only=True)
     directory = openpyxl.load_workbook(directory_path, read_only=True, data_only=True)
     data = {
@@ -32,12 +32,14 @@ def main(pipeline_path, directory_path, out_path, portal_path=None):
     }
     if portal_path:
         data['portal'] = rows(openpyxl.load_workbook(portal_path, read_only=True, data_only=True)['Projects'])
+    if ba54_path:
+        data['ba54'] = rows(openpyxl.load_workbook(ba54_path, read_only=True, data_only=True)['Current Program'])
     with open(out_path, 'w') as f:
         json.dump(data, f)
     print('Wrote %s: %d pipeline rows, %d building rows' % (out_path, len(data['pipeline']) - 1, len(data['buildings'])))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (4, 5):
+    if len(sys.argv) not in (4, 5, 6):
         sys.exit(__doc__)
     main(*sys.argv[1:])
