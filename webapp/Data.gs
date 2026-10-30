@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 7;
+var DATASET_VERSION = 8;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -121,14 +121,15 @@ function refreshDataset_() {
   if (!buildingsTab) throw new Error('The building directory has no "' + setting_('DIRECTORY_TAB') + '" tab.');
   var orgTab = directory.getSheetByName(setting_('ORG_TAB'));
   var portal = readPlanTab_('PORTAL_ID', 'PORTAL_TAB', 'BA61 portal projects');
-  var ba54 = readPlanTab_('BA54_ID', 'BA54_TAB', 'BA54 tracker projects');
+  var ba54 = readPlanTab_('BA54_ID', 'BA54_TAB', 'BA54 tracker projects', 'Dashboard');
   var dataset = buildDataset_(
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
     orgTab ? orgTab.getDataRange().getValues() : [],
     { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
-      portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link,
+      portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link, ba54Updated: ba54.asOf,
+      pipelineLink: 'https://docs.google.com/spreadsheets/d/' + setting_('PIPELINE_ID') + '/edit', directoryLink: 'https://docs.google.com/spreadsheets/d/' + setting_('DIRECTORY_ID') + '/edit',
       nameEmails: setting_('NAME_EMAILS') }
   );
   try {
@@ -156,18 +157,38 @@ function refreshDataset_() {
  * no values when its ID setting is OFF. A sheet that can't be read leaves its projects out for
  * this build instead of failing it.
  */
-function readPlanTab_(idKey, tabKey, what) {
+function readPlanTab_(idKey, tabKey, what, asOfTab) {
   var id = setting_(idKey);
-  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '' };
+  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '', asOf: '' };
   try {
-    var tab = SpreadsheetApp.openById(id).getSheetByName(setting_(tabKey));
+    var ss = SpreadsheetApp.openById(id);
+    var tab = ss.getSheetByName(setting_(tabKey));
     if (!tab) throw new Error('no "' + setting_(tabKey) + '" tab');
     var gid = tab.getSheetId ? tab.getSheetId() : '';
-    return { values: tab.getDataRange().getValues(), link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + gid };
+    var asOf = '';
+    var dash = asOfTab && ss.getSheetByName(asOfTab);
+    if (dash) asOf = asOfDate_(dash.getRange(1, 1, 12, 16).getValues());
+    return { values: tab.getDataRange().getValues(), link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + gid, asOf: asOf };
   } catch (e) {
     console.warn(what + ' not read: ' + e);
-    return { values: [], link: '' };
+    return { values: [], link: '', asOf: '' };
   }
+}
+
+/** The date after an "… as of" label in a sheet's top rows ("Obligation Data As of | 10/30/2026"), as yyyy-mm-dd. */
+function asOfDate_(values) {
+  for (var r = 0; r < values.length; r++) {
+    for (var c = 0; c < values[r].length - 1; c++) {
+      if (!/\bas of\b/i.test(str_(values[r][c]))) continue;
+      for (var k = c + 1; k < values[r].length; k++) {
+        if (!isDateValue_(values[r][k])) continue;
+        // A date-only cell is midnight in the sheet's time zone; noon of it is the same day anywhere in the US.
+        var d = new Date(values[r][k].getTime() + 12 * 3600 * 1000);
+        return d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
+      }
+    }
+  }
+  return '';
 }
 
 function isDateValue_(value) {

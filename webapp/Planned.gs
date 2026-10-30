@@ -106,6 +106,7 @@ function plannedRecord_(f) {
     placeNote: place.buildings.length ? '' : 'plan-office',
     state: '', officeCode: '', projectCodes: f.projectCodes || [], rwas: [],
     portalNumbers: f.portalNumbers || [],
+    plans: [],
     comments: '',
     subprojects: [],
     units: 1,

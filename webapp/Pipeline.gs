@@ -45,9 +45,9 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     if (!number) continue;
     var title = str_(get('title'));
     inEasi.eq[number] = true;
-    portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { inEasi.mentioned[n] = true; });
+    portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { (inEasi.mentioned[n] = inEasi.mentioned[n] || []).push(number); });
     var prFy = fiscalYear_(get('fiscalYear'));
-    codeList_(get('projectCodes')).forEach(function (c) { (inEasi.codes[c] = inEasi.codes[c] || []).push(prFy); });
+    codeList_(get('projectCodes')).forEach(function (c) { (inEasi.codes[c] = inEasi.codes[c] || []).push({ pr: number, fy: prFy }); });
     known = known.concat(parseEmailList_(get('cor')), parseEmailList_(get('requestor')));
     var place = placeOf_(get('buildingCodes'), title, get('orgCodes'), directory);
     if (!place.offices.length && !place.serviceCenters.length) {
@@ -63,9 +63,16 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   var named = plannedPeople_(known, options.nameEmails);
   var portal = portalProjects_(options.portalValues, inEasi, directory, named, str_(options.portalUrl));
   var ba54 = ba54Projects_(options.ba54Values, inEasi, directory, named, str_(options.ba54Link));
-  // A PR found through a portal project's EQ number shows that project's number too.
+  // A PR carrying a planned project shows the plan next to what EASi says (plan vs. actual).
+  var plansByPr = {};
+  portal.plans.concat(ba54.plans).forEach(function (m) {
+    m.prs.forEach(function (n) { (plansByPr[n] = plansByPr[n] || []).push(m.plan); });
+  });
   prs.forEach(function (p) {
-    (portal.matchedByEq[p.pr] || []).forEach(function (n) { if (p.portalNumbers.indexOf(n) === -1) p.portalNumbers.push(n); });
+    p.plans = plansByPr[p.pr] || [];
+    p.plans.forEach(function (plan) {
+      if (plan.source === 'portal' && p.portalNumbers.indexOf(plan.id) === -1) p.portalNumbers.push(plan.id);
+    });
   });
   var planned = portal.projects.concat(ba54.projects);
   prs = prs.concat(planned);
@@ -105,6 +112,13 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     prs: prs,
     portal: { read: !!(options.portalValues && options.portalValues.length > 1), url: str_(options.portalUrl), counts: portal.counts },
     ba54: { read: !!(options.ba54Values && options.ba54Values.length > 1), url: str_(options.ba54Link), counts: ba54.counts },
+    // Where everything comes from, and how fresh each part is.
+    sources: [
+      { key: 'easi', name: 'EASi BA61 Pipeline report', gives: 'Every purchase request in EASi, from draft to paid in full', updated: str_(options.generatedAt), rows: Math.max(0, pipelineValues.length - 1), link: str_(options.pipelineLink) },
+      { key: 'directory', name: 'OFM Building Assignments', gives: 'Which zone, service center and field office each building is in, and its building managers', updated: directory.updated, rows: Object.keys(directory.buildings).length, link: str_(options.directoryLink) },
+      { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved, before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: !!(options.portalValues && options.portalValues.length > 1) },
+      { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: !!(options.ba54Values && options.ba54Values.length > 1) }
+    ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
 }

@@ -44,14 +44,15 @@ function ba54Emails_(values) {
 /**
  * What the BA54 tracker adds to a dataset being built.
  * @param {Array[]} values     The Current Program tab ([] when not read).
- * @param {Object}  inEasi     { codes: { project code: [PR fiscal years] } } from every pipeline row.
+ * @param {Object}  inEasi     { codes: { project code: [{ pr, fy }] } } from every pipeline row.
  * @param {Object}  directory  From readDirectory_.
  * @param {Object}  people     From plannedPeople_.
  * @param {string}  rowLink    The tab's address; a row's link adds "&range=A<row>" ('' for none).
- * @return {{ projects: Object[], counts: Object }}
+ * @return {{ projects: Object[], plans: Object[], counts: Object }}
+ *   plans: { prs: [PR numbers], plan } for projects that are in EASi, so those PRs can show the plan.
  */
 function ba54Projects_(values, inEasi, directory, people, rowLink) {
-  var out = { projects: [], counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
+  var out = { projects: [], plans: [], counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
   if (!values || values.length < 2) return out;
   var found = ba54Columns_(values);
   if (!found || found.col.title === -1) throw new Error('The BA54 tracker tab has no "Building #" and "Project Title" columns.');
@@ -65,15 +66,25 @@ function ba54Projects_(values, inEasi, directory, people, rowLink) {
     if (!str_(get('buildings')) || !str_(get('title'))) continue;
     out.counts.rows++;
     var status = str_(get('status'));
-    if (/change order/i.test(str_(get('category'))) || (status && !/^(active|pending)$/i.test(status))) { out.counts.closed++; continue; }
     var fy = planFiscalYear_(get('fiscalYear'));
     var codes = uniqueList_([str_(get('pcn')).toUpperCase(), str_(get('asid')).toUpperCase()].filter(Boolean));
     // No PCN or ASID: one written in the title ("2nd Floor Plumbing Repairs - 31310 / RIL12174 / WI 1397").
     if (!codes.length) codes = uniqueList_(str_(get('title')).toUpperCase().match(BA54_CODE_IN_TITLE_RE) || []);
-    var inEasiNow = codes.some(function (c) {
-      return (inEasi.codes[c] || []).some(function (prFy) { return !fy || !prFy || prFy >= fy - 1; });
+    var prs = [];
+    codes.forEach(function (c) {
+      (inEasi.codes[c] || []).forEach(function (x) { if ((!fy || !x.fy || x.fy >= fy - 1) && prs.indexOf(x.pr) === -1) prs.push(x.pr); });
     });
-    if (inEasiNow) { out.counts.inEasi++; continue; }
+    if (prs.length) {
+      // In EASi (a change order too): its PRs show the plan.
+      out.plans.push({ prs: prs, plan: {
+        source: 'ba54', sourceLabel: 'BA54 tracker', id: codes[0], title: str_(get('title')), status: str_(get('category')) === 'Change Order' ? 'Change order' : status || 'Active',
+        estimate: money_(get('totalCost')) || 0, person: str_(get('projectManager')), fy: fy,
+        link: rowLink ? rowLink + '&range=A' + (i + 1) : '', how: 'PCN / ASID in the PR’s project codes'
+      } });
+      out.counts.inEasi++;
+      continue;
+    }
+    if (/change order/i.test(str_(get('category'))) || (status && !/^(active|pending)$/i.test(status))) { out.counts.closed++; continue; }
     var place = plannedPlace_(get('buildings'), get('office'), directory);
     if (!place) { out.counts.otherZones++; continue; }
 

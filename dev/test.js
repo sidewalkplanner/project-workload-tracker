@@ -253,6 +253,13 @@ test('BA61 portal: projects with no PR in EASi are added; ones in EASi are not r
   src.portal.slice(1, 6).forEach((r) => assert.ok(numbers.indexOf(r[1]) === -1, r[1] + ' is in EASi'));
   const byEq = d.prs.filter((p) => p.pr === src.pipeline[10][0])[0];
   assert.ok(byEq.portalNumbers.indexOf(src.portal[5][1]) !== -1, 'the EQ-matched PR shows its portal number');
+  // PRs carrying a portal project show the plan: number, status, budget, how it matched.
+  assert.strictEqual(byEq.plans[0].id, src.portal[5][1]);
+  assert.strictEqual(byEq.plans[0].estimate, src.portal[5][14]);
+  assert.strictEqual(byEq.plans[0].how, 'EQ number');
+  const byTitle = d.prs.filter((p) => p.pr === src.pipeline[1][0])[0];
+  assert.strictEqual(byTitle.plans[0].how, 'portal number in the PR');
+  assert.strictEqual(d.prs.filter((p) => !p.source && p.plans.some((x) => x.source === 'portal')).length, 5);
   // An EQ number that is really the portal number doesn't count as a PR.
   assert.ok(numbers.indexOf(src.portal[7][1]) !== -1);
   // Denied and Cancelled are left out; the rest get the planned stages.
@@ -324,6 +331,13 @@ test('BA54 tracker: current-program projects with no recent PR are added', () =>
   assert.strictEqual(ba54.length, 10);
   const numbers = ba54.map((p) => p.pr);
   assert.ok(numbers.indexOf('RCO90001') === -1, 'a recent PR has its project code');
+  const carrier = d.prs.filter((p) => !p.source && p.plans.some((x) => x.id === 'RCO90001'));
+  assert.strictEqual(carrier.length, 1, 'and that PR shows the BA54 plan');
+  assert.ok(d.prs.every((p) => !p.plans.some((x) => x.id === 'RCO90002')), 'an old PR on the code does not');
+  // Where this comes from: every source, with how fresh it is.
+  assert.deepStrictEqual(d.sources.map((s) => s.key), ['easi', 'directory', 'portal', 'ba54']);
+  assert.strictEqual(d.sources[3].updated, '2026-10-30');
+  assert.ok(d.sources.every((s) => s.rows > 0 && s.name && s.gives));
   assert.ok(numbers.indexOf('RCO90002') !== -1, 'a PR from years before the plan does not count');
   assert.ok(numbers.some((n) => /^Row \d+ \(no PCN\)$/.test(n)), 'a project with no PCN keeps its row');
   assert.ok(numbers.indexOf('RCO90004 (2)') !== -1, 'two phases on one code are two projects');

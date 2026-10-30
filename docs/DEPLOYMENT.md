@@ -1,4 +1,4 @@
-# Deploying the NEH Project Workload Tracker
+# Deploying NEH Projects
 
 About 15 minutes, all in the browser. Do this signed in with the GSA account that will own the app. That account must be able to open the four source sheets:
 
@@ -13,7 +13,7 @@ Open all four links first. If any says you need access, request it before going 
 ## 1. Create the Apps Script project
 
 1. Go to https://script.google.com and click **New project**.
-2. Click **Untitled project** at the top and name it **NEH Project Workload Tracker**.
+2. Click **Untitled project** at the top and name it **NEH Projects** (an existing project keeps whatever name it has; only the page title comes from the code).
 3. Click the gear (**Project Settings**) and tick **Show "appsscript.json" manifest file in editor**.
 
 ## 2. Let GitHub upload the files
@@ -36,7 +36,7 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to NEH Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the source sheets (and writes its own saved-snapshot sheet); it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to NEH Projects** (or the project's name), **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the source sheets (and writes its own saved-snapshot sheet); it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
 3. The log shows something like *"Set up: 3609 NEH PRs across 36 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
 If it says it can't open a document, your account can't open the pipeline report or the building directory (see the top of this page).
@@ -44,7 +44,7 @@ If it says it can't open a document, your account can't open the pipeline report
 ## 4. Deploy the web app
 
 1. **Deploy** › **New deployment**. Click the gear next to *Select type* and choose **Web app**.
-2. Description: `NEH Workload`.
+2. Description: `NEH Projects`.
 3. **Execute as: Me**. Viewers then see the data through your access and don't need access to the sheets themselves.
 4. **Who has access: Anyone within GSA** (your Google Workspace domain).
 5. **Deploy**, then copy the **Web app URL**. That is the link to share.

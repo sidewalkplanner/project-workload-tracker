@@ -15,7 +15,7 @@ var PORTAL_HEADERS = {
   office: 'Field Office', buildings: 'Building Number(s)', description: 'Project Description',
   priority: 'Priority', spendCategory: 'Spend Category', budget: 'Budgeted Amount', commitmentMonth: 'Commitment Month',
   cor: 'COR', eqNumber: 'EQ Number', requester: 'Requester Email', otherEmails: 'Additional POC Emails',
-  submittedAt: 'Submitted For Approval At', decidedAt: 'Decided At', createdAt: 'Created At'
+  submittedAt: 'Submitted For Approval At', decidedAt: 'Decided At', createdAt: 'Created At', updatedAt: 'Updated At'
 };
 
 /** Portal status -> the tracker's stage. Denied and Cancelled projects are left out. */
@@ -36,14 +36,15 @@ function portalEmails_(portalValues) {
 /**
  * What the portal adds to a dataset being built.
  * @param {Array[]} portalValues  The portal's Projects tab, header row first ([] when not read).
- * @param {Object}  inEasi        { eq: { PR number: true }, mentioned: { portal number: true } } from every pipeline row.
+ * @param {Object}  inEasi        { eq: { PR number: true }, mentioned: { portal number: [PR numbers] } } from every pipeline row.
  * @param {Object}  directory     From readDirectory_.
  * @param {Object}  people        From plannedPeople_.
  * @param {string}  portalUrl     The portal's /exec URL, for links ('' for none).
- * @return {{ projects: Object[], matchedByEq: Object, counts: Object }}
+ * @return {{ projects: Object[], plans: Object[], updated: string, counts: Object }}
+ *   plans: { prs: [PR numbers], plan } for projects that are in EASi, so those PRs can show the plan.
  */
 function portalProjects_(portalValues, inEasi, directory, people, portalUrl) {
-  var out = { projects: [], matchedByEq: {}, counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
+  var out = { projects: [], plans: [], updated: '', counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
   if (!portalValues || portalValues.length < 2) return out;
   var col = headerIndex_(portalValues[0], PORTAL_HEADERS);
   if (col.number === -1 || col.status === -1) throw new Error('The BA61 portal data sheet has no "Project Number" and "Status" columns on its Projects tab.');
@@ -55,15 +56,23 @@ function portalProjects_(portalValues, inEasi, directory, people, portalUrl) {
     var number = str_(get('number')).toUpperCase();
     if (!number) continue;
     out.counts.rows++;
-    var stage = PORTAL_STAGES[str_(get('status'))];
-    if (!stage) { out.counts.closed++; continue; }
+    var updated = pipelineDate_(get('updatedAt'));
+    if (updated > out.updated) out.updated = updated;
     var eq = str_(get('eqNumber')).toUpperCase();
-    var eqIsPr = !!eq && !portalNumber.test(eq);
-    if ((eqIsPr && inEasi.eq[eq]) || inEasi.mentioned[number]) {
-      if (eqIsPr && inEasi.eq[eq]) (out.matchedByEq[eq] = out.matchedByEq[eq] || []).push(number);
+    var prs = uniqueList_((!!eq && !portalNumber.test(eq) && inEasi.eq[eq] ? [eq] : []).concat(inEasi.mentioned[number] || []));
+    if (prs.length) {
+      // In EASi (whatever its portal status): its PRs show the plan.
+      out.plans.push({ prs: prs, plan: {
+        source: 'portal', sourceLabel: 'BA61 portal', id: number, title: str_(get('description')), status: str_(get('status')),
+        estimate: money_(get('budget')) || 0, person: str_(get('cor')), fy: planFiscalYear_(get('fiscalYear')),
+        link: portalUrl ? portalUrl + '?view=project&id=' + encodeURIComponent(number) : '',
+        how: eq && prs.indexOf(eq) !== -1 ? 'EQ number' : 'portal number in the PR'
+      } });
       out.counts.inEasi++;
       continue;
     }
+    var stage = PORTAL_STAGES[str_(get('status'))];
+    if (!stage) { out.counts.closed++; continue; }
     var place = plannedPlace_(get('buildings'), get('office'), directory);
     if (!place) { out.counts.otherZones++; continue; }
     out.projects.push(plannedRecord_({
