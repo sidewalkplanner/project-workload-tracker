@@ -26,7 +26,8 @@ test('demo: only PRs on NEH buildings are kept, across its zones', () => {
   assert.ok(d.offices.every((o) => ['2', '4', '5'].indexOf(o.zone) !== -1));
   assert.ok(d.prs.every((p) => p.zones.length === 1));
   assert.strictEqual(d.counts.pipelineRows, 422);
-  assert.strictEqual(d.prs.length, 420);
+  assert.strictEqual(d.prs.filter((p) => !p.source).length, 420);
+  assert.strictEqual(d.counts.zonePrs, 420);
   assert.strictEqual(d.counts.otherZones, 1);
   assert.strictEqual(d.counts.noBuilding, 1);
   assert.ok(d.prs.every((p) => p.offices.length === 1 && p.serviceCenters.length === 1));
@@ -118,7 +119,7 @@ test('an emptied cache is refilled from the saved copy, not rebuilt; the page ca
   const reads = rt.state.reads;
   Object.keys(rt.cache).forEach((k) => delete rt.cache[k]);
   const d = load(rt).data;
-  assert.strictEqual(d.prs.length, 30);
+  assert.strictEqual(d.prs.filter((p) => !p.source).length, 30);
   assert.strictEqual(rt.state.reads, reads, 'no source sheet was read again');
   assert.ok(Number(rt.cache[rt.ctx.CACHE_PREFIX + 'n']) >= 1, 'the cache was refilled');
   const page = rt.ctx.doGet({ parameter: {} }).content;
@@ -239,6 +240,68 @@ test('roles: building contacts are building managers; org codes are only shown',
   rt.setUser('owner@gsa.gov');
   rt.ctx.apiRefresh();
   assert.strictEqual(rt.state.directoryCalls, calls, 'a refresh within the week reuses the stored codes');
+});
+
+test('BA61 portal: projects with no PR in EASi are added; ones in EASi are not repeated', () => {
+  const src = demoSources();
+  const d = load(runtimeWith(src)).data;
+  const portal = d.prs.filter((p) => p.source === 'portal');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.portal.counts)), { rows: 60, inEasi: 5, notInEasi: 43, otherZones: 0, closed: 12 });
+  assert.strictEqual(portal.length, 43);
+  // Matched by the portal number in a PR title (4) or by the EQ number (1): never listed twice.
+  const numbers = portal.map((p) => p.pr);
+  src.portal.slice(1, 6).forEach((r) => assert.ok(numbers.indexOf(r[1]) === -1, r[1] + ' is in EASi'));
+  const byEq = d.prs.filter((p) => p.pr === src.pipeline[10][0])[0];
+  assert.ok(byEq.portalNumbers.indexOf(src.portal[5][1]) !== -1, 'the EQ-matched PR shows its portal number');
+  // An EQ number that is really the portal number doesn't count as a PR.
+  assert.ok(numbers.indexOf(src.portal[7][1]) !== -1);
+  // Denied and Cancelled are left out; the rest get the planned stages.
+  assert.ok(portal.every((p) => ['planning', 'pending', 'noPr'].indexOf(p.stage) !== -1));
+  assert.ok(d.stages.filter((s) => s.group === 'planned').length === 3 && d.stages[0].group === 'planned');
+  // Money is the portal budget, apart from EASi's committed amounts.
+  assert.ok(portal.every((p) => p.estimate > 0 && p.committed === 0 && p.programs[0] === 'PG61'));
+  assert.ok(portal.every((p) => p.offices.length === 1 && p.buildings.length === 1 && p.buildingManager.length));
+  assert.ok(/\?view=project&id=/.test(portal[0].link));
+  // CORs written as names become the person's email; an unknown name is kept as written.
+  const named = portal.filter((p) => p.cor.length && p.cor[0].indexOf('@') !== -1);
+  assert.ok(named.length > 30);
+  named.forEach((p) => assert.strictEqual(p.lead[0], p.cor[0]));
+  const unknown = portal.filter((p) => p.cor[0] === 'name:pat unlisted');
+  assert.strictEqual(unknown.length, 1);
+  assert.strictEqual(d.people['name:pat unlisted'], 'Pat Unlisted');
+  // No COR yet: the submitter (the portal's requester) is the person assigned.
+  portal.filter((p) => !p.cor.length).forEach((p) => assert.deepStrictEqual(p.lead.slice(), p.requestor.slice()));
+});
+
+test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
+  const rt = runtimeWith(demoSources(5));
+  const idx = rt.ctx.personIndex_(['robert.sells@gsa.gov', 'india.stewart@gsa.gov', 'india.stewart@gsa.com', 'luis.ramirez-figueroa@gsa.gov',
+    'christopher.oneill@gsa.gov', 'temesgen.wolday@gsa.gov', 'robert.smith@gsa.gov', 'robert.l.smith@gsa.gov', 'shelly.baxter@gsa.gov',
+    'juan.juarez@gsa.gov', 'dana.cole@gsa.gov', 'dana.cale@gsa.gov']);
+  assert.strictEqual(idx.find('Bobby Sells'), 'robert.sells@gsa.gov');
+  assert.strictEqual(idx.find('India Stewart'), 'india.stewart@gsa.gov');
+  assert.strictEqual(idx.find('Luis Ramirez'), 'luis.ramirez-figueroa@gsa.gov');
+  assert.strictEqual(idx.find("Christopher O'Neill"), 'christopher.oneill@gsa.gov');
+  assert.strictEqual(idx.find('Taz Wolday'), 'temesgen.wolday@gsa.gov');
+  assert.strictEqual(idx.find('Robert Smith'), '', 'two people fit: no guess');
+  assert.strictEqual(idx.find('Shelly Baxer'), 'shelly.baxter@gsa.gov', 'a dropped letter');
+  assert.strictEqual(idx.find('Juan Jurez'), 'juan.juarez@gsa.gov');
+  assert.strictEqual(idx.find('Shelly Bxtaer'), '', 'more than one slip: no guess');
+  assert.strictEqual(idx.find('Dana Cole'), 'dana.cole@gsa.gov');
+  assert.strictEqual(idx.find('Dana Cble'), '', 'one slip from two people: no guess');
+  assert.strictEqual(idx.find('Pat Baxter'), '', 'the first name must match');
+  ['baxter|baxer', 'baxter|baxtre', 'baxter|baxters', 'baxter|bexter'].forEach((pair) => assert.ok(rt.ctx.oneEditApart_(...pair.split('|')), pair));
+  ['baxter|baxter', 'baxter|bxtaer', 'baxter|baxt'].forEach((pair) => assert.ok(!rt.ctx.oneEditApart_(...pair.split('|')), pair));
+  assert.strictEqual(rt.ctx.portalFiscalYear_('FY27'), 2027);
+  // PORTAL_ID OFF: no portal projects, and the page hides the portal parts.
+  const off = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_ID: 'OFF' } });
+  const d = JSON.parse(off.ctx.apiLoad()).data;
+  assert.strictEqual(d.portal.read, false);
+  assert.ok(d.prs.every((p) => !p.source));
+  // A portal the deployer can't open leaves its projects out instead of failing the build.
+  const src = demoSources();
+  delete src.portal;
+  assert.ok(load(runtimeWith(src)).data.prs.length === 420);
 });
 
 test('helpers: dates, money, names, emails', () => {

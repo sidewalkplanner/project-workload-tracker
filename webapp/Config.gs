@@ -18,6 +18,11 @@ var SETTINGS_DEFAULTS = {
   DIRECTORY_ID: '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw',
   DIRECTORY_TAB: 'Buildings',
   ORG_TAB: 'Org Relationships',
+  // The NEH BA61 Project Portal's data sheet: BA61 projects planned or approved there but not in EASi yet.
+  // PORTAL_ID set to OFF leaves them out. PORTAL_URL is the portal's web app, for links to each project.
+  PORTAL_ID: '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y',
+  PORTAL_TAB: 'Projects',
+  PORTAL_URL: 'https://script.google.com/a/macros/gsa.gov/s/AKfycby4r1bIis1ceoCNXZYVbJt8HEhJPVcHoUKel04omZKgytSaG5K7sPCRjUWBZ1a0bVCu/exec',
   // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
   ENTERPRISE: 'Northeast Heartland',
   ENTERPRISE_SHORT: 'NEH',
@@ -55,10 +60,14 @@ var PROGRAMS = [
 ];
 
 /**
- * Where a PR is, in order. "group" drives the Open / Pre-award / Awarded filters.
+ * Where a project is, in order. "group" drives the status filters. The "planned" stages are
+ * BA61 portal projects with no PR in EASi yet (Portal.gs).
  * Fully expended = awarded and Pegasys shows the whole obligation spent (or nothing was obligated).
  */
 var STAGES = [
+  { key: 'planning', label: 'Planning in the BA61 portal (no PR in EASi yet)', short: 'Planning', group: 'planned' },
+  { key: 'pending', label: 'Waiting for approval in the BA61 portal (no PR in EASi yet)', short: 'Waiting for approval', group: 'planned' },
+  { key: 'noPr', label: 'Approved in the BA61 portal, no PR in EASi yet', short: 'Approved, no PR yet', group: 'planned' },
   { key: 'draft', label: 'PR being written (draft in EASi)', short: 'Draft PR', group: 'preaward' },
   { key: 'review', label: 'PR in review', short: 'PR in review', group: 'preaward' },
   { key: 'approved', label: 'PR approved, waiting for a contract specialist', short: 'Waiting for contracting', group: 'preaward' },

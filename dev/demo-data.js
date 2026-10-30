@@ -94,8 +94,32 @@ function demoSources(count) {
   pipeline.push(['EQNAT-26-0001', 'National broker lease', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 0, 0, 'n/a', 'n/a', 'n/a', 'n/a', 'Active Award - in Awarded or Open-Exception Status', 'DC', 'PRBA', 2026, 'Approved', 'n/a', 'n/a', 'Awarded', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'Other', 'n/a', 'Other', null, '']);
   pipeline.push(['EQ10P-26-0001', 'Seattle repair', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 0, 5000, 'n/a', 'n/a', 'n/a', 'n/a', 'PR Approved, Pending Assignment', 'WA', 'PMBE', 2026, 'Approved', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'WA0001ZZ', 'n/a', 'PG61', 'n/a', 'n/a', 'n/a', 'n/a', 'Other', 'n/a', 'Other', null, '']);
 
+  // The BA61 portal's Projects tab: FY27 projects, most with no PR in EASi yet. A few are in
+  // EASi already (their number in a PR title, or a PR number as the EQ number), so they don't repeat.
+  const portalHeader = ['Project ID', 'Project Number', 'Status', 'Request Type', 'Fiscal Year', 'Service Center', 'Field Office Code', 'Field Office', 'Building Number(s)',
+    'Building Name', 'Building Manager', 'Project Description', 'Priority', 'Spend Category', 'Budgeted Amount', 'Commitment Month', 'COR', 'EQ Number', 'Requester Email',
+    'Additional POC Emails', 'Submitted For Approval At', 'Decided At', 'Created At'];
+  const portal = [portalHeader];
+  const portalStatuses = ['Planning', 'Planning', 'Approved', 'Approved', 'Approved', 'Pending Approval', 'Emergency NTP', 'Denied', 'Cancelled'];
+  const nameOf = (email) => email.split('@')[0].split('.').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  for (let n = 0; n < 60; n++) {
+    const o = pick(OFFICES);
+    const staff = officeStaff[o[1]];
+    const b = pick(officeBuildings[o[1]]);
+    const number = o[3] + String(100 + n).padStart(4, '0') + '-100126';
+    const status = portalStatuses[n % portalStatuses.length];
+    const cor = n === 5 ? 'Pat Unlisted' : n % 7 === 3 ? '' : nameOf(pick(staff));
+    let eq = '';
+    if (n < 4 && pipeline[1 + n]) pipeline[1 + n][1] += ' ' + number;           // In EASi: the PR title has the portal number.
+    else if (n === 4 && pipeline[10]) eq = pipeline[10][0];                  // In EASi: the EQ number is a PR number.
+    else if (n === 6) eq = number;                           // An EQ number that is really the portal number: not a PR.
+    portal.push(['id-' + n, number, status, status === 'Emergency NTP' ? 'Emergency' : 'Standard', 'FY27', o[0], o[2], o[1], b, 'Federal Building', '',
+      pick(WORK) + ' (portal)', 'Critical Must Fund', 'Building Support', Math.round(5000 + rand() * 150000), 'January', cor, eq, pick(staff), '',
+      '2026-10-02T15:00:00.000Z', status === 'Approved' ? '2026-10-06T15:00:00.000Z' : '', '2026-10-01T15:00:00.000Z']);
+  }
+
   const reportInfo = [['Report Name', 'BA61 Pipeline'], ['Generated At', '2026-10-29T12:08:31.000Z']];
-  return { pipeline, reportInfo, buildings, org };
+  return { pipeline, reportInfo, buildings, org, portal };
 }
 
 /**
