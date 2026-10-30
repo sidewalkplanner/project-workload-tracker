@@ -32,7 +32,8 @@
   --ba80: #eb6834;
   --ba54: #1baf7a;
   --other: #8d9297;
-  /* Stage groups (ordinal blue: pre-award lighter, awarded darker) */
+  /* Stage groups (ordinal blue: not in EASi lightest, pre-award lighter, awarded darker) */
+  --planned: #a9cbf3;
   --preaward: #5598e7;
   --awarded: #104281;
   --expended: #c6cace;
@@ -52,7 +53,7 @@
     --navy: #0c1a2e; --navy-2: #15294a;
     --warning: #f2c55c; --warning-soft: #2c240e; --success: #4fbf7c; --success-soft: #11291c;
     --ba61: #3987e5; --ba80: #d95926; --ba54: #199e70; --other: #6b737d;
-    --preaward: #2a78d6; --awarded: #b7d3f6; --expended: #3d444d; --bar-track: #252a31;
+    --planned: #1f4d86; --preaward: #2a78d6; --awarded: #b7d3f6; --expended: #3d444d; --bar-track: #252a31;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4); --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
   }
 }
@@ -65,7 +66,7 @@
   --navy: #0c1a2e; --navy-2: #15294a;
   --warning: #f2c55c; --warning-soft: #2c240e; --success: #4fbf7c; --success-soft: #11291c;
   --ba61: #3987e5; --ba80: #d95926; --ba54: #199e70; --other: #6b737d;
-  --preaward: #2a78d6; --awarded: #b7d3f6; --expended: #3d444d; --bar-track: #252a31;
+  --planned: #1f4d86; --preaward: #2a78d6; --awarded: #b7d3f6; --expended: #3d444d; --bar-track: #252a31;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4); --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
 }
 
@@ -161,6 +162,7 @@ input[type="search"] { width: 230px; }
 
 /* ---------- Summary strip ---------- */
 .summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 16px; }
+.summary.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .stat { padding: 16px 20px; min-width: 0; text-align: left; border: 0; background: transparent; font: inherit; color: inherit; }
 .stat.clickable { cursor: pointer; display: flex; flex-direction: column; justify-content: flex-start; }
 .stat.clickable:hover { background: var(--surface-2); }
@@ -178,6 +180,8 @@ input[type="search"] { width: 230px; }
 .hbar-label { font-size: 14px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar-track { height: 14px; display: flex; gap: 2px; position: relative; }
 .hbars.people .hbar { grid-template-columns: minmax(150px, 240px) minmax(0, 1fr) 40px; }
+.hbars-title { padding: 6px 20px 0; font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.hbars-title + .hbars { padding-top: 0; }
 .hbars.after { border-top: 1px solid var(--line); margin: 0 20px; padding: 8px 0 14px; }
 .hbars.after .hbar { grid-template-columns: 190px minmax(0, 1fr) 64px; }
 .hbar-note { font-size: 13px; color: var(--ink-3); }
@@ -204,6 +208,8 @@ table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { padding: 8px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 thead th { position: sticky; top: 0; background: var(--surface-2); font-size: 13px; color: var(--ink-2); font-weight: 600; white-space: nowrap; z-index: 1; }
 th.sortable { cursor: pointer; user-select: none; }
+/* Two-word number headings ("Not in EASi", "Left to spend") may take two lines so wide tables fit. */
+thead th.num { white-space: normal; vertical-align: bottom; }
 th.sortable:hover { color: var(--primary); }
 .th-inner { display: inline-flex; align-items: center; gap: 2px; }
 th.num .th-inner { justify-content: flex-end; }
@@ -284,6 +290,11 @@ td.title-cell .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orie
   .summary .stat { border-left: 0; border-top: 1px solid var(--line); padding: 12px 14px; }
   .summary .stat:first-child { grid-column: 1 / -1; border-top: 0; }
   .summary .stat:nth-child(odd):not(:first-child) { border-left: 1px solid var(--line); }
+  .summary.six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary.six .stat:first-child { grid-column: auto; }
+  .summary.six .stat:nth-child(2) { border-top: 0; }
+  .summary.six .stat:nth-child(odd):not(:first-child) { border-left: 0; }
+  .summary.six .stat:nth-child(even) { border-left: 1px solid var(--line); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .hbar, .hbars.after .hbar { grid-template-columns: 130px minmax(0, 1fr) 52px; }
   .hbars.people .hbar { grid-template-columns: minmax(110px, 150px) minmax(0, 1fr) 36px; }

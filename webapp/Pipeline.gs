@@ -9,13 +9,17 @@
  * numbers written in the PR title. A PR with no building but an in-scope OFM org code
  * (P00MCF00 = Heartland, P00MCA00 = New England, ...) is kept under its service center.
  * A PR on buildings in several field offices is listed under each of them.
+ *
+ * BA61 portal projects with no PR in EASi yet are added from the portal's Projects tab
+ * (Portal.gs), when options.portalValues has it.
  */
 
 /**
  * @param {Array[]} pipelineValues  The Pipeline tab, header row first.
  * @param {Array[]} buildingValues  The Buildings tab (the header row is found by "Building Number").
  * @param {Array[]} orgValues       The Org Relationships tab (optional).
- * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes }
+ * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes,
+ *                                    portalValues (the BA61 portal's Projects tab), portalUrl }
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   options = options || {};
@@ -26,6 +30,10 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   var header = (pipelineValues && pipelineValues[0]) || [];
   var col = headerIndex_(header, PIPELINE_HEADERS);
   if (col.prNumber === -1) throw new Error('The pipeline report has no "PR_Number" column. Check that the tab is the EASi Pipeline table.');
+  // Every PR number, and the portal numbers PRs carry, in any zone: what the BA61 portal has in EASi.
+  // And everyone named on a PR anywhere, to match portal CORs (written as names) to emails.
+  var inEasi = { eq: {}, mentioned: {} };
+  var known = [];
 
   for (var i = 1; i < pipelineValues.length; i++) {
     var row = pipelineValues[i];
@@ -33,6 +41,9 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     var number = str_(get('prNumber')).toUpperCase();
     if (!number) continue;
     var title = str_(get('title'));
+    inEasi.eq[number] = true;
+    portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { inEasi.mentioned[n] = true; });
+    known = known.concat(parseEmailList_(get('cor')), parseEmailList_(get('requestor')));
     var place = placeOf_(get('buildingCodes'), title, get('orgCodes'), directory);
     if (!place.offices.length && !place.serviceCenters.length) {
       if (place.known) skipped.otherZones++; else skipped.noBuilding++;
@@ -40,12 +51,22 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     }
     prs.push(prFromRow_(get, number, title, place, directory));
   }
+
+  known = known.concat(Object.keys(directory.contacts));
+  directory.offices.forEach(function (o) { if (o.manager) known.push(o.manager); });
+  var portal = portalProjects_(options.portalValues, inEasi, directory, known, str_(options.portalUrl));
+  // A PR found through a portal project's EQ number shows that project's number too.
+  prs.forEach(function (p) {
+    (portal.matchedByEq[p.pr] || []).forEach(function (n) { if (p.portalNumbers.indexOf(n) === -1) p.portalNumbers.push(n); });
+  });
+  prs = prs.concat(portal.projects);
   prs.sort(function (a, b) { return a.pr < b.pr ? -1 : a.pr > b.pr ? 1 : 0; });
 
+  // Everyone on a project: email -> name ('name:…' keys are portal CORs without a known email).
   var people = {};
   prs.forEach(function (p) {
     ROLES.forEach(function (role) {
-      (p[role.key] || []).forEach(function (email) { if (!people[email]) people[email] = nameFromEmail_(email); });
+      (p[role.key] || []).forEach(function (email) { if (!people[email]) people[email] = portal.names[email] || nameFromEmail_(email); });
     });
   });
 
@@ -73,7 +94,8 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     teams: teams,
     teamNames: TEAMS,
     prs: prs,
-    counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
+    portal: { read: !!(options.portalValues && options.portalValues.length > 1), url: str_(options.portalUrl), counts: portal.counts },
+    counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - portal.projects.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
 }
 
@@ -277,7 +299,7 @@ function prFromRow_(get, number, title, place, directory) {
     officeCode: na_(get('officeCode')),
     projectCodes: codeList_(get('projectCodes')),
     rwas: codeList_(get('rwas')).map(function (v) { return v.replace(/\.0$/, ''); }),
-    portalNumbers: uniqueList_(title.toUpperCase().match(PORTAL_NUMBER_RE) || []),
+    portalNumbers: portalNumbersIn_(title + ' ' + str_(get('comments'))),
     comments: str_(get('comments'))
   };
   place.buildings.forEach(function (b) {
@@ -357,6 +379,11 @@ function zoneOf_(value) {
 function codeList_(value) {
   return uniqueList_(na_(value).split(/[,;\s]+/).map(function (v) { return v.trim().toUpperCase(); })
     .filter(function (v) { return v && v !== 'N/A'; }));
+}
+
+/** Portal numbers (RM0024-092426) written in a PR's title or comments. */
+function portalNumbersIn_(text) {
+  return uniqueList_(str_(text).toUpperCase().match(PORTAL_NUMBER_RE) || []);
 }
 
 function uniqueList_(list) {

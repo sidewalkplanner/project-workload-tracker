@@ -1,11 +1,12 @@
 # Deploying the NEH Project Workload Tracker
 
-About 15 minutes, all in the browser. Do this signed in with the GSA account that will own the app. That account must be able to open both source sheets:
+About 15 minutes, all in the browser. Do this signed in with the GSA account that will own the app. That account must be able to open the three source sheets:
 
 - **WLT - BA61 Pipeline**: https://docs.google.com/spreadsheets/d/1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU
 - **OFM Building Assignments**: https://docs.google.com/spreadsheets/d/1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw
+- **NEH BA61 Portal – Data** (the BA61 Project Portal's own sheet, for projects not in EASi yet): https://docs.google.com/spreadsheets/d/1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y
 
-Open both links first. If either says you need access, request it before going on.
+Open all three links first. If any says you need access, request it before going on. Without the portal sheet the tracker still works; it just leaves out the projects that are not in EASi yet.
 
 ## 1. Create the Apps Script project
 
@@ -33,10 +34,10 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to NEH Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to NEH Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the source sheets (and writes its own saved-snapshot sheet); it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
 3. The log shows something like *"Set up: 3609 NEH PRs across 36 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
-If it says it can't open a document, your account can't open one of the two sheets (see the top of this page).
+If it says it can't open a document, your account can't open the pipeline report or the building directory (see the top of this page).
 
 ## 4. Deploy the web app
 
@@ -87,14 +88,17 @@ All optional, in **Project Settings** › **Script properties**:
 - `ADMIN_EMAILS`: comma-separated emails that may press **Refresh** any time (everyone else: once every 10 minutes).
 - `ZONE`: track only one zone (for example `5`); blank covers the whole enterprise.
 - `BUILDING_MANAGER_EMAILS`, `PROJECT_MANAGER_EMAILS`: comma-separated emails that correct someone's role in the building manager / project manager split.
-- `PIPELINE_ID`, `DIRECTORY_ID`: point at other copies of the two sheets.
+- `PIPELINE_ID`, `DIRECTORY_ID`, `PORTAL_ID`: point at other copies of the sheets. `PORTAL_ID` set to `OFF` leaves out the BA61 portal projects that are not in EASi yet.
+- `PORTAL_URL`: the BA61 Project Portal's web app address, if it moves (links to each portal project use it).
 - `CACHE_MINUTES`: how long a snapshot is reused (maximum 360).
 
 ## If something goes wrong
 
 | What you see | What to do |
 |---|---|
-| "You do not have permission to access the requested document" | The deploying account lost access to one of the two sheets. Ask the sheet owner to share it again (viewer is enough). |
+| "You do not have permission to access the requested document" | The deploying account lost access to the pipeline report or the building directory. Ask the sheet owner to share it again (viewer is enough). |
 | "The pipeline report has no "Pipeline" tab" | The report's layout changed. Set `PIPELINE_TAB` to the new tab name. |
 | Numbers look a day old | Press **Refresh**. If they are still old, open the pipeline sheet and check its *Report Info* › *Generated At*. The tracker can only be as fresh as the report. |
+| No "Not in EASi yet" status | The deploying account can't open the BA61 portal's data sheet (the execution log says "BA61 portal projects not read"). Share it with that account, then press **Refresh**. |
+| A portal project still shows "Not in EASi yet" after its PR was written | The PR's title needs the portal number (for example RM0024-092426), or the project's EQ number in the portal needs to be the PR number. The portal asks requesters to do the first. |
 | An office or person is missing | Offices come from the OFM Building Assignments sheet, so a PR only shows up once its building is assigned to an NEH office there. PRs with no building in EASi are matched only if a building number is in the title. |

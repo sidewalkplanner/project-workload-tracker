@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 5;
+var DATASET_VERSION = 6;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -100,7 +100,7 @@ function gunzipText_(base64) {
   return Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(base64), 'application/x-gzip')).getDataAsString();
 }
 
-/** Reads both sheets, builds the dataset and caches it. Returns the dataset JSON (a string). */
+/** Reads the source sheets, builds the dataset and caches it. Returns the dataset JSON (a string). */
 function refreshDataset_() {
   var started = Date.now();
   var pipeline = SpreadsheetApp.openById(setting_('PIPELINE_ID'));
@@ -120,15 +120,17 @@ function refreshDataset_() {
   var buildingsTab = directory.getSheetByName(setting_('DIRECTORY_TAB'));
   if (!buildingsTab) throw new Error('The building directory has no "' + setting_('DIRECTORY_TAB') + '" tab.');
   var orgTab = directory.getSheetByName(setting_('ORG_TAB'));
+  var portalValues = readPortal_();
   var dataset = buildDataset_(
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
     orgTab ? orgTab.getDataRange().getValues() : [],
     { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
-      buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS') }
+      buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
+      portalValues: portalValues, portalUrl: setting_('PORTAL_URL') }
   );
   try {
-    applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people)));
+    applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people).filter(function (k) { return k.indexOf('@') !== -1; })));
   } catch (e) {
     // Teams still come from the building contacts; only org codes are missing.
     console.warn('Org codes not read from the directory: ' + e);
@@ -145,6 +147,23 @@ function refreshDataset_() {
   } catch (e) { console.warn('Could not record the refresh: ' + e); }
   console.log('Built the ' + dataset.scopeLabel + ' snapshot: ' + dataset.prs.length + ' PRs in ' + dataset.buildSeconds + ' s.');
   return json;
+}
+
+/**
+ * The BA61 portal's Projects tab, or [] when PORTAL_ID is OFF. A portal that can't be read
+ * leaves its projects out for this build instead of failing it.
+ */
+function readPortal_() {
+  var id = setting_('PORTAL_ID');
+  if (!id || /^(off|none|no)$/i.test(id)) return [];
+  try {
+    var tab = SpreadsheetApp.openById(id).getSheetByName(setting_('PORTAL_TAB'));
+    if (!tab) throw new Error('no "' + setting_('PORTAL_TAB') + '" tab');
+    return tab.getDataRange().getValues();
+  } catch (e) {
+    console.warn('BA61 portal projects not read: ' + e);
+    return [];
+  }
 }
 
 function isDateValue_(value) {

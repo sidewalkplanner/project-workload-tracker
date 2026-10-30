@@ -162,13 +162,16 @@ function createRuntime(opts) {
 function sheetsFrom(sources) {
   const pipelineId = '1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU';
   const directoryId = '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw';
+  const portalId = '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y';
   const tabs = { Pipeline: sources.pipeline };
   if (sources.reportInfo && sources.reportInfo.length) {
     tabs['Report Info'] = sources.reportInfo.map((r) => r.map((v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? new Date(v) : v)));
   }
   return {
     [pipelineId]: tabs,
-    [directoryId]: { Buildings: sources.buildings, 'Org Relationships': sources.org || [] }
+    [directoryId]: { Buildings: sources.buildings, 'Org Relationships': sources.org || [] },
+    // The BA61 portal's data sheet, when the sources include it.
+    ...(sources.portal ? { [portalId]: { Projects: sources.portal } } : {})
   };
 }
 
