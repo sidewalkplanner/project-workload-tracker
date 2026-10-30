@@ -293,6 +293,14 @@ test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   ['baxter|baxer', 'baxter|baxtre', 'baxter|baxters', 'baxter|bexter'].forEach((pair) => assert.ok(rt.ctx.oneEditApart_(...pair.split('|')), pair));
   ['baxter|baxter', 'baxter|bxtaer', 'baxter|baxt'].forEach((pair) => assert.ok(!rt.ctx.oneEditApart_(...pair.split('|')), pair));
   assert.strictEqual(rt.ctx.portalFiscalYear_('FY27'), 2027);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(rt.ctx.corAliases_('Pat Unlisted = Pat.Former@gsa.gov;\n Lee  Q. Smith: lee.jones@gsa.gov; junk; = x@gsa.gov'))),
+    { 'pat unlisted': 'pat.former@gsa.gov', 'lee smith': 'lee.jones@gsa.gov' });
+  // PORTAL_COR_EMAILS ties a name the matching can't work out to its email.
+  const aliased = JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_COR_EMAILS: 'Pat Unlisted = pat.former@gsa.gov' } }).ctx.apiLoad()).data;
+  const pat = aliased.prs.filter((p) => p.source && p.cor[0] === 'pat.former@gsa.gov');
+  assert.strictEqual(pat.length, 1);
+  assert.strictEqual(pat[0].lead[0], 'pat.former@gsa.gov');
+  assert.ok(!aliased.people['name:pat unlisted']);
   // PORTAL_ID OFF: no portal projects, and the page hides the portal parts.
   const off = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_ID: 'OFF' } });
   const d = JSON.parse(off.ctx.apiLoad()).data;

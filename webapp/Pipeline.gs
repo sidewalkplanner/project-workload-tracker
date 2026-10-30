@@ -19,7 +19,7 @@
  * @param {Array[]} buildingValues  The Buildings tab (the header row is found by "Building Number").
  * @param {Array[]} orgValues       The Org Relationships tab (optional).
  * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes,
- *                                    portalValues (the BA61 portal's Projects tab), portalUrl }
+ *                                    portalValues (the BA61 portal's Projects tab), portalUrl, corNames }
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   options = options || {};
@@ -54,7 +54,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
 
   known = known.concat(Object.keys(directory.contacts));
   directory.offices.forEach(function (o) { if (o.manager) known.push(o.manager); });
-  var portal = portalProjects_(options.portalValues, inEasi, directory, known, str_(options.portalUrl));
+  var portal = portalProjects_(options.portalValues, inEasi, directory, known, str_(options.portalUrl), options.corNames);
   // A PR found through a portal project's EQ number shows that project's number too.
   prs.forEach(function (p) {
     (portal.matchedByEq[p.pr] || []).forEach(function (n) { if (p.portalNumbers.indexOf(n) === -1) p.portalNumbers.push(n); });

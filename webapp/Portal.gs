@@ -53,9 +53,11 @@ var NICKNAMES = {
  * @param {Object}  directory     From readDirectory_.
  * @param {string[]} knownEmails  Everyone the tracker already knows (to turn COR names into emails).
  * @param {string}  portalUrl     The portal's /exec URL, for links ('' for none).
+ * @param {string}  corNames      Script property PORTAL_COR_EMAILS: "Name = email; Name = email" for names
+ *                                the matching can't work out (someone whose name changed but email didn't).
  * @return {{ projects: Object[], names: Object, matchedByEq: Object, counts: Object }}
  */
-function portalProjects_(portalValues, inEasi, directory, knownEmails, portalUrl) {
+function portalProjects_(portalValues, inEasi, directory, knownEmails, portalUrl, corNames) {
   var out = { projects: [], names: {}, matchedByEq: {}, counts: { rows: 0, inEasi: 0, notInEasi: 0, otherZones: 0, closed: 0 } };
   if (!portalValues || portalValues.length < 2) return out;
   var col = headerIndex_(portalValues[0], PORTAL_HEADERS);
@@ -67,6 +69,7 @@ function portalProjects_(portalValues, inEasi, directory, knownEmails, portalUrl
     if (col.otherEmails !== -1) emails = emails.concat(parseEmailList_(portalValues[r][col.otherEmails]));
   }
   var index = personIndex_(emails);
+  var aliases = corAliases_(corNames);
 
   for (var i = 1; i < portalValues.length; i++) {
     var row = portalValues[i];
@@ -95,7 +98,7 @@ function portalProjects_(portalValues, inEasi, directory, knownEmails, portalUrl
     var corText = str_(get('cor'));
     var cor = [];
     if (corText && !/^(unknown|tbd|n\/?a|none)$/i.test(corText)) {
-      var corEmail = parseEmailList_(corText)[0] || index.find(corText);
+      var corEmail = parseEmailList_(corText)[0] || aliases[normName_(corText)] || index.find(corText);
       if (corEmail) cor = [corEmail];
       else {
         // A name the tracker can't tie to an email: kept as written.
@@ -152,6 +155,17 @@ function portalProjects_(portalValues, inEasi, directory, knownEmails, portalUrl
     out.projects.push(p);
     out.counts.notInEasi++;
   }
+  return out;
+}
+
+/** "Jane Doe = jane.smith@gsa.gov; ..." -> { 'jane doe': 'jane.smith@gsa.gov' } (lines or semicolons). */
+function corAliases_(text) {
+  var out = {};
+  str_(text).split(/[;\n]+/).forEach(function (pair) {
+    var m = /^(.*?)[=:]\s*(\S+@\S+)\s*$/.exec(pair.trim());
+    var email = m && parseEmailList_(m[2])[0];
+    if (email && normName_(m[1])) out[normName_(m[1])] = email;
+  });
   return out;
 }
 

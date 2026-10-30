@@ -23,6 +23,8 @@ var SETTINGS_DEFAULTS = {
   PORTAL_ID: '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y',
   PORTAL_TAB: 'Projects',
   PORTAL_URL: 'https://script.google.com/a/macros/gsa.gov/s/AKfycby4r1bIis1ceoCNXZYVbJt8HEhJPVcHoUKel04omZKgytSaG5K7sPCRjUWBZ1a0bVCu/exec',
+  // Portal COR names the tracker can't match to an email on its own: "Name = email; Name = email".
+  PORTAL_COR_EMAILS: '',
   // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
   ENTERPRISE: 'Northeast Heartland',
   ENTERPRISE_SHORT: 'NEH',

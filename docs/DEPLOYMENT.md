@@ -90,6 +90,7 @@ All optional, in **Project Settings** › **Script properties**:
 - `BUILDING_MANAGER_EMAILS`, `PROJECT_MANAGER_EMAILS`: comma-separated emails that correct someone's role in the building manager / project manager split.
 - `PIPELINE_ID`, `DIRECTORY_ID`, `PORTAL_ID`: point at other copies of the sheets. `PORTAL_ID` set to `OFF` leaves out the BA61 portal projects that are not in EASi yet.
 - `PORTAL_URL`: the BA61 Project Portal's web app address, if it moves (links to each portal project use it).
+- `PORTAL_COR_EMAILS`: portal COR names the tracker can't match to an email itself, as `Name = email; Name = email`. For someone whose name changed but whose email didn't. Press **Refresh** after changing it.
 - `CACHE_MINUTES`: how long a snapshot is reused (maximum 360).
 
 ## If something goes wrong

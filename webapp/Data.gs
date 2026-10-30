@@ -127,7 +127,7 @@ function refreshDataset_() {
     orgTab ? orgTab.getDataRange().getValues() : [],
     { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
-      portalValues: portalValues, portalUrl: setting_('PORTAL_URL') }
+      portalValues: portalValues, portalUrl: setting_('PORTAL_URL'), corNames: setting_('PORTAL_COR_EMAILS') }
   );
   try {
     applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people).filter(function (k) { return k.indexOf('@') !== -1; })));
