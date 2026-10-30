@@ -362,7 +362,6 @@ function overviewView() {
   var list = filtered();
   var t = totalsOf(list);
   var wrap = h('div', { class: 'stack' });
-  wrap.appendChild(h('p', { class: 'tip' }, icon('info'), 'Pick your field office, then click any number, bar or name to see the projects behind it.'));
   var leads = workloadRows(list, 'lead', false).filter(function (r) { return r.email; });
   leads.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
   var avg = leads.length ? leads.reduce(function (s, r) { return s + r.count; }, 0) / leads.length : 0;
