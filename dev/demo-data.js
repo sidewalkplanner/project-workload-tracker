@@ -118,8 +118,60 @@ function demoSources(count) {
       '2026-10-02T15:00:00.000Z', status === 'Approved' ? '2026-10-06T15:00:00.000Z' : '', '2026-10-01T15:00:00.000Z']);
   }
 
+  // The BA54 National Tracker's Current Program tab: a heading row, the header row, a section row,
+  // then projects. One has a recent PR with its PCN, one only a PR from years ago.
+  const ba54Header = ['Division', 'Asset Manager', 'Project Manager', 'Contracting Officer', 'Responsible Division', null, 'Building #', 'Building Name', 'City', 'State',
+    'Core Designation', 'Non-Core Appeal', 'Field Office', 'Service Center', 'PBS Zone', 'OAM Zone', null, 'Project Title', 'Project Description', 'Category',
+    'Divisional Priority Ranking', 'Project Status', 'Project Type', 'ABT Comments\n\nFormat: MM/DD/YY: Comment', 'Planned FY', 'PPS', 'PCN', 'ASID', 'WI', 'Kahua Project # & Status',
+    'Kahua Internal Status', null, 'Study Amount', 'Design Amount', 'Construction Amount', 'M&I Amount', 'Total Cost', 'Divisional PT Authorized', 'Reserved', 'Committed',
+    'Obligated', 'Balance\n(Outstanding Committed Amount)', null, 'Estimated / Actual PR Routing Date', 'Estimated / Actual Award Date'];
+  const ba54 = [['People', null, null, null, null, null, 'Building'], ba54Header, ['Heartland', null, 'Heartland']];
+  const col54 = (name) => ba54Header.indexOf(name);
+  const recent = pipeline.findIndex((r, i) => i > 0 && r[17] >= 2026);
+  const old = pipeline.findIndex((r, i) => i > 0 && r[17] <= 2024);
+  if (recent > 0) pipeline[recent][27] = 'RCO90001';
+  if (old > 0) pipeline[old][27] = 'RCO90002';
+  const co = OFFICES[6];  // Colorado
+  const coStaff = officeStaff[co[1]];
+  const ba54Rows = [
+    // [PCN, status, category, building, project manager, authorized]
+    ['RCO90001', 'Active', 'Discretionary', null, nameOf(coStaff[0]), 0],
+    ['RCO90002', 'Active', 'Discretionary', null, nameOf(coStaff[1]), 0],
+    ['', 'Active', 'Discretionary', null, nameOf(coStaff[2]), 0],
+    ['RCO90004', 'Active', 'Non Discretionary', null, nameOf(coStaff[3]) + ' (design)', 0],
+    ['RCO90004', 'Active', 'Discretionary', null, nameOf(coStaff[3]), 0],
+    ['RCO90005', 'Active', 'Discretionary', null, nameOf(coStaff[4]) + ' (PM) & ' + nameOf(coStaff[5]) + ' (COR)', 0],
+    ['RCO90006', 'Pending', 'Discretionary', null, nameOf(coStaff[0]), 0],
+    ['RCO90007', 'Active', 'Discretionary', null, nameOf(coStaff[1]), 250000],
+    ['RCO90008', 'Active', 'Discretionary', null, '', 0],
+    ['RCO90009', 'Active', 'Discretionary', null, nameOf(coStaff[2]), 0],
+    ['RCO90010', 'Pending', 'Non Discretionary', null, nameOf(coStaff[3]), 0],
+    ['RCO90011', 'Active', 'Change Order', null, nameOf(coStaff[4]), 0],
+    ['RCO90012', 'Complete', 'Discretionary', null, nameOf(coStaff[5]), 0],
+    ['RWA90013', 'Active', 'Discretionary', 'WA0001ZZ', 'Pat Seattle', 0]
+  ];
+  ba54Rows.forEach((x, n) => {
+    const row = new Array(ba54Header.length).fill(null);
+    row[col54('Division')] = 'West & Rocky Mountains';
+    row[col54('Asset Manager')] = 'lee.rockies@gsa.gov';
+    row[col54('Project Manager')] = x[4] || null;
+    row[col54('Building #')] = x[3] || pick(officeBuildings[co[1]]);
+    row[col54('Field Office')] = x[3] ? 'Seattle Field Office' : co[1];
+    row[col54('Project Title')] = pick(WORK) + ' (BA54)';
+    row[col54('Category')] = x[2];
+    row[col54('Project Status')] = x[1];
+    row[col54('Project Type')] = n % 2 ? 'Construction' : 'Design';
+    row[col54('Planned FY')] = 2027;
+    row[col54('PCN')] = x[0] || null;
+    row[col54('ASID')] = x[0] || null;
+    row[col54('Total Cost')] = Math.round(40000 + rand() * 900000);
+    row[col54('Divisional PT Authorized')] = x[5];
+    row[col54('Estimated / Actual PR Routing Date')] = n % 3 ? 'January' : null;
+    ba54.push(row);
+  });
+
   const reportInfo = [['Report Name', 'BA61 Pipeline'], ['Generated At', '2026-10-29T12:08:31.000Z']];
-  return { pipeline, reportInfo, buildings, org, portal };
+  return { pipeline, reportInfo, buildings, org, portal, ba54 };
 }
 
 /**

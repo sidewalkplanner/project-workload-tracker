@@ -1,10 +1,11 @@
 # NEH Project Workload Tracker
 
-A Google Apps Script web app that shows the EASi status of every project in the OFM **Northeast & Heartland (NEH) enterprise**: Zones 2, 4 and 5, seven service centers, 36 field offices. It also shows who is carrying them. It covers the same area as the NEH BA61 Project Portal, the "Northeast Heartland" enterprise in the OFM Building Assignments sheet. It reads three Google Sheets and never changes them:
+A Google Apps Script web app that shows the EASi status of every project in the OFM **Northeast & Heartland (NEH) enterprise**: Zones 2, 4 and 5, seven service centers, 36 field offices. It also shows who is carrying them. It covers the same area as the NEH BA61 Project Portal, the "Northeast Heartland" enterprise in the OFM Building Assignments sheet. It reads four Google Sheets and never changes them:
 
 - the APS Workload Tracker **BA61 Pipeline** report (every purchase request in EASi, refreshed each morning),
-- the **OFM Building Assignments** sheet (which zone, service center and field office each building belongs to, and its Field Office Manager), and
-- the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet.
+- the **OFM Building Assignments** sheet (which zone, service center and field office each building belongs to, and its Field Office Manager),
+- the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet, and
+- the **BA54 National Tracker** (its Current Program tab), for BA54 projects in the current program that have no PR in EASi yet.
 
 > **Setting it up?** Follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It takes about 15 minutes in the browser, with nothing to install.
 
@@ -33,7 +34,7 @@ A Google Apps Script web app that shows the EASi status of every project in the 
 
 | Term | Meaning |
 |---|---|
-| Not in EASi yet | A BA61 Project Portal project that is Planning, Pending Approval, Approved or Emergency NTP, and that no PR in EASi carries yet: no PR has its portal number (RM0024-092426) in its title or comments, and its EQ number is not a PR in the report. That is the same rule the portal's own EASi sync uses, so a project leaves this group, and shows its EASi status instead, the morning its PR appears. Each one counts as one open project for its COR (or its requester until a COR is named) at its building's field office. Its money is the portal's **budgeted amount**, an estimate, shown as "budgeted" and never added to EASi's committed, obligated or left-to-spend totals. The portal gives CORs as names; the tracker matches a name to the person's email when exactly one person on the PRs or in the building directory fits it (full name, a common nickname such as Bobby for Robert, or first initial and last name), and otherwise shows the name as written. Untick **Include BA61 portal projects not in EASi yet** under More filters to count only what is in EASi. |
+| Not in EASi yet | A project that is planned or approved but that no PR in EASi carries yet, from two sheets. **BA61 portal:** Planning, Pending Approval, Approved or Emergency NTP projects, when no PR has the portal number (RM0024-092426) in its title or comments and the EQ number is not a PR in the report (the portal's own EASi sync rule). **BA54 tracker:** Active and Pending projects in the Current Program tab, when no PR from the project's planned fiscal year or the year before lists its PCN or ASID among its project codes (codes are reused for later phases, so an old PR on the same code doesn't count); change orders are left out, since they are money on an award that already exists. A project leaves this group, and shows its EASi status instead, the morning its PR appears. Each one counts as one open project at its building's field office, for its COR (BA61: the portal's COR, or the requester until there is one; BA54: the tracker's project manager, or the one marked "(COR)" when two are named). Its money is an estimate (the portal's budgeted amount, the tracker's total cost), shown as "estimated" and never added to EASi's committed, obligated or left-to-spend totals. Both sheets give people as names; the tracker matches a name to the person's email when exactly one person on the PRs or in the building directory fits it (full name, a common nickname such as Bobby for Robert, or first initial and last name), and otherwise shows the name as written. A cell naming two people ("A / B", "A & B") counts both, and notes like "(design)" or "- PMAC" are ignored. Names it can't work out (a name change, say) go in the `NAME_EMAILS` Script property. Untick **Include planned projects not in EASi yet** under More filters to count only what is in EASi. |
 | NEH PR | A PR with at least one NEH building in `FE_Building_Code_List`. When EASi lists no building, building numbers in the PR title are used. A PR with only an NEH OFM org code (P00MCA00 … P00MCG00) is shown at service-center level. PRs with no building at all (national contracts, broker leases) are left out. |
 | Service contracts | Hidden by default (the **Type** filter brings them back), because they aren't projects. A PR is a service contract when its EASi procurement category is a 5- or 10-year service IDV/BPA, utilities, ESPC or a lease order, or, for Services/Other PRs, when its title reads like a recurring service: custodial or janitorial services, snow removal, groundskeeping, full maintenance, O&M or FE services, CFM, elevator maintenance, option years. A title that names building work (replace, repair, install, renovate, construction, CM) stays a project, so "Janitor closet … leaking" and "Multi-Project O&M R&A" count. The project's detail panel says why a PR was classed as a service contract. The rules are in `webapp/Config.gs`. |
 | Multi-project PRs | One award that funds several projects is one PR in EASi. PRs listed in `SUB_PROJECTS` in `webapp/Config.gs` count as their number of projects everywhere (totals, pipeline, programs, offices, each person's workload); the table shows "8 projects" and the detail panel lists them. EQPMBA-26-0272 (Building 56 and 67 Multi-Project O&M R&A) is listed with its 8 DWP26104 projects. |
@@ -56,7 +57,7 @@ The server reads the sheets, keeps only NEH, and stores the result gzipped (abou
 |---|---|
 | `webapp/Config.gs` | Sheet IDs, zone, programs, stages, roles. Any setting can be overridden in Script properties. |
 | `webapp/Pipeline.gs` | Turns the sheets into the NEH dataset (pure functions, tested in Node). |
-| `webapp/Portal.gs` | Adds the BA61 portal projects that have no PR in EASi yet (pure functions, tested in Node). |
+| `webapp/Planned.gs`, `Portal.gs`, `Ba54.gs` | Add the BA61 portal and BA54 tracker projects that have no PR in EASi yet, and match the names in them to emails (pure functions, tested in Node). |
 | `webapp/Data.gs` | Reads the sheets, caches the snapshot, works out who is signed in. |
 | `webapp/Directory.gs` | Reads the signed-in person's org code from the GSA directory (People API) to pick their starting office; `checkDirectoryLookup()` tests it. |
 | `webapp/Api.gs` | The two functions the page calls: `apiLoad`, `apiRefresh`. |
@@ -76,6 +77,8 @@ The server reads the sheets, keeps only NEH, and stores the result gzipped (abou
 | `DIRECTORY_TAB` / `ORG_TAB` | `Buildings` / `Org Relationships` |
 | `PORTAL_ID` / `PORTAL_TAB` | `1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y` (NEH BA61 Portal – Data) / `Projects`; `OFF` leaves portal projects out |
 | `PORTAL_URL` | the portal's web app (`…/exec`), for links to each portal project |
+| `BA54_ID` / `BA54_TAB` | `1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8` (BA54 National Tracker) / `Current Program`; `OFF` leaves BA54 tracker projects out |
+| `NAME_EMAILS` | blank; names in the BA61 portal or BA54 tracker the tracker can't match on its own, as `Name = email; Name = email` (for example someone whose name changed but whose email didn't) |
 | `ENTERPRISE` / `ENTERPRISE_SHORT` | `Northeast Heartland` / `NEH` (any enterprise in the sheet works) |
 | `ZONE` | blank = the whole enterprise; `5` = only Zone 5 |
 | `BUILDING_MANAGER_EMAILS` / `PROJECT_MANAGER_EMAILS` | blank; comma-separated emails that correct the building manager / project manager split for individual people |
@@ -94,7 +97,7 @@ npm run preview          # http://localhost:8080 with made-up data; add ?as=sam.
 To test with the real sheets, download them as .xlsx (File › Download › Microsoft Excel), then:
 
 ```bash
-python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json "NEH BA61 Portal - Data.xlsx"
+python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json "NEH BA61 Portal - Data.xlsx" "BA54 National Tracker.xlsx"
 SOURCES_JSON=/tmp/sources.json npm test
 node dev/server.js --sources /tmp/sources.json
 node dev/flow.js http://localhost:8080          # clicks through filters, sorting, grouping, drill-downs, export

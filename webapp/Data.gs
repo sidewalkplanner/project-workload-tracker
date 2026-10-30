@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 6;
+var DATASET_VERSION = 7;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -120,14 +120,16 @@ function refreshDataset_() {
   var buildingsTab = directory.getSheetByName(setting_('DIRECTORY_TAB'));
   if (!buildingsTab) throw new Error('The building directory has no "' + setting_('DIRECTORY_TAB') + '" tab.');
   var orgTab = directory.getSheetByName(setting_('ORG_TAB'));
-  var portalValues = readPortal_();
+  var portal = readPlanTab_('PORTAL_ID', 'PORTAL_TAB', 'BA61 portal projects');
+  var ba54 = readPlanTab_('BA54_ID', 'BA54_TAB', 'BA54 tracker projects');
   var dataset = buildDataset_(
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
     orgTab ? orgTab.getDataRange().getValues() : [],
     { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
-      portalValues: portalValues, portalUrl: setting_('PORTAL_URL') }
+      portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link,
+      nameEmails: setting_('NAME_EMAILS') }
   );
   try {
     applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people).filter(function (k) { return k.indexOf('@') !== -1; })));
@@ -150,19 +152,21 @@ function refreshDataset_() {
 }
 
 /**
- * The BA61 portal's Projects tab, or [] when PORTAL_ID is OFF. A portal that can't be read
- * leaves its projects out for this build instead of failing it.
+ * A tab of one of the planning sheets (the BA61 portal, the BA54 tracker): { values, link }, or
+ * no values when its ID setting is OFF. A sheet that can't be read leaves its projects out for
+ * this build instead of failing it.
  */
-function readPortal_() {
-  var id = setting_('PORTAL_ID');
-  if (!id || /^(off|none|no)$/i.test(id)) return [];
+function readPlanTab_(idKey, tabKey, what) {
+  var id = setting_(idKey);
+  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '' };
   try {
-    var tab = SpreadsheetApp.openById(id).getSheetByName(setting_('PORTAL_TAB'));
-    if (!tab) throw new Error('no "' + setting_('PORTAL_TAB') + '" tab');
-    return tab.getDataRange().getValues();
+    var tab = SpreadsheetApp.openById(id).getSheetByName(setting_(tabKey));
+    if (!tab) throw new Error('no "' + setting_(tabKey) + '" tab');
+    var gid = tab.getSheetId ? tab.getSheetId() : '';
+    return { values: tab.getDataRange().getValues(), link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + gid };
   } catch (e) {
-    console.warn('BA61 portal projects not read: ' + e);
-    return [];
+    console.warn(what + ' not read: ' + e);
+    return { values: [], link: '' };
   }
 }
 
