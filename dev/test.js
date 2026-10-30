@@ -16,17 +16,28 @@ function runtimeWith(sources, user) {
 }
 function load(rt) { return JSON.parse(rt.ctx.apiLoad()); }
 
-test('demo: only Zone 5 PRs with a Zone 5 building are kept', () => {
+test('demo: only PRs on NEH buildings are kept, across its zones', () => {
   const res = load(runtimeWith(demoSources()));
   const d = res.data;
-  assert.strictEqual(d.zone, '5');
-  assert.strictEqual(d.offices.length, 12);
-  assert.strictEqual(d.serviceCenters.length, 2);
+  assert.strictEqual(d.scopeLabel, 'NEH');
+  assert.deepStrictEqual(d.zones.slice(), ['2', '4', '5']);
+  assert.strictEqual(d.offices.length, 14);
+  assert.strictEqual(d.serviceCenters.length, 4);
+  assert.ok(d.offices.every((o) => ['2', '4', '5'].indexOf(o.zone) !== -1));
+  assert.ok(d.prs.every((p) => p.zones.length === 1));
   assert.strictEqual(d.counts.pipelineRows, 422);
   assert.strictEqual(d.prs.length, 420);
   assert.strictEqual(d.counts.otherZones, 1);
   assert.strictEqual(d.counts.noBuilding, 1);
   assert.ok(d.prs.every((p) => p.offices.length === 1 && p.serviceCenters.length === 1));
+});
+
+test('the ZONE setting narrows the tracker to one zone', () => {
+  const rt = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { ZONE: '5' } });
+  const d = JSON.parse(rt.ctx.apiLoad()).data;
+  assert.strictEqual(d.scopeLabel, 'Zone 5');
+  assert.strictEqual(d.offices.length, 12);
+  assert.ok(d.prs.every((p) => p.zones[0] === '5'));
 });
 
 test('demo: stages, programs and amounts', () => {
@@ -181,7 +192,7 @@ test('a multi-project PR carries its sub-projects', () => {
   assert.ok(d.prs.filter((x) => x.pr !== 'EQPMBA-26-0272').every((x) => x.units === 1));
 });
 
-test('lead teams: org code first, building contacts without one', () => {
+test('roles: building contacts are building managers; org codes are only shown', () => {
   const src = demoSources();
   // No directory: building contacts are building managers, everyone else project managers.
   let d = load(runtimeWith(src)).data;
@@ -190,16 +201,20 @@ test('lead teams: org code first, building contacts without one', () => {
   assert.ok(Object.values(d.teams).includes('bm') && Object.values(d.teams).includes('pm'));
   assert.strictEqual(Object.keys(d.orgs).length, 0);
 
-  // With the directory: one sweep, codes decide (PM… = building management), stored for next time.
+  // With the directory: one sweep fills in org codes, which don't change anyone's role.
   const names = demoDirectory(src);
   const someone = Object.keys(d.people).find((e) => contacts.has(e));
-  names[someone] = 'Some One - PCDX';
+  names[someone] = 'Some One - PMCGP';
   const rt = createRuntime({ quiet: true, sheets: sheetsFrom(src), directoryNames: names, directoryPageSize: 50 });
   d = JSON.parse(rt.ctx.apiLoad()).data;
   assert.ok(rt.state.directoryCalls > 1, 'paged through the directory');
-  assert.strictEqual(d.orgs[someone], 'PCDX');
-  assert.strictEqual(d.teams[someone], 'pm', 'an org code outranks being a building contact');
-  Object.keys(d.orgs).forEach((e) => assert.strictEqual(d.teams[e], /^PM/.test(d.orgs[e]) ? 'bm' : 'pm'));
+  assert.strictEqual(d.orgs[someone], 'PMCGP');
+  assert.strictEqual(d.teams[someone], 'bm', 'a building contact stays a building manager');
+  const pmWithPmCode = Object.keys(d.people).find((e) => !contacts.has(e) && /^PM/.test(d.orgs[e] || 'PM'));
+  if (pmWithPmCode) assert.strictEqual(d.teams[pmWithPmCode], 'pm', 'a PM… org code alone does not make a building manager');
+  // Script properties correct individual people.
+  const fix = createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { PROJECT_MANAGER_EMAILS: someone } });
+  assert.strictEqual(JSON.parse(fix.ctx.apiLoad()).data.teams[someone], 'pm');
   assert.ok(Number(rt.props.ORG_CODES_N) >= 1);
   const calls = rt.state.directoryCalls;
   rt.setUser('owner@gsa.gov');
@@ -248,12 +263,13 @@ if (process.env.SOURCES_JSON) {
     d.prs.forEach((p) => p.offices.forEach((o) => { offices[o] = (offices[o] || 0) + 1; }));
     const stages = {};
     d.prs.forEach((p) => { stages[p.stage] = (stages[p.stage] || 0) + 1; });
-    console.log('    ' + d.prs.length + ' Zone 5 PRs of ' + d.counts.pipelineRows + ' · ' + Math.round(json.length / 1024) + ' KB · ' + (Date.now() - t0) + ' ms');
+    console.log('    ' + d.prs.length + ' NEH PRs of ' + d.counts.pipelineRows + ' · ' + Math.round(json.length / 1024) + ' KB · ' + (Date.now() - t0) + ' ms');
     console.log('    offices', JSON.stringify(offices));
     console.log('    stages', JSON.stringify(stages));
     console.log('    by title', d.prs.filter((p) => p.placeNote === 'title').length, '· by org', d.prs.filter((p) => p.placeNote === 'org').length);
-    assert.strictEqual(d.offices.length, 12);
-    assert.ok(d.prs.length > 800);
+    assert.strictEqual(d.offices.length, 36);
+    assert.deepStrictEqual(d.zones.slice(), ['2', '4', '5']);
+    assert.ok(d.prs.length > 2000);
     assert.ok(d.offices.every((o) => o.manager), 'every office has a manager');
   });
 }

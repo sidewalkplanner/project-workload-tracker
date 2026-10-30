@@ -1,7 +1,7 @@
 {
-  "name": "zone5-project-workload-tracker",
+  "name": "neh-project-workload-tracker",
   "private": true,
-  "description": "Zone 5 Project Workload Tracker (Google Apps Script web app) with local tests and preview",
+  "description": "NEH Project Workload Tracker (Google Apps Script web app) with local tests and preview",
   "scripts": {
     "test": "node dev/test.js",
     "preview": "node dev/server.js --port 8080"

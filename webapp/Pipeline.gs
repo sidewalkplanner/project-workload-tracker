@@ -1,12 +1,13 @@
 /**
  * Turns the EASi BA61 Pipeline report and the OFM Building Assignments sheet into the
- * Zone 5 dataset the page shows. Pure functions: they take sheet values (2-D arrays)
- * and return plain objects, so the tests run them in Node.
+ * dataset the page shows, for one enterprise (Northeast Heartland: Zones 2, 4 and 5) or
+ * one zone of it. Pure functions: they take sheet values (2-D arrays) and return plain
+ * objects, so the tests run them in Node.
  *
- * A PR belongs to Zone 5 when one of its buildings is a Zone 5 building in the OFM
- * Building Assignments sheet. Buildings come from FE_Building_Code_List; when that is
- * blank, from building numbers written in the PR title. A PR with no building but a
- * Zone 5 OFM org code (P00MCF00, P00MCG00) is kept under its service center.
+ * A PR is in scope when one of its buildings is in scope in the OFM Building Assignments
+ * sheet. Buildings come from FE_Building_Code_List; when that is blank, from building
+ * numbers written in the PR title. A PR with no building but an in-scope OFM org code
+ * (P00MCF00 = Heartland, P00MCA00 = New England, ...) is kept under its service center.
  * A PR on buildings in several field offices is listed under each of them.
  */
 
@@ -14,12 +15,12 @@
  * @param {Array[]} pipelineValues  The Pipeline tab, header row first.
  * @param {Array[]} buildingValues  The Buildings tab (the header row is found by "Building Number").
  * @param {Array[]} orgValues       The Org Relationships tab (optional).
- * @param {Object}  options         { zone: '5', generatedAt: ISO string }
+ * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes }
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   options = options || {};
-  var zone = str_(options.zone || '5');
-  var directory = readDirectory_(buildingValues, orgValues, zone);
+  var scope = { enterprise: str_(options.enterprise), zone: zoneOf_(options.zone) };
+  var directory = readDirectory_(buildingValues, orgValues, scope);
   var prs = [];
   var skipped = { otherZones: 0, noBuilding: 0 };
   var header = (pipelineValues && pipelineValues[0]) || [];
@@ -50,10 +51,15 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
 
   var orgs = options.orgCodes || {};
   var teams = {};
-  Object.keys(people).forEach(function (email) { teams[email] = teamFor_(orgs[email], !!directory.contacts[email]); });
+  var overrides = { bm: parseEmailList_(options.buildingManagers), pm: parseEmailList_(options.projectManagers) };
+  Object.keys(people).forEach(function (email) { teams[email] = teamFor_(email, !!directory.contacts[email], overrides); });
 
   return {
-    zone: zone,
+    enterprise: scope.enterprise,
+    zone: scope.zone,
+    zones: directory.zones,
+    // What the page calls the whole area: "NEH", or "Zone 5" when one zone is set.
+    scopeLabel: scope.zone ? 'Zone ' + scope.zone : (str_(options.short) || scope.enterprise || 'All zones'),
     generatedAt: str_(options.generatedAt),
     directoryUpdated: directory.updated,
     builtAt: new Date().toISOString(),
@@ -72,31 +78,37 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
 }
 
 /**
- * 'bm' (building management) or 'pm' (project management) for one person. An OFM org code
- * (PM…, "Robert Sells - PMCGC") is building management, any other code project management.
- * Without a code from the directory, a ServiceNow contact for a zone building is a building
- * manager and anyone else a project manager.
+ * 'bm' (building manager) or 'pm' (project manager) for one person. Building managers are
+ * the people ServiceNow lists for a building (primary or secondary contact, from the OFM
+ * Building Assignments sheet); everyone else is a project manager. Org codes are not used:
+ * project management groups under property management carry PM… codes too. Script
+ * properties BUILDING_MANAGER_EMAILS / PROJECT_MANAGER_EMAILS correct individual people.
  */
-function teamFor_(orgCode, isBuildingContact) {
-  var code = str_(orgCode).toUpperCase();
-  if (code) return /^PM/.test(code) ? 'bm' : 'pm';
+function teamFor_(email, isBuildingContact, overrides) {
+  overrides = overrides || {};
+  if ((overrides.pm || []).indexOf(email) !== -1) return 'pm';
+  if ((overrides.bm || []).indexOf(email) !== -1) return 'bm';
   return isBuildingContact ? 'bm' : 'pm';
 }
 
-/** Adds org codes found in the directory ({ email: code }) to a built dataset, updating teams. */
+/** Adds org codes found in the directory ({ email: code }) to a built dataset (shown, and sortable by division). */
 function applyOrgCodes_(dataset, codes) {
   Object.keys(dataset.people).forEach(function (email) {
     var code = str_(codes[email]).toUpperCase();
-    if (!code) return;
-    dataset.orgs[email] = code;
-    dataset.teams[email] = teamFor_(code, false);
+    if (code) dataset.orgs[email] = code;
   });
   return dataset;
 }
 
-/** Zone buildings, field offices and service centers from the OFM Building Assignments sheet. */
-function readDirectory_(buildingValues, orgValues, zone) {
-  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {}, contacts: {} };
+/** In-scope buildings, field offices and service centers from the OFM Building Assignments sheet. */
+function readDirectory_(buildingValues, orgValues, scope) {
+  if (typeof scope !== 'object' || scope === null) scope = { zone: zoneOf_(scope) };
+  var inScope = function (enterprise, zone) {
+    if (scope.enterprise && sameName_(enterprise, scope.enterprise) === false) return false;
+    if (scope.zone && zoneOf_(zone) !== scope.zone) return false;
+    return !!str_(zone) || !!str_(enterprise);
+  };
+  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {}, contacts: {}, zones: [] };
   buildingValues = buildingValues || [];
   var headerRow = -1;
   for (var r = 0; r < Math.min(buildingValues.length, 15); r++) {
@@ -111,7 +123,7 @@ function readDirectory_(buildingValues, orgValues, zone) {
   var c = function (name) { return h.indexOf(name); };
   var idx = {
     number: c('Building Number'), name: c('Building Name'), city: c('City'), state: c('State'), zone: c('Zone'),
-    sc: c('Service Center'), fo: c('Field Office'), dept: c('OFM Dept ID'), primary: c('ServiceNow Primary POC(s)'),
+    enterprise: c('Enterprise'), sc: c('Service Center'), fo: c('Field Office'), dept: c('OFM Dept ID'), primary: c('ServiceNow Primary POC(s)'),
     secondary: c('ServiceNow Secondary POC(s)')
   };
   if (idx.number === -1 || idx.fo === -1 || idx.zone === -1) throw new Error('The building directory is missing the Building Number, Zone or Field Office column.');
@@ -121,7 +133,8 @@ function readDirectory_(buildingValues, orgValues, zone) {
   for (var i = headerRow + 1; i < buildingValues.length; i++) {
     var row = buildingValues[i];
     var number = str_(row[idx.number]).toUpperCase();
-    if (!number || zoneOf_(row[idx.zone]) !== zone) continue;
+    if (!number || !inScope(idx.enterprise === -1 ? '' : row[idx.enterprise], row[idx.zone])) continue;
+    var zone = zoneOf_(row[idx.zone]);
     var foName = str_(row[idx.fo]);
     var scName = str_(row[idx.sc]);
     var dept = idx.dept === -1 ? '' : str_(row[idx.dept]).toUpperCase();
@@ -132,22 +145,24 @@ function readDirectory_(buildingValues, orgValues, zone) {
       state: str_(row[idx.state]).toUpperCase(),
       office: foName,
       serviceCenter: scName,
+      zone: zone,
       manager: idx.primary === -1 ? [] : parseEmailList_(row[idx.primary])
     };
     // Everyone ServiceNow lists for a zone building, primary or secondary: the building managers.
     out.buildings[number].manager.concat(idx.secondary === -1 ? [] : parseEmailList_(row[idx.secondary]))
       .forEach(function (e) { out.contacts[e] = true; });
-    if (foName && !offices[foName]) offices[foName] = { name: foName, short: shortOfficeName_(foName), serviceCenter: scName, code: dept, manager: '', director: '', buildings: 0 };
+    if (foName && !offices[foName]) offices[foName] = { name: foName, short: shortOfficeName_(foName), serviceCenter: scName, zone: zone, code: dept, manager: '', director: '', buildings: 0 };
     if (foName) {
       offices[foName].buildings++;
       if (!offices[foName].code && dept) offices[foName].code = dept;
     }
-    if (scName && !serviceCenters[scName]) serviceCenters[scName] = { name: scName, short: scName.replace(/ Service Center$/, ''), code: dept.slice(0, 4), director: '' };
+    if (scName && !serviceCenters[scName]) serviceCenters[scName] = { name: scName, short: scName.replace(/ Service Center$/, ''), zone: zone, code: dept.slice(0, 4), director: '' };
+    if (zone && out.zones.indexOf(zone) === -1) out.zones.push(zone);
   }
 
   (orgValues || []).forEach(function (row, n) {
     if (n === 0) return;
-    if (zoneOf_(row[1]) !== zone) return;
+    if (!inScope(row[0], row[1])) return;
     var fo = offices[str_(row[3])];
     var sc = serviceCenters[str_(row[2])];
     var director = parseEmailList_(row[4])[0] || '';
@@ -157,16 +172,17 @@ function readDirectory_(buildingValues, orgValues, zone) {
   });
 
   out.offices = Object.keys(offices).map(function (k) { return offices[k]; })
-    .sort(function (a, b) { return a.serviceCenter.localeCompare(b.serviceCenter) || a.name.localeCompare(b.name); });
+    .sort(function (a, b) { return a.zone.localeCompare(b.zone) || a.serviceCenter.localeCompare(b.serviceCenter) || a.name.localeCompare(b.name); });
   out.serviceCenters = Object.keys(serviceCenters).map(function (k) { return serviceCenters[k]; })
-    .sort(function (a, b) { return a.name.localeCompare(b.name); });
+    .sort(function (a, b) { return a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name); });
+  out.zones.sort();
   out.offices.forEach(function (o) { out.officeByName[o.name] = o; });
   out.serviceCenters.forEach(function (s) { if (s.code) out.scByCode[s.code] = s; });
   return out;
 }
 
 /**
- * Which Zone 5 buildings, field offices and service centers a PR is on.
+ * Which in-scope buildings, field offices and service centers a PR is on.
  * known = it named a building the directory knows (in any zone).
  */
 function placeOf_(buildingCodes, title, orgCodes, directory) {
@@ -194,8 +210,14 @@ function placeOf_(buildingCodes, title, orgCodes, directory) {
       if (sc && serviceCenters.indexOf(sc.name) === -1) { serviceCenters.push(sc.name); viaOrg = true; }
     });
   }
+  var zones = [];
+  buildings.forEach(function (b) { if (b.zone && zones.indexOf(b.zone) === -1) zones.push(b.zone); });
+  serviceCenters.forEach(function (name) {
+    var sc = directory.serviceCenters.filter(function (x) { return x.name === name; })[0];
+    if (sc && sc.zone && zones.indexOf(sc.zone) === -1) zones.push(sc.zone);
+  });
   return {
-    buildings: buildings, offices: offices, serviceCenters: serviceCenters,
+    buildings: buildings, offices: offices, serviceCenters: serviceCenters, zones: zones,
     fromTitle: fromTitle, viaOrg: viaOrg, known: listed.length > 0
   };
 }
@@ -249,6 +271,7 @@ function prFromRow_(get, number, title, place, directory) {
     buildingNames: place.buildings.map(function (b) { return b.name + (b.city ? ' · ' + b.city + ', ' + b.state : ''); }),
     offices: place.offices,
     serviceCenters: place.serviceCenters,
+    zones: place.zones,
     placeNote: place.viaOrg ? 'org' : place.fromTitle ? 'title' : '',
     state: na_(get('state')),
     officeCode: na_(get('officeCode')),
@@ -319,6 +342,11 @@ function headerIndex_(header, names) {
   var out = {};
   Object.keys(names).forEach(function (key) { out[key] = h.indexOf(names[key]); });
   return out;
+}
+
+/** Case- and spacing-insensitive name match ("Northeast Heartland" = "northeast  heartland"). */
+function sameName_(a, b) {
+  return str_(a).toLowerCase().replace(/\s+/g, ' ') === str_(b).toLowerCase().replace(/\s+/g, ' ');
 }
 
 function zoneOf_(value) {

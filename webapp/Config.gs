@@ -1,13 +1,13 @@
 /**
- * Zone 5 Project Workload Tracker — configuration.
+ * NEH Project Workload Tracker — configuration.
  *
  * Every value here can be overridden without touching code: Apps Script ›
  * Project Settings › Script properties, using the key names in SETTINGS_DEFAULTS.
  */
 
 var APP = {
-  name: 'Zone 5 Project Workload Tracker',
-  shortName: 'Zone 5 Workload'
+  name: 'NEH Project Workload Tracker',
+  shortName: 'NEH Workload'
 };
 
 var SETTINGS_DEFAULTS = {
@@ -18,7 +18,13 @@ var SETTINGS_DEFAULTS = {
   DIRECTORY_ID: '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw',
   DIRECTORY_TAB: 'Buildings',
   ORG_TAB: 'Org Relationships',
-  ZONE: '5',
+  // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
+  ENTERPRISE: 'Northeast Heartland',
+  ENTERPRISE_SHORT: 'NEH',
+  ZONE: '',
+  // Comma-separated emails to correct the building manager / project manager split for individual people.
+  BUILDING_MANAGER_EMAILS: '',
+  PROJECT_MANAGER_EMAILS: '',
   // Comma-separated emails that see the Admin tools (refresh status). The deployer always does.
   ADMIN_EMAILS: '',
   // How long a built snapshot is reused before the sources are read again (minutes, max 360).

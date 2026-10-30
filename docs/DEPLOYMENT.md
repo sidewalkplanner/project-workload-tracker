@@ -1,4 +1,4 @@
-# Deploying the Zone 5 Project Workload Tracker
+# Deploying the NEH Project Workload Tracker
 
 About 15 minutes, all in the browser. Do this signed in with the GSA account that will own the app. That account must be able to open both source sheets:
 
@@ -10,7 +10,7 @@ Open both links first. If either says you need access, request it before going o
 ## 1. Create the Apps Script project
 
 1. Go to https://script.google.com and click **New project**.
-2. Click **Untitled project** at the top and name it **Zone 5 Project Workload Tracker**.
+2. Click **Untitled project** at the top and name it **NEH Project Workload Tracker**.
 3. Click the gear (**Project Settings**) and tick **Show "appsscript.json" manifest file in editor**.
 
 ## 2. Let GitHub upload the files
@@ -33,15 +33,15 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to Zone 5 Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
-3. The log shows something like *"Set up: 874 Zone 5 PRs across 12 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to NEH Project Workload Tracker**, **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the two sheets; it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
+3. The log shows something like *"Set up: 3609 NEH PRs across 36 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
 If it says it can't open a document, your account can't open one of the two sheets (see the top of this page).
 
 ## 4. Deploy the web app
 
 1. **Deploy** › **New deployment**. Click the gear next to *Select type* and choose **Web app**.
-2. Description: `Zone 5 Workload`.
+2. Description: `NEH Workload`.
 3. **Execute as: Me**. Viewers then see the data through your access and don't need access to the sheets themselves.
 4. **Who has access: Anyone within GSA** (your Google Workspace domain).
 5. **Deploy**, then copy the **Web app URL**. That is the link to share.
@@ -55,12 +55,12 @@ Run **`checkDirectoryLookup`** in the editor (pick it next to **Run**). It logs 
 robert.sells@gsa.gov -> display name "Robert Sells - PMCGC", org code PMCGC, opens on Denver Federal Center Field Office
 ```
 
-The same directory also gives everyone's org code for the building manager / project manager split. It's read once a week in one sweep, so the first refresh after setup can take a little longer.
+The same directory also gives everyone's org code, shown in the People tab's Role column so people can be sorted by division. It's read once a week in one sweep, so the first refresh after setup can take a little longer.
 
-If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on all of Zone 5.
+If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on all of NEH.
 
 
-Open the link. You should see the Overview for all of Zone 5, or your own office if you are one of its Field Office Managers. Try clicking a field office row, a stage bar, and a name on the Workload tab.
+Open the link. You should see the Overview for all of NEH, or your own office if you are one of its Field Office Managers. Try clicking a field office row, a stage bar, and a name on the People tab.
 
 ## Automatic updates from GitHub
 
@@ -81,7 +81,8 @@ If the repo is ever made private, nothing changes: the workflow runs inside GitH
 All optional, in **Project Settings** › **Script properties**:
 
 - `ADMIN_EMAILS`: comma-separated emails that may press **Refresh** any time (everyone else: once every 10 minutes).
-- `ZONE`: a different OFM zone number to track.
+- `ZONE`: track only one zone (for example `5`); blank covers the whole enterprise.
+- `BUILDING_MANAGER_EMAILS`, `PROJECT_MANAGER_EMAILS`: comma-separated emails that correct someone's role in the building manager / project manager split.
 - `PIPELINE_ID`, `DIRECTORY_ID`: point at other copies of the two sheets.
 - `CACHE_MINUTES`: how long a snapshot is reused (maximum 360).
 
@@ -92,4 +93,4 @@ All optional, in **Project Settings** › **Script properties**:
 | "You do not have permission to access the requested document" | The deploying account lost access to one of the two sheets. Ask the sheet owner to share it again (viewer is enough). |
 | "The pipeline report has no "Pipeline" tab" | The report's layout changed. Set `PIPELINE_TAB` to the new tab name. |
 | Numbers look a day old | Press **Refresh**. If they are still old, open the pipeline sheet and check its *Report Info* › *Generated At*. The tracker can only be as fresh as the report. |
-| An office or person is missing | Offices come from the OFM Building Assignments sheet, so a PR only shows up once its building is assigned to a Zone 5 office there. PRs with no building in EASi are matched only if a building number is in the title. |
+| An office or person is missing | Offices come from the OFM Building Assignments sheet, so a PR only shows up once its building is assigned to an NEH office there. PRs with no building in EASi are matched only if a building number is in the title. |

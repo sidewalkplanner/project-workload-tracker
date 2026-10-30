@@ -4,7 +4,7 @@
  * the person's org code ("Robert Sells - PMCGC"); PMCGC is the OFM Dept ID of the
  * Denver Federal Center Field Office in the OFM Building Assignments sheet, and PMCG
  * its service center. Uses the People API advanced service; without it everyone simply
- * opens on the whole zone (Field Office Managers and Directors still get their own).
+ * opens on the whole enterprise (Field Office Managers and Directors still get their own).
  */
 
 // Facilities codes ("PMCGC") are recognised after any separator, other codes only after
@@ -56,7 +56,7 @@ function directoryProfile_(email, skipCache) {
   return profile;
 }
 
-/** The zone's field office or service center for an org code: PMCGC -> office, PMCG -> service center. */
+/** The field office or service center in scope for an org code: PMCGC -> office, PMCG -> service center. */
 function placeForOrgCode_(code, dataset) {
   var c = str_(code).toUpperCase();
   var out = { office: '', sc: '' };
@@ -86,7 +86,7 @@ function checkDirectoryLookup(emails) {
     var p = directoryProfile_(email, true);
     var place = placeForOrgCode_(p.orgCode, dataset);
     lines.push(email + ' -> display name "' + (p.displayName || '(not found)') + '", org code ' + (p.orgCode || '(none)') +
-      ', opens on ' + (place.office || place.sc || 'all of Zone ' + dataset.zone));
+      ', opens on ' + (place.office || place.sc || 'all of ' + dataset.scopeLabel));
   });
   var msg = lines.join('\n');
   console.log(msg);
@@ -94,7 +94,7 @@ function checkDirectoryLookup(emails) {
 }
 
 // ---------------------------------------------------------------------------
-// Org codes for everyone on the zone's PRs
+// Org codes for everyone on the PRs
 // ---------------------------------------------------------------------------
 
 var ORG_PROP = 'ORG_CODES';
@@ -137,7 +137,7 @@ function orgCodesFor_(emails) {
     complete = !token;
   } while (token && (Date.now() - started) / 1000 < ORG_SWEEP_SECONDS);
 
-  // Keep only people still on the zone's PRs; '' records "looked, no code" so they aren't looked for again.
+  // Keep only people still on the PRs; '' records "looked, no code" so they aren't looked for again.
   var codes = {};
   emails.forEach(function (e) { codes[e] = e in found ? found[e] : (complete ? '' : stored.codes[e]); });
   Object.keys(codes).forEach(function (e) { if (codes[e] === undefined) delete codes[e]; });

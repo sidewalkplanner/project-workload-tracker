@@ -16,9 +16,12 @@ const OFFICES = [
   ['Rocky Mountain Service Center', 'Denver Federal Center Field Office', 'PMCGC', 'CO', 'sam.foothills@gsa.gov'],
   ['Rocky Mountain Service Center', 'Minnesota Field Office', 'PMCGD', 'MN', 'skyler.lakes@gsa.gov'],
   ['Rocky Mountain Service Center', 'Oklahoma Field Office', 'PMCGE', 'OK', 'harper.redland@gsa.gov'],
-  ['Rocky Mountain Service Center', 'Utah High West Field Office', 'PMCGF', 'UT', 'emery.basin@gsa.gov']
+  ['Rocky Mountain Service Center', 'Utah High West Field Office', 'PMCGF', 'UT', 'emery.basin@gsa.gov'],
+  // One office each from Zones 2 and 4, so the demo covers the whole NEH enterprise.
+  ['New England Service Center', 'Boston Field Office', 'PMCAA', 'MA', 'morgan.harbor@gsa.gov', '2'],
+  ['Great Lakes Service Center', 'Chicago North Field Office', 'PMCDA', 'IL', 'jamie.lakefront@gsa.gov', '4']
 ];
-const DIRECTORS = { 'Heartland Service Center': 'pat.heartland@gsa.gov', 'Rocky Mountain Service Center': 'lee.rockies@gsa.gov' };
+const DIRECTORS = { 'Heartland Service Center': 'pat.heartland@gsa.gov', 'Rocky Mountain Service Center': 'lee.rockies@gsa.gov', 'New England Service Center': 'sam.commons@gsa.gov', 'Great Lakes Service Center': 'alex.prairie@gsa.gov' };
 const FIRST = ['Alex', 'Blair', 'Cameron', 'Drew', 'Elliot', 'Frankie', 'Gray', 'Hayden', 'Indy', 'Jesse', 'Kai', 'Logan', 'Marley', 'Noel', 'Oakley', 'Parker', 'Reese', 'Sage', 'Tatum', 'Wren'];
 const LAST = ['Adams', 'Brooks', 'Chavez', 'Diaz', 'Ellis', 'Foster', 'Garcia', 'Hughes', 'Ito', 'Jensen', 'Kim', 'Lopez', 'Moore', 'Nguyen', 'Ortiz', 'Patel'];
 const WORK = ['Replace boiler controls', 'Roof membrane repair', 'Fire alarm panel upgrade', 'LED lighting retrofit', 'Restroom accessibility upgrades', 'Snow removal services',
@@ -57,14 +60,14 @@ function demoSources(count) {
     for (let b = 0; b < 6; b++) {
       const num = o[3] + String(1000 + i * 10 + b).padStart(4, '0') + 'ZZ';
       officeBuildings[o[1]].push(num);
-      buildings.push([num, 'FEDERAL BUILDING ' + (b + 1), 'DEMO CITY ' + (i + 1), o[3], 'Northeast Heartland', '5', o[0], o[1], '', 'Federally Owned',
+      buildings.push([num, 'FEDERAL BUILDING ' + (b + 1), 'DEMO CITY ' + (i + 1), o[3], 'Northeast Heartland', o[5] || '5', o[0], o[1], '', 'Federally Owned',
         // The first three of each office's staff are its building managers; the rest are project managers.
         DIRECTORS[o[0]], o[4], pick(officeStaff[o[1]].slice(0, 3)), '', null, '', '', '', o[4], o[2]]);
     }
   });
   buildings.push(['WA0001ZZ', 'OUT OF ZONE BUILDING', 'SEATTLE', 'WA', 'Pacific Gulf', '7', 'Pacific Northwest Service Center', 'Seattle Field Office', '', 'Leased', '', '', '', '', null, '', '', '', '', 'PMBEA']);
   const org = [['Enterprise', 'Zone', 'Service Center', 'Field Office', 'Service Center Director Email', 'Severable RWA Approver', 'FO Manager Import', 'Field Office POC Email']]
-    .concat(OFFICES.map((o) => ['Northeast Heartland', '5', o[0], o[1], DIRECTORS[o[0]], o[4], null, o[4]]));
+    .concat(OFFICES.map((o) => ['Northeast Heartland', o[5] || '5', o[0], o[1], DIRECTORS[o[0]], o[4], null, o[4]]));
 
   const pipeline = [HEADER];
   const cos = [0, 1, 2, 3, 4].map(person);
