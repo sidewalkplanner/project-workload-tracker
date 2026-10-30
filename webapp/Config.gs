@@ -1,13 +1,13 @@
 /**
- * Zone 5 Project Workload Tracker — configuration.
+ * NEH Project Workload Tracker — configuration.
  *
  * Every value here can be overridden without touching code: Apps Script ›
  * Project Settings › Script properties, using the key names in SETTINGS_DEFAULTS.
  */
 
 var APP = {
-  name: 'Zone 5 Project Workload Tracker',
-  shortName: 'Zone 5 Workload'
+  name: 'NEH Project Workload Tracker',
+  shortName: 'NEH Workload'
 };
 
 var SETTINGS_DEFAULTS = {
@@ -18,7 +18,13 @@ var SETTINGS_DEFAULTS = {
   DIRECTORY_ID: '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw',
   DIRECTORY_TAB: 'Buildings',
   ORG_TAB: 'Org Relationships',
-  ZONE: '5',
+  // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
+  ENTERPRISE: 'Northeast Heartland',
+  ENTERPRISE_SHORT: 'NEH',
+  ZONE: '',
+  // Comma-separated emails to correct the building manager / project manager split for individual people.
+  BUILDING_MANAGER_EMAILS: '',
+  PROJECT_MANAGER_EMAILS: '',
   // Comma-separated emails that see the Admin tools (refresh status). The deployer always does.
   ADMIN_EMAILS: '',
   // How long a built snapshot is reused before the sources are read again (minutes, max 360).
@@ -63,13 +69,17 @@ var STAGES = [
   { key: 'expended', label: 'Paid in full (all obligated money spent)', short: 'Paid in full', group: 'closed' }
 ];
 
-/** People roles the Workload tab can rank. "field" is the PR field holding the emails. */
+/**
+ * People on each PR, by the PR field holding their emails. The People tab's "Count projects by"
+ * menu offers the ones without menu: false; COR and submitter are already the person assigned,
+ * and EASi's Program manager field is rarely filled.
+ */
 var ROLES = [
-  { key: 'lead', label: 'Person assigned (the COR, or the requestor until there is one)', short: 'Person assigned' },
-  { key: 'cor', label: 'COR', short: 'COR' },
-  { key: 'requestor', label: 'Requestor', short: 'Requestor' },
+  { key: 'lead', label: 'Person assigned (the COR, or the submitter until there is one)', short: 'Person assigned' },
+  { key: 'cor', label: 'COR', short: 'COR', menu: false },
+  { key: 'requestor', label: 'Submitter', short: 'Submitter', menu: false },
   { key: 'buildingManager', label: "The building's building manager", short: 'Building manager' },
-  { key: 'programManager', label: 'Program manager in EASi', short: 'Program manager' },
+  { key: 'programManager', label: 'Program manager in EASi', short: 'Program manager', menu: false },
   { key: 'co', label: 'Contracting officer', short: 'Contracting officer' },
   { key: 'cs', label: 'Contract specialist', short: 'Contract specialist' }
 ];

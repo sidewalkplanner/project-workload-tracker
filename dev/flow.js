@@ -26,9 +26,7 @@ const assert = require('assert');
   assert.strictEqual(await count(), all);
 
   // Program chip narrows, the stage bar opens Projects on that stage.
-  await page.click('.chip-toggle:has-text("BA80")');
-  await page.click('.chip-toggle:has-text("BA54")');
-  await page.click('.chip-toggle:has-text("Other")');
+  await page.click('.seg[aria-label="Program"] button:has-text("BA61")');
   const ba61 = await count();
   assert.ok(ba61 > 0 && ba61 < all, 'BA61 only: ' + ba61 + ' of ' + all);
   await page.click('.hbar:has-text("With contracting")');

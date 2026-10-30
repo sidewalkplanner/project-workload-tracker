@@ -21,7 +21,7 @@ var STATUS_OPTIONS = [
 ];
 var TEAM_OPTIONS = [
   { key: 'all', label: 'Everyone' },
-  { key: 'bm', label: 'Building managers', short: 'Building mgr', help: 'Facilities Management staff: an org code starting PM in their GSA profile, or listed in ServiceNow for a building' },
+  { key: 'bm', label: 'Building managers', short: 'Building mgr', help: 'People ServiceNow lists as a contact for a building' },
   { key: 'pm', label: 'Project managers', short: 'Project mgr', help: 'Everyone else assigned to projects' }
 ];
 var GROUP_LABELS = { preaward: 'Not awarded yet', awarded: 'Awarded', closed: 'Paid in full' };
@@ -53,7 +53,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all' },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400 },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -196,6 +196,7 @@ function filtered(skip) {
     if (f.type === 'service' && !p.service) return false;
     if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
     if (!skip.place && !f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
+    if (!skip.place && !f.office && !f.sc && f.zone && (p.zones || []).indexOf(f.zone) === -1) return false;
     if (progs.length < PROGRAM_LABELS.length && !programLabels(p).some(function (l) { return progs.indexOf(l) !== -1; })) return false;
     if (!skip.status) {
       if (f.stage) { if (p.stage !== f.stage) return false; }
@@ -214,6 +215,7 @@ function officesInScope() {
   return S.data.offices.filter(function (o) {
     if (f.office) return o.name === f.office;
     if (f.sc) return o.serviceCenter === f.sc;
+    if (f.zone) return o.zone === f.zone;
     return true;
   });
 }

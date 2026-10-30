@@ -2,21 +2,47 @@
  * Reading the source sheets and keeping a built snapshot in the script cache, so
  * page loads don't re-read 10,000 pipeline rows. The sheets are only ever read.
  *
- *   loadDataset_()       the snapshot (built on a cache miss)
+ *   loadPacked_()        { meta, gz }: the snapshot gzipped (base64) plus the few fields the
+ *                        server needs itself; what the page downloads (built on a cache miss)
+ *   loadDataset_()       the snapshot as JSON text, for setup and editor checks
  *   refreshDataset_()    rebuild now (daily trigger, and the Refresh button)
+ *
+ * The whole-NEH snapshot is about 5 MB of JSON; gzipped it is about a tenth of that, so it
+ * fits the cache comfortably and the page loads quickly.
  */
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 3;
-var CACHE_PREFIX = 'zone5ds:v' + DATASET_VERSION + ':';
+var DATASET_VERSION = 5;
+var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
 
-function loadDataset_() {
+function loadPacked_() {
   var cached = readCachedJson_();
-  if (cached) return cached;
-  return refreshDataset_();
+  if (cached) return JSON.parse(cached);
+  var json = refreshDataset_();
+  return packDataset_(JSON.parse(json), json);
+}
+
+function loadDataset_() {
+  return gunzipText_(loadPacked_().gz);
+}
+
+/** What the cache holds: the gzipped snapshot and the parts the server reads (who is signed in). */
+function packDataset_(dataset, json) {
+  return {
+    meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
+    gz: gzipText_(json || JSON.stringify(dataset))
+  };
+}
+
+function gzipText_(text) {
+  return Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(text, 'application/json')).getBytes());
+}
+
+function gunzipText_(base64) {
+  return Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(base64), 'application/x-gzip')).getDataAsString();
 }
 
 /** Reads both sheets, builds the dataset and caches it. Returns the dataset JSON (a string). */
@@ -43,7 +69,8 @@ function refreshDataset_() {
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
     orgTab ? orgTab.getDataRange().getValues() : [],
-    { zone: setting_('ZONE'), generatedAt: generatedAt }
+    { enterprise: setting_('ENTERPRISE'), short: setting_('ENTERPRISE_SHORT'), zone: setting_('ZONE'), generatedAt: generatedAt,
+      buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS') }
   );
   try {
     applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people)));
@@ -53,13 +80,13 @@ function refreshDataset_() {
   }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
-  writeCachedJson_(json);
+  writeCachedJson_(JSON.stringify(packDataset_(dataset, json)));
   try {
     PropertiesService.getScriptProperties().setProperty('LAST_REFRESH', JSON.stringify({
       at: dataset.builtAt, generatedAt: generatedAt, prs: dataset.prs.length, seconds: dataset.buildSeconds
     }));
   } catch (e) { console.warn('Could not record the refresh: ' + e); }
-  console.log('Built the Zone ' + dataset.zone + ' snapshot: ' + dataset.prs.length + ' PRs in ' + dataset.buildSeconds + ' s.');
+  console.log('Built the ' + dataset.scopeLabel + ' snapshot: ' + dataset.prs.length + ' PRs in ' + dataset.buildSeconds + ' s.');
   return json;
 }
 

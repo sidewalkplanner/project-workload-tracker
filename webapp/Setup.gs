@@ -14,7 +14,7 @@ function setup() {
   ScriptApp.newTrigger('dailyRefresh').timeBased().everyDays(1).atHour(7).nearMinute(30).inTimezone('America/Chicago').create();
   // A second pass keeps the cache warm through the work day (the cache holds a snapshot for at most 6 hours).
   ScriptApp.newTrigger('dailyRefresh').timeBased().everyHours(4).create();
-  var msg = 'Set up: ' + dataset.prs.length + ' Zone ' + dataset.zone + ' PRs across ' + dataset.offices.length +
+  var msg = 'Set up: ' + dataset.prs.length + ' ' + dataset.scopeLabel + ' PRs across ' + dataset.offices.length +
     ' field offices (report generated ' + (dataset.generatedAt || 'unknown') + '). Refresh scheduled daily at 7:30 Central and every 4 hours.';
   console.log(msg);
   return msg;

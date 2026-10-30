@@ -81,6 +81,16 @@ function createRuntime(opts) {
         }
       }
     },
+    Utilities: {
+      newBlob(data, type) {
+        const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
+        return { getBytes() { return bytes; }, getDataAsString() { return bytes.toString('utf8'); }, type };
+      },
+      gzip(blob) { return ctx.Utilities.newBlob(require('zlib').gzipSync(blob.getBytes())); },
+      ungzip(blob) { return ctx.Utilities.newBlob(require('zlib').gunzipSync(blob.getBytes())); },
+      base64Encode(bytes) { return Buffer.from(bytes).toString('base64'); },
+      base64Decode(text) { return Buffer.from(text, 'base64'); }
+    },
     LockService: { getScriptLock() { return { tryLock() { return true; }, releaseLock() {} }; } },
     Session: {
       getActiveUser() { return { getEmail() { return state.user; } }; },
