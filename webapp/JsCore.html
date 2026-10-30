@@ -19,6 +19,11 @@ var STATUS_OPTIONS = [
   { key: 'expended', label: 'Expended', help: 'Awarded and fully expended in Pegasys' },
   { key: 'all', label: 'All' }
 ];
+var TEAM_OPTIONS = [
+  { key: 'all', label: 'All leads' },
+  { key: 'bm', label: 'Building managers', short: 'Bldg mgr', help: 'OFM: an org code starting PM in their GSA profile, or a ServiceNow contact for a zone building' },
+  { key: 'pm', label: 'Project managers', short: 'Proj mgr', help: 'Everyone else who leads projects' }
+];
 var GROUP_LABELS = { preaward: 'Pre-award', awarded: 'Awarded · open', closed: 'Fully expended' };
 
 /** Small stroked icons (24-unit grid, 2px stroke), drawn inline so they follow the text color. */
@@ -48,7 +53,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects' },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400 },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -106,6 +111,13 @@ function fmtDateTime(iso) {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 function plural(n, word, many) { return fmtInt(n) + ' ' + (n === 1 ? word : (many || word + 's')); }
+
+function teamOf(email) { return (S.data && S.data.teams && S.data.teams[email]) || ''; }
+function orgOf(email) { return (S.data && S.data.orgs && S.data.orgs[email]) || ''; }
+function teamLabel(key, short) {
+  var t = TEAM_OPTIONS.filter(function (x) { return x.key === key; })[0];
+  return t ? (short && t.short ? t.short : t.label) : '';
+}
 
 function personName(email) {
   if (!email) return '';
@@ -191,6 +203,7 @@ function filtered(skip) {
     }
     if (f.fy && String(p.fy) !== String(f.fy)) return false;
     if (!skip.person && f.person && (p[f.person.role] || []).indexOf(f.person.email) === -1) return false;
+    if (f.team !== 'all' && !p.lead.some(function (e) { return teamOf(e) === f.team; })) return false;
     for (var i = 0; i < terms.length; i++) if (p._search.indexOf(terms[i]) === -1) return false;
     return true;
   });
@@ -238,6 +251,8 @@ function workloadRows(list, roleKey, byOffice) {
     var people = p[roleKey] && p[roleKey].length ? p[roleKey] : [''];
     var offices = byOffice ? (p.offices.length ? p.offices : ['']) : [null];
     people.forEach(function (email) {
+      // With a lead team chosen, only that team's people are ranked (in any role).
+      if (S.filters.team !== 'all' && email && teamOf(email) !== S.filters.team) return;
       offices.forEach(function (office) {
         var key = (office || '') + '|' + email;
         if (!rows[key]) {
@@ -246,6 +261,8 @@ function workloadRows(list, roleKey, byOffice) {
           rows[key].name = email ? personName(email) : '(none in EASi)';
           rows[key].office = byOffice ? office : (S.homeOffice[roleKey] && S.homeOffice[roleKey][email]) || '';
           rows[key].oldestFy = null;
+          rows[key].team = teamOf(email);
+          rows[key].org = orgOf(email);
         }
         addTo(rows[key], p);
         if (p.fy && (rows[key].oldestFy === null || p.fy < rows[key].oldestFy) && p.stage !== 'expended') rows[key].oldestFy = p.fy;

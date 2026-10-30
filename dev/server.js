@@ -13,7 +13,7 @@ const http = require('http');
 const fs = require('fs');
 const url = require('url');
 const { createRuntime, sheetsFrom } = require('./gas-mock');
-const { demoSources } = require('./demo-data');
+const { demoSources, demoDirectory } = require('./demo-data');
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name);
@@ -23,11 +23,11 @@ const PORT = Number(arg('port', 8080));
 const file = arg('sources', null);
 const sources = file ? JSON.parse(fs.readFileSync(file, 'utf8')) : demoSources();
 // A stand-in for the GSA directory: display names end in the person's org code.
-const directoryNames = {
+const directoryNames = Object.assign(file ? {} : demoDirectory(sources), {
   'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB',
   'robin.center@gsa.gov': 'Robin Center - PMCG',
   'casey.denver@gsa.gov': 'Casey Denver - PMCGC'
-};
+});
 const rt = createRuntime({ quiet: true, owner: 'owner@gsa.gov', sheets: sheetsFrom(sources), directoryNames });
 
 const SHIM = `

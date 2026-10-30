@@ -58,7 +58,8 @@ function demoSources(count) {
       const num = o[3] + String(1000 + i * 10 + b).padStart(4, '0') + 'ZZ';
       officeBuildings[o[1]].push(num);
       buildings.push([num, 'FEDERAL BUILDING ' + (b + 1), 'DEMO CITY ' + (i + 1), o[3], 'Northeast Heartland', '5', o[0], o[1], '', 'Federally Owned',
-        DIRECTORS[o[0]], o[4], pick(officeStaff[o[1]]), '', null, '', '', '', o[4], o[2]]);
+        // The first three of each office's staff are its building managers; the rest are project managers.
+        DIRECTORS[o[0]], o[4], pick(officeStaff[o[1]].slice(0, 3)), '', null, '', '', '', o[4], o[2]]);
     }
   });
   buildings.push(['WA0001ZZ', 'OUT OF ZONE BUILDING', 'SEATTLE', 'WA', 'Pacific Gulf', '7', 'Pacific Northwest Service Center', 'Seattle Field Office', '', 'Leased', '', '', '', '', null, '', '', '', '', 'PMBEA']);
@@ -94,4 +95,24 @@ function demoSources(count) {
   return { pipeline, reportInfo, buildings, org };
 }
 
-module.exports = { demoSources, OFFICES };
+/**
+ * A stand-in GSA directory for the demo: building managers carry their office's OFM code
+ * (PMCGC…), project managers a made-up design-and-construction code (PCD…).
+ */
+function demoDirectory(sources) {
+  const names = {};
+  const b = sources.buildings;
+  const h = b[1];
+  const pocs = new Set(b.slice(2).map((r) => r[h.indexOf('ServiceNow Primary POC(s)')]));
+  const p = sources.pipeline;
+  const cor = p[0].indexOf('Contracting_Officer_Representative');
+  const req = p[0].indexOf('Contact_Requestor');
+  const office = p[0].indexOf('Office_Code');
+  p.slice(1).forEach((r) => [r[cor], r[req]].join(',').split(/[\s,]+/).filter((e) => /@/.test(e)).forEach((e) => {
+    const name = e.split('@')[0].split('.').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+    names[e] = name + ' - ' + (pocs.has(e) ? 'PMCGC' : 'PCD' + String(r[office]).slice(-1));
+  }));
+  return names;
+}
+
+module.exports = { demoSources, demoDirectory, OFFICES };

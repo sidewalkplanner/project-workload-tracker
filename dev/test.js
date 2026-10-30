@@ -6,7 +6,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const { createRuntime, sheetsFrom } = require('./gas-mock');
-const { demoSources } = require('./demo-data');
+const { demoSources, demoDirectory } = require('./demo-data');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -171,6 +171,32 @@ test('a multi-project PR carries its sub-projects', () => {
   assert.strictEqual(p.subprojects[7].id, 'DWP26104-7');
   assert.strictEqual(p.service, '');
   assert.ok(d.prs.filter((x) => x.pr !== 'EQPMBA-26-0272').every((x) => x.units === 1));
+});
+
+test('lead teams: org code first, building contacts without one', () => {
+  const src = demoSources();
+  // No directory: building contacts are building managers, everyone else project managers.
+  let d = load(runtimeWith(src)).data;
+  const contacts = new Set(src.buildings.slice(2).map((r) => r[src.buildings[1].indexOf('ServiceNow Primary POC(s)')]));
+  Object.keys(d.people).forEach((e) => assert.strictEqual(d.teams[e], contacts.has(e) ? 'bm' : 'pm', e));
+  assert.ok(Object.values(d.teams).includes('bm') && Object.values(d.teams).includes('pm'));
+  assert.strictEqual(Object.keys(d.orgs).length, 0);
+
+  // With the directory: one sweep, codes decide (PM… = building management), stored for next time.
+  const names = demoDirectory(src);
+  const someone = Object.keys(d.people).find((e) => contacts.has(e));
+  names[someone] = 'Some One - PCDX';
+  const rt = createRuntime({ quiet: true, sheets: sheetsFrom(src), directoryNames: names, directoryPageSize: 50 });
+  d = JSON.parse(rt.ctx.apiLoad()).data;
+  assert.ok(rt.state.directoryCalls > 1, 'paged through the directory');
+  assert.strictEqual(d.orgs[someone], 'PCDX');
+  assert.strictEqual(d.teams[someone], 'pm', 'an org code outranks being a building contact');
+  Object.keys(d.orgs).forEach((e) => assert.strictEqual(d.teams[e], /^PM/.test(d.orgs[e]) ? 'bm' : 'pm'));
+  assert.ok(Number(rt.props.ORG_CODES_N) >= 1);
+  const calls = rt.state.directoryCalls;
+  rt.setUser('owner@gsa.gov');
+  rt.ctx.apiRefresh();
+  assert.strictEqual(rt.state.directoryCalls, calls, 'a refresh within the week reuses the stored codes');
 });
 
 test('helpers: dates, money, names, emails', () => {

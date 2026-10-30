@@ -48,6 +48,10 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     });
   });
 
+  var orgs = options.orgCodes || {};
+  var teams = {};
+  Object.keys(people).forEach(function (email) { teams[email] = teamFor_(orgs[email], !!directory.contacts[email]); });
+
   return {
     zone: zone,
     generatedAt: str_(options.generatedAt),
@@ -59,14 +63,40 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     stages: STAGES,
     roles: ROLES,
     people: people,
+    orgs: Object.keys(people).reduce(function (o, e) { if (orgs[e]) o[e] = orgs[e]; return o; }, {}),
+    teams: teams,
+    teamNames: TEAMS,
     prs: prs,
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
 }
 
+/**
+ * 'bm' (building management) or 'pm' (project management) for one person. An OFM org code
+ * (PM…, "Robert Sells - PMCGC") is building management, any other code project management.
+ * Without a code from the directory, a ServiceNow contact for a zone building is a building
+ * manager and anyone else a project manager.
+ */
+function teamFor_(orgCode, isBuildingContact) {
+  var code = str_(orgCode).toUpperCase();
+  if (code) return /^PM/.test(code) ? 'bm' : 'pm';
+  return isBuildingContact ? 'bm' : 'pm';
+}
+
+/** Adds org codes found in the directory ({ email: code }) to a built dataset, updating teams. */
+function applyOrgCodes_(dataset, codes) {
+  Object.keys(dataset.people).forEach(function (email) {
+    var code = str_(codes[email]).toUpperCase();
+    if (!code) return;
+    dataset.orgs[email] = code;
+    dataset.teams[email] = teamFor_(code, false);
+  });
+  return dataset;
+}
+
 /** Zone buildings, field offices and service centers from the OFM Building Assignments sheet. */
 function readDirectory_(buildingValues, orgValues, zone) {
-  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {} };
+  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {}, contacts: {} };
   buildingValues = buildingValues || [];
   var headerRow = -1;
   for (var r = 0; r < Math.min(buildingValues.length, 15); r++) {
@@ -81,7 +111,8 @@ function readDirectory_(buildingValues, orgValues, zone) {
   var c = function (name) { return h.indexOf(name); };
   var idx = {
     number: c('Building Number'), name: c('Building Name'), city: c('City'), state: c('State'), zone: c('Zone'),
-    sc: c('Service Center'), fo: c('Field Office'), dept: c('OFM Dept ID'), primary: c('ServiceNow Primary POC(s)')
+    sc: c('Service Center'), fo: c('Field Office'), dept: c('OFM Dept ID'), primary: c('ServiceNow Primary POC(s)'),
+    secondary: c('ServiceNow Secondary POC(s)')
   };
   if (idx.number === -1 || idx.fo === -1 || idx.zone === -1) throw new Error('The building directory is missing the Building Number, Zone or Field Office column.');
 
@@ -103,6 +134,9 @@ function readDirectory_(buildingValues, orgValues, zone) {
       serviceCenter: scName,
       manager: idx.primary === -1 ? [] : parseEmailList_(row[idx.primary])
     };
+    // Everyone ServiceNow lists for a zone building, primary or secondary: the building managers.
+    out.buildings[number].manager.concat(idx.secondary === -1 ? [] : parseEmailList_(row[idx.secondary]))
+      .forEach(function (e) { out.contacts[e] = true; });
     if (foName && !offices[foName]) offices[foName] = { name: foName, short: shortOfficeName_(foName), serviceCenter: scName, code: dept, manager: '', director: '', buildings: 0 };
     if (foName) {
       offices[foName].buildings++;

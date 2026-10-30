@@ -42,6 +42,12 @@ function refreshDataset_() {
     orgTab ? orgTab.getDataRange().getValues() : [],
     { zone: setting_('ZONE'), generatedAt: generatedAt }
   );
+  try {
+    applyOrgCodes_(dataset, orgCodesFor_(Object.keys(dataset.people)));
+  } catch (e) {
+    // Teams still come from the building contacts; only org codes are missing.
+    console.warn('Org codes not read from the directory: ' + e);
+  }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
   writeCachedJson_(json);

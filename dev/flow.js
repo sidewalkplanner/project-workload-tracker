@@ -66,7 +66,10 @@ const assert = require('assert');
   await page.click('.link-btn:has-text("Reset filters")');
   await page.click('.tab:has-text("Workload")');
   await page.waitForSelector('tbody tr.clickable');
-  const top = await page.textContent('tbody tr.clickable >> nth=0 >> td >> nth=3');
+  const top = await page.$eval('table', (table) => {
+    const at = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Projects'));
+    return table.querySelector('tbody tr.clickable').children[at].textContent.trim();
+  });
   await page.click('tbody tr.clickable >> nth=0');
   await page.waitForSelector('.pill');
   const heading = Number((await page.textContent('.card-head h2')).replace(/,/g, '').match(/^\d+/)[0]);

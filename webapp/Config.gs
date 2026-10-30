@@ -128,6 +128,12 @@ var SUB_PROJECTS = {
   ]
 };
 
+/** The two kinds of project lead, for the "Lead team" switch. */
+var TEAMS = {
+  bm: 'Building managers',
+  pm: 'Project managers'
+};
+
 /** Building numbers look like CO0026ZZ (state + 4 digits + 2 letters or digits). */
 var BUILDING_NUMBER_RE = /\b[A-Z]{2}\d{4}[A-Z0-9]{2}\b/g;
 /** NEH BA61 Project Portal numbers (RM0199-100726) that requesters put in PR titles. */
