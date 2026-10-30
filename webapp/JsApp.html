@@ -36,6 +36,7 @@ var PROJECT_CSV = [
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
   ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Submitter', function (p) { return peopleNames(p.requestor); }],
   ['Planned in', function (p) { return p.sourceLabel || 'EASi'; }], ['Estimated cost (not in EASi yet)', function (p) { return isPlanned(p) ? p.estimate : ''; }],
+  ['% spent', function (p) { var x = spentPct(p); return x === null ? '' : x; }], ['Spending last changed', function (p) { var a = paymentAge(p); return a ? (a.known ? '' : 'by ') + a.since : ''; }],
   ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Left to spend', function (p) { return p.remaining; }],
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
@@ -233,8 +234,9 @@ function topBar() {
   var d = S.data;
   var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read EASi and the other source sheets again (takes about a minute)' }, 'Refresh');
   refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
-  var tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Views' }, VIEWS.map(function (v) {
-    return h('button', { class: 'tab', role: 'tab', type: 'button', 'aria-selected': String(S.view === v.key), onClick: function () { go(v.key); } }, v.label);
+  // The views are pages of one site, so they are navigation (aria-current), not an ARIA tab widget.
+  var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.map(function (v) {
+    return h('button', { class: 'tab', type: 'button', 'aria-current': S.view === v.key ? 'page' : null, onClick: function () { go(v.key); } }, v.label);
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
@@ -800,7 +802,11 @@ function projectRow(p, cols) {
       return h('td', { class: 'num', title: fmtMoney(p.committed) + ' committed; ' + fmtMoney(plan.planned) + ' planned in ' + andList(uniqueLabels(p.plans)) + (plan.ratio !== null ? ' (' + plan.label + ')' : '') },
         fmtMoneyShort(p.committed), h('div', { class: 'sub' + (off ? ' off-plan' : '') }, plan.key === 'noamount' ? 'in a plan' : 'plan ' + fmtMoneyShort(plan.planned) + (off ? ' (' + plan.label.replace(' vs. plan', '') + ')' : '')));
     },
-    remaining: function () { return h('td', { class: 'num', title: p.remaining ? fmtMoney(p.remaining) : null }, p.remaining ? fmtMoneyShort(p.remaining) : '–'); },
+    remaining: function () {
+      var pct = spentPct(p);
+      return h('td', { class: 'num', title: p.remaining ? fmtMoney(p.remaining) + ' of ' + fmtMoney(p.obligated) + ' obligated is left' : null },
+        p.remaining ? fmtMoneyShort(p.remaining) : '–', pct !== null && p.stage === 'awarded' ? h('div', { class: 'sub' }, pct + '% spent') : null);
+    },
     executed: function () {
       if (!p.vendor && !p.executed) return h('td', { class: 'muted' }, '–');
       return h('td', { class: 'award-cell' }, h('div', { class: 't1', title: p.vendor || null }, p.vendor || 'Vendor not listed'), p.executed ? h('div', { class: 'sub' }, fmtDate(p.executed)) : null);
@@ -947,6 +953,7 @@ function openDrawer(p) {
       itemIf('Award status', p.awardStatus),
       p.reviewers.length ? item('Waiting on', people(p.reviewers)) : null,
       itemIf('Award number', p.awardNumber),
+      spentPct(p) !== null ? item('Spent so far', spentPct(p) + '% of ' + fmtMoney(p.obligated) + (paymentAge(p) ? '\n' + (p.expended > 0 ? (paymentAge(p).known ? 'Last new payment seen ' : 'No new payment since at least ') : 'Nothing paid since the award, ') + fmtDate(paymentAge(p).since) : '')) : null,
       itemIf('Awarded', fmtDate(p.executed)),
       itemIf('Vendor', p.vendor),
       itemIf('Award type', p.awardType),
@@ -980,12 +987,23 @@ function openDrawer(p) {
   drawer.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
   var backdrop = h('div', { class: 'drawer-backdrop' }, drawer);
   var opener = document.activeElement;
-  var shut = function () { backdrop.remove(); document.removeEventListener('keydown', onKey); if (opener && opener.focus) opener.focus(); };
-  var onKey = function (e) { if (e.key === 'Escape') shut(); };
+  // A modal panel: the page behind it is inert, and Tab cycles inside the panel.
+  var app = document.getElementById('app');
+  var shut = function () { backdrop.remove(); app.inert = false; document.removeEventListener('keydown', onKey); if (opener && opener.focus) opener.focus(); };
+  var onKey = function (e) {
+    if (e.key === 'Escape') { shut(); return; }
+    if (e.key !== 'Tab') return;
+    var stops = [].slice.call(drawer.querySelectorAll('a[href], button:not([disabled]), [tabindex="0"]'));
+    if (!stops.length) return;
+    var first = stops[0], last = stops[stops.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
   close.addEventListener('click', shut);
   backdrop.addEventListener('click', function (e) { if (e.target === backdrop) shut(); });
   document.addEventListener('keydown', onKey);
   document.body.appendChild(backdrop);
+  app.inert = true;
   close.focus();
 }
 

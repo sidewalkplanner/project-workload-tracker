@@ -49,6 +49,18 @@ var ATTENTION_CHECKS = [
     sortKey: function (p) { return p.executed; }
   },
   {
+    key: 'stalled', group: 'time', title: 'Awarded, no new payments in 90+ days',
+    why: 'Pegasys shows no new spending for three months. The work may have stalled, or finished without being closed out. (Projects awarded over a year ago with nothing paid are listed under Money.)',
+    test: function (p) {
+      if (p.stage !== 'awarded') return '';
+      var a = paymentAge(p);
+      if (!a || a.days < 90) return '';
+      if (p.expended <= 0) return a.days >= 365 ? '' : 'Awarded ' + fmtDate(a.since) + ', nothing paid yet (' + plural(a.days, 'day') + ')';
+      return (a.known ? 'No new payment since ' + fmtDate(a.since) + ' (' + plural(a.days, 'day') + ')' : 'No new payment for ' + a.days + '+ days') + ', ' + spentPct(p) + '% spent';
+    },
+    sortKey: function (p) { return p.spentSince; }
+  },
+  {
     key: 'pastTarget', group: 'time', title: 'Past its planned date, still no PR',
     why: 'The plan said this would be committed (BA61 portal) or routed (BA54 tracker) by now, and EASi has no PR for it.',
     test: function (p) { return isPlanned(p) && p.dueBy && p.dueBy < snapshotDay() ? p.dueWhat + ' was ' + fmtDate(p.dueBy) : ''; },

@@ -502,6 +502,18 @@ function stageAge(p) {
   return { days: daysBetween(p.since), known: !!p.sinceKnown, since: p.since };
 }
 
+/** Share of the obligation Pegasys shows spent (0-100), or null before award. */
+function spentPct(p) {
+  if (isPlanned(p) || !(p.stage === 'awarded' || p.stage === 'expended') || p.obligated <= 0) return null;
+  return Math.min(100, Math.round(p.expended / p.obligated * 100));
+}
+
+/** Days since an awarded PR's spending last changed (since its award when nothing is spent): { days, known, since } or null. */
+function paymentAge(p) {
+  if (!p.spentSince) return null;
+  return { days: daysBetween(p.spentSince), known: !!p.spentKnown, since: p.spentSince };
+}
+
 /** "27 days" (known) or "40+ days" (in this stage at least since tracking began); '' when it says nothing. */
 function stageAgeText(p) {
   var a = stageAge(p);

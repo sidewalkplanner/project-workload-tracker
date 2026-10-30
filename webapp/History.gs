@@ -8,7 +8,12 @@
  * have started by the day the tracker first saw it ("known" is false). A stage change seen
  * between two refreshes is dated the day it was seen. Pure functions, tested in Node.
  *
- *   history: { v, started: 'yyyy-mm-dd', items: { key: { s: last seen, h: [[stage, date, known]] } } }
+ * It also follows the money after award: for awarded PRs, the amount Pegasys shows spent and
+ * the day it last changed. A payment stream that stops is the best sign there is (without
+ * Kahua, whose dates are too often stale) that work has stalled, or finished without closeout.
+ *
+ *   history: { v, started: 'yyyy-mm-dd', items: { key: { s: last seen, h: [[stage, date, known]],
+ *              x: [spent, date it last changed, known] } } }
  */
 
 var HISTORY_VERSION = 1;
@@ -51,6 +56,14 @@ function updateHistory_(dataset, history, today) {
       }
     }
     item.s = today;
+    if (!p.source && (p.stage === 'awarded' || p.stage === 'expended')) {
+      // Nothing spent yet: the clock runs from the award. Otherwise from the last change seen.
+      var spent = round2_(p.expended || 0);
+      if (!item.x) item.x = spent > 0 ? [spent, today, fresh ? 0 : 1] : [0, p.executed || today, p.executed || !fresh ? 1 : 0];
+      else if (Math.abs(item.x[0] - spent) >= 0.01) item.x = [spent, today, 1];
+      p.spentSince = item.x[1];
+      if (item.x[2]) p.spentKnown = true;
+    }
     var current = item.h[item.h.length - 1];
     p.since = current[1];
     if (current[2]) p.sinceKnown = true;

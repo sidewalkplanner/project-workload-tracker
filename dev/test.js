@@ -456,6 +456,17 @@ test('stage history: days in stage, changes between refreshes, plans before thei
   later.prs.push(carrier);
   ctx.updateHistory_(later, next, '2099-01-17');
   assert.ok(carrier.plans[0].history && carrier.plans[0].history[0][0] === plan.stage);
+  // Spending after award: nothing paid runs from the award; a new payment restarts the clock.
+  const unpaid = d.prs.filter((p) => !p.source && p.stage === 'awarded' && p.expended === 0 && p.executed)[0];
+  if (unpaid) assert.ok(unpaid.spentSince === unpaid.executed && unpaid.spentKnown);
+  const paying = later.prs.filter((p) => !p.source && p.stage === 'awarded' && p.expended > 0)[0];
+  assert.ok(paying.spentSince && !paying.spentKnown, 'first day: spending at least since today');
+  paying.expended += 1000;
+  ctx.updateHistory_(later, next, '2099-02-01');
+  assert.strictEqual(paying.spentSince, '2099-02-01');
+  assert.strictEqual(paying.spentKnown, true);
+  ctx.updateHistory_(later, next, '2099-03-01');
+  assert.strictEqual(paying.spentSince, '2099-02-01', 'no change, the date stays');
   // Long-gone projects are forgotten.
   const gone = ctx.updateHistory_({ prs: [] }, next, '2101-06-01');
   assert.strictEqual(Object.keys(gone.items).length, 0);
