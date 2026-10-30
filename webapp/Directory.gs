@@ -92,3 +92,75 @@ function checkDirectoryLookup(emails) {
   console.log(msg);
   return msg;
 }
+
+// ---------------------------------------------------------------------------
+// Org codes for everyone on the zone's PRs
+// ---------------------------------------------------------------------------
+
+var ORG_PROP = 'ORG_CODES';
+var ORG_PROP_CHUNK = 8000;           // Script property values are capped at 9 KB.
+var ORG_SWEEP_DAYS = 7;              // Read the whole directory again after a week…
+var ORG_RETRY_HOURS = 12;            // …or sooner when new people have appeared.
+var ORG_SWEEP_SECONDS = 240;
+
+/**
+ * { email: org code } for the given emails, from the Workspace directory. The directory is
+ * read in one sweep (listDirectoryPeople, 1,000 people a page) rather than one search per
+ * person, which would run into the People API's per-minute limit, and the result is kept
+ * in Script properties so a normal refresh makes no directory calls at all.
+ */
+function orgCodesFor_(emails) {
+  var stored = readChunkedJson_(ORG_PROP) || { at: 0, codes: {} };
+  var missing = emails.filter(function (e) { return !(e in stored.codes); });
+  var ageHours = (Date.now() - (stored.at || 0)) / 3600000;
+  var due = ageHours > ORG_SWEEP_DAYS * 24 || (missing.length && ageHours > ORG_RETRY_HOURS);
+  if (!due || typeof People === 'undefined' || !People.People || !People.People.listDirectoryPeople) return stored.codes;
+
+  var wanted = {};
+  emails.forEach(function (e) { wanted[e] = true; });
+  var found = {};
+  var started = Date.now();
+  var token = null;
+  var complete = false;
+  do {
+    var res = People.People.listDirectoryPeople({
+      readMask: 'names,emailAddresses', sources: ['DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE'], pageSize: 1000, pageToken: token || undefined
+    });
+    (res && res.people || []).forEach(function (person) {
+      var display = person.names && person.names[0] ? person.names[0].displayName : '';
+      (person.emailAddresses || []).forEach(function (a) {
+        var email = str_(a.value).toLowerCase();
+        if (wanted[email]) found[email] = parseOrgCode_(display);
+      });
+    });
+    token = res && res.nextPageToken;
+    complete = !token;
+  } while (token && (Date.now() - started) / 1000 < ORG_SWEEP_SECONDS);
+
+  // Keep only people still on the zone's PRs; '' records "looked, no code" so they aren't looked for again.
+  var codes = {};
+  emails.forEach(function (e) { codes[e] = e in found ? found[e] : (complete ? '' : stored.codes[e]); });
+  Object.keys(codes).forEach(function (e) { if (codes[e] === undefined) delete codes[e]; });
+  writeChunkedJson_(ORG_PROP, { at: complete ? Date.now() : stored.at, codes: codes });
+  console.log('Directory sweep: org codes for ' + Object.keys(found).filter(function (e) { return found[e]; }).length + ' of ' + emails.length + ' people' + (complete ? '.' : ' (stopped early; continues next refresh).'));
+  return codes;
+}
+
+function readChunkedJson_(key) {
+  var props = PropertiesService.getScriptProperties();
+  var n = parseInt(props.getProperty(key + '_N') || '0', 10);
+  if (!n) return null;
+  var text = '';
+  for (var i = 0; i < n; i++) text += props.getProperty(key + '_' + i) || '';
+  try { return JSON.parse(text); } catch (e) { return null; }
+}
+
+function writeChunkedJson_(key, value) {
+  var props = PropertiesService.getScriptProperties();
+  var text = JSON.stringify(value);
+  var values = {};
+  var n = 0;
+  for (var i = 0; i < text.length; i += ORG_PROP_CHUNK) values[key + '_' + (n++)] = text.slice(i, i + ORG_PROP_CHUNK);
+  values[key + '_N'] = String(n);
+  props.setProperties(values);
+}

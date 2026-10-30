@@ -30,7 +30,7 @@ var PROJECT_CSV = [
   ['Projects', function (p) { return unitsOf(p); }], ['Sub-projects', function (p) { return (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join('; '); }], ['Program', function (p) { return programLabels(p).join(' / '); }],
   ['EASi status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
-  ['Project lead', function (p) { return peopleNames(p.lead); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
+  ['Project lead', function (p) { return peopleNames(p.lead); }], ['Lead team', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e)); }).join('; '); }], ['Lead org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
   ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Unexpended', function (p) { return p.remaining; }],
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
@@ -46,6 +46,8 @@ var GROUPS = [
   { key: 'stage', label: 'EASi status' },
   { key: 'program', label: 'Program' },
   { key: 'building', label: 'Building' },
+  { key: 'team', label: 'Lead team' },
+  { key: 'org', label: 'Lead org code' },
   { key: 'fy', label: 'Fiscal year' }
 ];
 
@@ -90,6 +92,7 @@ function applyRoute(r) {
   if (r.status && STATUS_OPTIONS.some(function (s) { return s.key === r.status; })) f.status = r.status;
   if (r.fy && /^\d{4}$/.test(r.fy)) f.fy = r.fy;
   if (r.type && TYPE_OPTIONS.some(function (t) { return t.key === r.type; })) f.type = r.type;
+  if (r.team && TEAM_OPTIONS.some(function (t) { return t.key === r.team; })) f.team = r.team;
   if (r.q) f.q = r.q;
   if (r.role) S.workload.role = r.role;
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
@@ -129,6 +132,7 @@ function syncUrl() {
     if (f.status !== 'open') p.status = f.status;
     if (f.fy) p.fy = f.fy;
     if (f.type !== 'projects') p.type = f.type;
+    if (f.team !== 'all') p.team = f.team;
     if (f.q) p.q = f.q;
     if (f.person) { p.person = f.person.email; p.role = f.person.role; }
     else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
@@ -262,6 +266,7 @@ function filterBar() {
     active.push(pill(role.short + ': ' + (f.person.email ? personName(f.person.email) : '(none)'), function () { f.person = null; }));
   }
   if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
+  if (f.team !== 'all') active.push(pill('Led by ' + teamLabel(f.team).toLowerCase(), function () { f.team = 'all'; }));
   var mineBtn = null;
   if (S.user && S.user.email && !f.person) {
     var myRole = null;
@@ -271,7 +276,7 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects';
+  var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all';
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
   // On a phone the filters fold into one line that says what is showing.
@@ -300,7 +305,7 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects' };
+  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all' };
   S.scopeNote = '';
   rerender();
 }
@@ -351,18 +356,27 @@ function stat(label, value, sub) {
 }
 
 /** Everyone with projects, busiest first, against the average for the scope. */
+/** All leads · Building managers · Project managers (a page-wide filter, shown where people are ranked). */
+function teamSwitch() {
+  var f = S.filters;
+  return h('div', { class: 'seg', role: 'group', 'aria-label': 'Lead team' }, TEAM_OPTIONS.map(function (t) {
+    return h('button', { type: 'button', 'aria-pressed': String(f.team === t.key), title: t.help || null, onClick: function () { f.team = t.key; rerender(); } }, t.label);
+  }));
+}
+
 function topPeopleCard(leads, avg) {
   var top = leads.slice(0, 15);
   var max = top.length ? top[0].count : 1;
   var all = h('button', { class: 'btn', type: 'button', onClick: function () { S.workload.role = 'lead'; go('workload'); } }, 'Everyone', icon('arrow'));
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Who has the most projects'),
-      h('p', null, 'Project leads in ' + scopeName() + ': the COR, or the requestor until a COR is named. Click a name for their projects.')), all),
+      h('p', null, (S.filters.team === 'all' ? 'Project leads' : teamLabel(S.filters.team)) + ' in ' + scopeName() + ': the COR, or the requestor until a COR is named. Click a name for their projects.')), all),
+    h('div', { class: 'toolbar' }, teamSwitch()),
     top.length ? [
       h('div', { class: 'chart-legend' }, groupLegend('Average ' + avg.toFixed(1))),
       h('div', { class: 'hbars people' }, top.map(function (r) {
         var b = h('button', { class: 'hbar', type: 'button', 'aria-label': r.name + ': ' + r.count + ' projects, ' + r.preaward + ' pre-award' },
-          h('span', { class: 'hbar-label', title: r.name + (r.office ? ' · ' + officeShort(r.office) : '') }, r.name,
+          h('span', { class: 'hbar-label', title: r.name + (r.office ? ' · ' + officeShort(r.office) : '') + (r.team ? ' · ' + teamLabel(r.team) : '') + (r.org ? ' (' + r.org + ')' : '') }, r.name,
             r.office && !S.filters.office ? h('span', { class: 'muted' }, ' · ' + officeShort(r.office)) : null),
           stackedBar(groupSegments(r), max, 'hbar-track', avg),
           h('span', { class: 'hbar-value' }, fmtInt(r.count)));
@@ -574,6 +588,8 @@ function groupProjects(list, key) {
     else if (key === 'stage') { var st = stageOf(p); put('s:' + st.key, st.label, p, st.order); }
     else if (key === 'program') programLabels(p).forEach(function (l) { put('p:' + l, l, p, PROGRAM_LABELS.indexOf(l)); });
     else if (key === 'building') (p.buildings.length ? p.buildings : ['']).forEach(function (b, i) { put('b:' + b, b ? b + ' · ' + (p.buildingNames[i] || '') : '(no building)', p, b || '~'); });
+    else if (key === 'team') (p.lead.length ? p.lead : ['']).map(teamOf).filter(function (t, i, a) { return a.indexOf(t) === i; }).forEach(function (t) { put('t:' + t, t ? teamLabel(t) : '(no lead in EASi)', p, t || '~'); });
+    else if (key === 'org') (p.lead.length ? p.lead : ['']).map(orgOf).filter(function (o, i, a) { return a.indexOf(o) === i; }).forEach(function (o) { put('g:' + o, o || '(no org code)', p, o || '~'); });
     else if (key === 'fy') put('f:' + p.fy, p.fy ? 'FY' + p.fy : '(no fiscal year)', p, p.fy ? -p.fy : 0);
   });
   order.sort(function (a, b) {
@@ -640,7 +656,7 @@ function workloadView() {
   var w = S.workload, d = S.data;
   var list = filtered({ person: true });
   var rows = workloadRows(list, w.role, w.byOffice);
-  rows = sortRows(rows, w.sort, { office: function (r) { return r.office ? officeShort(r.office) : ''; } });
+  rows = sortRows(rows, w.sort, { office: function (r) { return r.office ? officeShort(r.office) : ''; }, teamOrg: function (r) { return r.email ? (r.team || 'z') + '|' + (r.org || '~') : ''; } });
   // People first; projects with nobody in this role go last, unranked.
   rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
   var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
@@ -656,11 +672,11 @@ function workloadView() {
 
   var cols = [
     { key: 'rank', label: '#', num: true },
-    { key: 'name', label: role.short }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main field office', hideSm: true },
+    { key: 'name', label: role.short }, { key: 'teamOrg', label: 'Team · org', hideSm: true }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main field office', hideSm: true },
     { key: 'count', label: 'Projects', num: true },
     { key: 'bar', label: 'Mix' },
     { key: 'preaward', label: 'Pre-award', num: true }, { key: 'awarded', label: 'Awarded', num: true },
-    { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true }, { key: 'Other', label: 'Other', num: true },
+    { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true },
     { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Unexpended', num: true }, { key: 'oldestFy', label: 'Oldest FY', num: true, dir: 1 }
   ];
   var onSort = function (key, multi, dir) {
@@ -674,6 +690,7 @@ function workloadView() {
     var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? r.email + '. Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
       h('td', { class: 'nowrap' }, r.email ? h('strong', null, r.name) : h('em', null, r.name), mine ? h('span', { class: 'you' }, 'You') : null),
+      h('td', { class: 'nowrap hide-sm', title: r.team ? teamLabel(r.team) + (r.org ? ', org code ' + r.org : ', no org code in the directory') : null }, r.team ? [h('span', { class: 'tag team-' + r.team }, teamLabel(r.team, true)), r.org ? h('span', { class: 'muted' }, ' ' + r.org) : null] : '–'),
       h('td', { class: 'nowrap hide-sm' }, r.office ? officeShort(r.office) : '–'),
       h('td', { class: 'num' }, h('strong', null, fmtInt(r.count))),
       h('td', { class: 'bar-cell wide' }, stackedBar(groupSegments(r), max, 'mini-bar', r.email ? avg : 0)),
@@ -682,7 +699,6 @@ function workloadView() {
       h('td', { class: 'num' }, r.BA61 || '–'),
       h('td', { class: 'num' }, r.BA80 || '–'),
       h('td', { class: 'num' }, r.BA54 || '–'),
-      h('td', { class: 'num' }, r.Other || '–'),
       h('td', { class: 'num' }, fmtMoneyShort(r.committed)),
       h('td', { class: 'num' }, r.remaining ? fmtMoneyShort(r.remaining) : '–'),
       h('td', { class: 'num' }, r.oldestFy ? 'FY' + String(r.oldestFy).slice(2) : '–'));
@@ -694,8 +710,8 @@ function workloadView() {
     return tr;
   }));
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () {
-    var header = ['Rank', role.short, 'Email', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Pre-award', 'Awarded', 'Fully expended', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Unexpended', 'Oldest open FY'];
-    var data = rows.map(function (r, i) { return [i + 1, r.name, r.email, r.office ? officeShort(r.office) : '', r.count, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
+    var header = ['Rank', role.short, 'Email', 'Team', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Pre-award', 'Awarded', 'Fully expended', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Unexpended', 'Oldest open FY'];
+    var data = rows.map(function (r, i) { return [i + 1, r.name, r.email, teamLabel(r.team), r.org, r.office ? officeShort(r.office) : '', r.count, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
     downloadFile('Zone ' + d.zone + ' workload by ' + role.short + ' - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(data)), 'text/csv;charset=utf-8');
   } }, 'Export CSV');
 
@@ -706,6 +722,7 @@ function workloadView() {
       groupLegend('Average ' + avg.toFixed(1))),
     h('div', { class: 'toolbar' },
       h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
+      h('div', { class: 'field' }, h('span', null, 'Lead team'), teamSwitch()),
       h('label', { class: 'check' }, byOffice, h('span', null, 'Split by field office')),
       h('div', { class: 'spacer' }), exportBtn),
     rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState());

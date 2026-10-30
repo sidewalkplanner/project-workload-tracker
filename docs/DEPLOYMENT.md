@@ -55,6 +55,8 @@ Run **`checkDirectoryLookup`** in the editor (pick it next to **Run**). It logs 
 robert.sells@gsa.gov -> display name "Robert Sells - PMCGC", org code PMCGC, opens on Denver Federal Center Field Office
 ```
 
+The same directory also gives everyone's org code for the building manager / project manager split. It's read once a week in one sweep, so the first refresh after setup can take a little longer.
+
 If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on all of Zone 5.
 
 

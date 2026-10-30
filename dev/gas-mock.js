@@ -44,7 +44,8 @@ function createRuntime(opts) {
       getScriptProperties() {
         return {
           getProperty(k) { return Object.prototype.hasOwnProperty.call(props, k) ? props[k] : null; },
-          setProperty(k, v) { props[k] = String(v); }
+          setProperty(k, v) { props[k] = String(v); },
+          setProperties(o) { Object.keys(o).forEach((k) => { if (String(o[k]).length > 9216) throw new Error('Argument too large: value'); props[k] = String(o[k]); }); }
         };
       }
     },
@@ -65,6 +66,14 @@ function createRuntime(opts) {
     },
     People: {
       People: {
+        listDirectoryPeople(q) {
+          state.directoryCalls = (state.directoryCalls || 0) + 1;
+          const all = Object.keys(opts.directoryNames || {});
+          const start = Number(q.pageToken || 0);
+          const size = Math.min(q.pageSize || 100, opts.directoryPageSize || 1000);
+          const page = all.slice(start, start + size).map((e) => ({ names: [{ displayName: opts.directoryNames[e] }], emailAddresses: [{ value: e }] }));
+          return { people: page, nextPageToken: start + size < all.length ? String(start + size) : undefined };
+        },
         searchDirectoryPeople(q) {
           const names = opts.directoryNames || {};
           const email = String(q.query).toLowerCase();
