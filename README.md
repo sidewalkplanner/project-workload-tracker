@@ -69,12 +69,13 @@ Built to WCAG 2.2 AA: every text color passes contrast in light and dark, chart 
 
 ## How it works
 
-The server reads the sheets, keeps only NEH, and stores the result gzipped (about 0.7 MB instead of 5 MB) in the script cache and in a saved copy (a small Google Sheet the tracker creates in the owner's Drive, "NEH Project Workload Tracker - saved snapshot"), so that if Google empties the cache early the next page load reads the copy in a second or two instead of rebuilding. The data is sent inside the page itself, so opening the tracker is a single request. So a page load doesn't re-read 10,000 rows. It rebuilds every 4 hours and at 7:30 Central each morning (after EASi regenerates the report), and anyone can press **Refresh** (once every 10 minutes; admins any time). The web app runs as the person who deployed it, so viewers don't need access to the source sheets, and only people signed in with a GSA account can open it.
+The server reads the sheets, keeps only NEH, and stores the result compacted and gzipped (about 1.3 MB instead of 9 MB: fields the browser can rebuild, such as EASi links, building names and default values, are left out and put back by the page) in the script cache and in a saved copy (a small Google Sheet the tracker creates in the owner's Drive, "NEH Project Workload Tracker - saved snapshot"), so that if Google empties the cache early the next page load reads the copy in a second or two instead of rebuilding. The open projects are sent inside the page itself, so opening the tracker is a single request; paid-in-full projects and service contracts, which the page hides at first, follow a moment later (about a quarter of the data). So a page load doesn't re-read 10,000 rows. It rebuilds every 4 hours and at 7:30 Central each morning (after EASi regenerates the report), and anyone can press **Refresh** (once every 10 minutes; admins any time). The web app runs as the person who deployed it, so viewers don't need access to the source sheets, and only people signed in with a GSA account can open it.
 
 | File | What it does |
 |---|---|
 | `webapp/Config.gs` | Sheet IDs, zone, programs, stages, roles. Any setting can be overridden in Script properties. |
 | `webapp/Pipeline.gs` | Turns the sheets into the NEH dataset (pure functions, tested in Node). |
+| `webapp/Compact.gs` | Makes the snapshot small for the browser and splits it into what the page shows first and the rest; the page's `expandProject` puts it back (a test checks both agree). |
 | `webapp/History.gs` | The stage history: when each project reached its stage, kept across refreshes (pure functions, tested in Node). |
 | `webapp/Planned.gs`, `Portal.gs`, `Ba54.gs`, `Rwa.gs` | Add the BA61 portal, BA54 tracker and RWA dashboard projects that have no PR in EASi yet, and match the names in them to emails (pure functions, tested in Node). |
 | `webapp/Data.gs` | Reads the sheets, caches the snapshot, works out who is signed in. |

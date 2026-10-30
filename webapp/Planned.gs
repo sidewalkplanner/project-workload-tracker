@@ -77,16 +77,6 @@ function plannedPlace_(buildings, officeName, directory) {
  * A full project record for a planned project, with every field the page reads.
  * @param {Object} f  { source, sourceLabel, pr, title, link, fy, program, stage, planStatus, estimate, cor, requestor, co, place, details: [[label, value]], portalNumbers, projectCodes }
  */
-/** The EASi fields a planned project doesn't have: left out of the snapshot to keep it small, filled in by the page. */
-var PLANNED_DEFAULTS = {
-  values: {
-    programFromTitle: false, prStatus: '', acquisitionStatus: '', awardStatus: '', solicitationStatus: '', awardNumber: '', awardType: '',
-    vendor: '', category: '', procurementCategory: '', committed: 0, obligated: 0, expended: 0, reserved: 0, remaining: 0, executed: '',
-    state: '', officeCode: '', comments: '', placeNote: '', service: '', units: 1
-  },
-  lists: ['reviewers', 'requestor', 'co', 'cs', 'assigned', 'programManager', 'buildingManager', 'projectCodes', 'rwas', 'portalNumbers', 'subprojects', 'plans', 'details']
-};
-
 function plannedRecord_(f) {
   var place = f.place;
   var p = {
