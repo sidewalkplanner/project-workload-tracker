@@ -276,13 +276,22 @@ test('BA61 portal: projects with no PR in EASi are added; ones in EASi are not r
 test('BA61 portal: names, nicknames and a blank or unreadable portal', () => {
   const rt = runtimeWith(demoSources(5));
   const idx = rt.ctx.personIndex_(['robert.sells@gsa.gov', 'india.stewart@gsa.gov', 'india.stewart@gsa.com', 'luis.ramirez-figueroa@gsa.gov',
-    'christopher.oneill@gsa.gov', 'temesgen.wolday@gsa.gov', 'robert.smith@gsa.gov', 'robert.l.smith@gsa.gov']);
+    'christopher.oneill@gsa.gov', 'temesgen.wolday@gsa.gov', 'robert.smith@gsa.gov', 'robert.l.smith@gsa.gov', 'shelly.baxter@gsa.gov',
+    'juan.juarez@gsa.gov', 'dana.cole@gsa.gov', 'dana.cale@gsa.gov']);
   assert.strictEqual(idx.find('Bobby Sells'), 'robert.sells@gsa.gov');
   assert.strictEqual(idx.find('India Stewart'), 'india.stewart@gsa.gov');
   assert.strictEqual(idx.find('Luis Ramirez'), 'luis.ramirez-figueroa@gsa.gov');
   assert.strictEqual(idx.find("Christopher O'Neill"), 'christopher.oneill@gsa.gov');
   assert.strictEqual(idx.find('Taz Wolday'), 'temesgen.wolday@gsa.gov');
   assert.strictEqual(idx.find('Robert Smith'), '', 'two people fit: no guess');
+  assert.strictEqual(idx.find('Shelly Baxer'), 'shelly.baxter@gsa.gov', 'a dropped letter');
+  assert.strictEqual(idx.find('Juan Jurez'), 'juan.juarez@gsa.gov');
+  assert.strictEqual(idx.find('Shelly Bxtaer'), '', 'more than one slip: no guess');
+  assert.strictEqual(idx.find('Dana Cole'), 'dana.cole@gsa.gov');
+  assert.strictEqual(idx.find('Dana Cble'), '', 'one slip from two people: no guess');
+  assert.strictEqual(idx.find('Pat Baxter'), '', 'the first name must match');
+  ['baxter|baxer', 'baxter|baxtre', 'baxter|baxters', 'baxter|bexter'].forEach((pair) => assert.ok(rt.ctx.oneEditApart_(...pair.split('|')), pair));
+  ['baxter|baxter', 'baxter|bxtaer', 'baxter|baxt'].forEach((pair) => assert.ok(!rt.ctx.oneEditApart_(...pair.split('|')), pair));
   assert.strictEqual(rt.ctx.portalFiscalYear_('FY27'), 2027);
   // PORTAL_ID OFF: no portal projects, and the page hides the portal parts.
   const off = createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { PORTAL_ID: 'OFF' } });

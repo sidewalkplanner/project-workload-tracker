@@ -172,9 +172,13 @@ function normName_(text) {
     .join(' ');
 }
 
-/** Finds a person's email from a name as people write it: full name, nickname, or first initial and last name, when only one person fits. */
+/**
+ * Finds a person's email from a name as people write it, when only one person fits: full name,
+ * nickname, first initial and last name, or the first name with a one-letter slip in the last
+ * name ("Shelly Baxer" -> shelly.baxter).
+ */
 function personIndex_(emails) {
-  var full = {}, initial = {};
+  var full = {}, initial = {}, byFirst = {};
   var add = function (map, key, email) { map[key] = map[key] || []; if (map[key].indexOf(email) === -1) map[key].push(email); };
   // One address per person: a mistyped domain (india.stewart@gsa.com) doesn't make the name ambiguous.
   var seen = {};
@@ -188,6 +192,7 @@ function personIndex_(emails) {
     words.slice(1).forEach(function (last) {
       add(full, words[0] + ' ' + last, email);
       add(initial, words[0].charAt(0) + ' ' + last, email);
+      (byFirst[words[0]] = byFirst[words[0]] || []).push({ last: last, email: email });
     });
   });
   var only = function (list) { return list && list.length === 1 ? list[0] : ''; };
@@ -199,7 +204,24 @@ function personIndex_(emails) {
       var hit = full[first + ' ' + last];
       if (hit) return only(hit);
       if (NICKNAMES[first] && full[NICKNAMES[first] + ' ' + last]) return only(full[NICKNAMES[first] + ' ' + last]);
-      return only(initial[first.charAt(0) + ' ' + last]);
+      hit = only(initial[first.charAt(0) + ' ' + last]);
+      if (hit || last.length < 4) return hit;
+      var near = [];
+      [first, NICKNAMES[first]].forEach(function (f) {
+        (f && byFirst[f] || []).forEach(function (c) { if (oneEditApart_(c.last, last) && near.indexOf(c.email) === -1) near.push(c.email); });
+      });
+      return only(near);
     }
   };
+}
+
+/** True when two words differ by one letter added, dropped, changed or swapped with its neighbor. */
+function oneEditApart_(a, b) {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  var i = 0;
+  while (i < a.length && i < b.length && a.charAt(i) === b.charAt(i)) i++;
+  if (a.length === b.length) {
+    return a.slice(i + 1) === b.slice(i + 1) || (a.charAt(i) === b.charAt(i + 1) && a.charAt(i + 1) === b.charAt(i) && a.slice(i + 2) === b.slice(i + 2));
+  }
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
 }
