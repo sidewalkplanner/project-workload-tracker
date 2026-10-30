@@ -13,7 +13,10 @@
  * lease, a purchase card, an older PR) and is only counted. Substantially completed and
  * failed ones are left out. Severable RWAs are recurring services, so they count as service
  * contracts (hidden unless the page includes them). The person assigned is the GSA PM in
- * RETA (else in Kahua); the money is the authorized amount (else the pending one).
+ * RETA. Kahua isn't used: its people and dates are too often out of date, and the dashboard's
+ * planned award, construction start and completion dates come from Kahua (they are only ever
+ * filled in for RWAs with a Kahua project), so they are left out too. The money is the
+ * authorized amount (else the pending one).
  */
 
 /** Dashboard columns the tracker reads, by header name (line breaks read as spaces). */
@@ -21,8 +24,7 @@ var RWA_HEADERS = {
   buildingType: 'Building Type', building: 'Building Number', office: 'OFM Field Office', type: 'RWA Type', number: 'RWA No',
   sev: 'Sev/Nonsev', status: 'RWA Status', pending: 'PENDING Authorized Amount', authorized: 'ACTUAL Authorized Amount',
   commitments: 'Open Commitments', obligated: 'Obligated', expensed: 'Expensed', billed: 'Billed', agency: 'Agency', bureau: 'Bureau',
-  agencyPoc: 'Agency POC', pm: 'RETA GSA PM/POC', kahuaPm: 'Kahua GSA PM', kahuaProject: 'Primary Kahua Project', kahuaStatus: 'Kahua Status',
-  plannedAward: 'Planned Construction/Lease Award', plannedNtp: 'Planned Construction NTP', plannedComplete: 'Planned Substantial Completion',
+  agencyPoc: 'Agency POC', pm: 'RETA GSA PM/POC',
   wrSent: 'WR Sent Date', accepted: 'RWA Accepted Date', acceptedFy: 'RWA Accepted FY', fundsClose: 'Next Fund Closing Date', description: 'Description'
 };
 
@@ -105,7 +107,6 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
     var status = str_(get('status'));
     var authorized = money_(get('authorized')) || money_(get('pending')) || 0;
     var pm = people.find(get('pm'));
-    if (!pm.length) pm = people.find(get('kahuaPm'));
     // "UNITED STATES GEOLOGICAL SURVEY (USGS)" -> "United States Geological Survey (USGS)"
     var customer = uniqueList_([str_(get('agency')), str_(get('bureau'))].filter(Boolean)).map(function (t) {
       return titleCase_(t).replace(/\(([A-Za-z&]+)\)/g, function (m, a) { return '(' + a.toUpperCase() + ')'; });
@@ -148,7 +149,6 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
       cor: pm,
       place: place,
       seedDate: stage === 'noPr' ? monthOrDate_(get('accepted')) : monthOrDate_(get('wrSent')),
-      dueBy: planDueDate_(get('plannedAward'), null), dueWhat: 'Planned award',
       fundsClose: fundsClose,
       details: [
         ['Customer', customer],
@@ -156,13 +156,9 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
         ['RWA type', RWA_TYPES[type] || type],
         ['Severable', severable ? 'Yes: recurring services' : 'No'],
         ['Building type', str_(get('buildingType'))],
-        ['Kahua project', [str_(get('kahuaProject')), str_(get('kahuaStatus'))].filter(Boolean).join(' · ')],
         ['Work request sent', monthOrDate_(get('wrSent'))],
         ['Accepted', monthOrDate_(get('accepted'))],
-        ['Funds close', fundsClose || (/^no/i.test(str_(get('fundsClose'))) ? 'No-year funds' : '')],
-        ['Planned award', monthOrDate_(get('plannedAward'))],
-        ['Planned construction start', monthOrDate_(get('plannedNtp'))],
-        ['Planned substantial completion', monthOrDate_(get('plannedComplete'))]
+        ['Funds close', fundsClose || (/^no/i.test(str_(get('fundsClose'))) ? 'No-year funds' : '')]
       ]
     });
     if (severable) p.service = 'Severable RWA (recurring services)';

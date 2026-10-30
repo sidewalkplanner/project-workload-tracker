@@ -50,7 +50,7 @@ var ATTENTION_CHECKS = [
   },
   {
     key: 'pastTarget', group: 'time', title: 'Past its planned date, still no PR',
-    why: 'The plan said this would be committed, routed or awarded by now, and EASi has no PR for it.',
+    why: 'The plan said this would be committed (BA61 portal) or routed (BA54 tracker) by now, and EASi has no PR for it.',
     test: function (p) { return isPlanned(p) && p.dueBy && p.dueBy < snapshotDay() ? p.dueWhat + ' was ' + fmtDate(p.dueBy) : ''; },
     sortKey: function (p) { return p.dueBy; }
   },

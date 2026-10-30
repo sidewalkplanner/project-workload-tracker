@@ -379,7 +379,7 @@ test('RWA dashboard: RWAs with no PR and no money are added; PRs show their RWA'
   assert.strictEqual(byNumber['3999002'].estimate, 80000, 'a work request uses the pending amount');
   assert.strictEqual(byNumber['3999003'].stage, 'pending');
   assert.strictEqual(byNumber['3999004'].stage, 'noPr');
-  assert.ok(byNumber['3999004'].lead[0].indexOf('@') !== -1, 'the Kahua PM when RETA names none');
+  assert.strictEqual(byNumber['3999004'].lead.length, 0, 'no GSA PM in RETA: nobody (Kahua is not used)');
   assert.ok(!byNumber['3999005'], 'money but no PR: funded another way');
   assert.ok(/Severable/.test(byNumber['3999007'].service), 'severable RWAs are services');
   assert.ok(rwas.every((p) => p.programs[0] === 'PG80' && /&range=A\d+$/.test(p.link)));

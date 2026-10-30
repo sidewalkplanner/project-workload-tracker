@@ -189,7 +189,7 @@ function demoSources(count) {
   const kc = OFFICES[2];  // Kansas City North
   const kcStaff = officeStaff[kc[1]];
   [
-    // [RWA No, type, sev, status, obligated, building, GSA PM, Kahua PM]
+    // [RWA No, type, sev, status, obligated, building, GSA PM in RETA, Kahua PM (ignored)]
     [rwaPr > 0 ? String(pipeline[rwaPr][rwaCol]) : '3000001', 'N', 'Nonseverable', 'Accepted', 50000, null, kcStaff[3], ''],
     ['3999001', 'N', 'Nonseverable', 'Accepted', 90000, null, kcStaff[3], ''],
     ['3999002', 'W', 'Nonseverable', 'Planning/Estimate', 0, null, kcStaff[4], ''],
@@ -218,8 +218,8 @@ function demoSources(count) {
     row[colR('RETA GSA PM/POC')] = x[6] || null;
     row[colR('Kahua GSA PM')] = x[7] || null;
     row[colR('RWA Accepted FY')] = 2026;
-    // Accepted in June with money closing at the end of December and an award planned for August:
-    // the Needs attention view has something to show.
+    // Accepted in June with money closing at the end of December: the Needs attention view has
+    // something to show. (The planned award date is Kahua's, which the tracker ignores.)
     if (x[3] === 'Accepted') { row[colR('RWA Accepted Date')] = '2026-06-01T05:00:00.000Z'; row[colR('Planned Construction/Lease Award')] = '2026-08-31T05:00:00.000Z'; }
     row[colR('Next Fund Closing Date')] = x[3] === 'Accepted' ? '12/31/2026' : 'NO-YEAR';
     row[colR('Description')] = pick(WORK) + ' for the customer (RWA)';
