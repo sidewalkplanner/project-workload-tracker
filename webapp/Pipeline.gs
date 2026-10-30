@@ -37,7 +37,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   // What is in EASi, from every PR in any zone: PR numbers, the portal numbers PRs carry, and
   // project codes with the PRs' fiscal years. And everyone named on a PR anywhere, to match the
   // names the BA61 portal and BA54 tracker give to emails.
-  var inEasi = { eq: {}, mentioned: {}, codes: {}, rwas: {} };
+  var inEasi = { eq: {}, mentioned: {}, codes: {}, rwas: {}, rwaInTitle: {} };
   var known = [];
 
   for (var i = 1; i < pipelineValues.length; i++) {
@@ -50,7 +50,12 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     portalNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) { (inEasi.mentioned[n] = inEasi.mentioned[n] || []).push(number); });
     var prFy = fiscalYear_(get('fiscalYear'));
     codeList_(get('projectCodes')).forEach(function (c) { (inEasi.codes[c] = inEasi.codes[c] || []).push({ pr: number, fy: prFy }); });
-    codeList_(get('rwas')).forEach(function (c) { var n = rwaNumber_(c); if ((inEasi.rwas[n] = inEasi.rwas[n] || []).indexOf(number) === -1) inEasi.rwas[n].push(number); });
+    var onRwa = function (n) { if ((inEasi.rwas[n] = inEasi.rwas[n] || []).indexOf(number) === -1) inEasi.rwas[n].push(number); };
+    codeList_(get('rwas')).forEach(function (c) { onRwa(rwaNumber_(c)); });
+    // RWA numbers written in the title or comments ("RWA #N3858013") count too, when the RWA field lacks them.
+    rwaNumbersIn_(title + ' ' + str_(get('comments'))).forEach(function (n) {
+      if (!inEasi.rwas[n] || inEasi.rwas[n].indexOf(number) === -1) { onRwa(n); inEasi.rwaInTitle[n + '|' + number] = true; }
+    });
     known = known.concat(parseEmailList_(get('cor')), parseEmailList_(get('requestor')));
     var place = placeOf_(get('buildingCodes'), title, get('orgCodes'), directory);
     if (!place.offices.length && !place.serviceCenters.length) {

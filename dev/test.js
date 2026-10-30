@@ -365,10 +365,12 @@ test('BA54 tracker: current-program projects with no recent PR are added', () =>
   assert.ok(off.prs.every((p) => p.source !== 'ba54') && !off.ba54.read);
 });
 
+function rt_rwaNumbers(text) { return JSON.parse(JSON.stringify(runtimeWith(demoSources(3)).ctx.rwaNumbersIn_(text))); }
+
 test('RWA dashboard: RWAs with no PR and no money are added; PRs show their RWA', () => {
   const src = demoSources();
   const d = load(runtimeWith(src)).data;
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.rwa.counts)), { rows: 8, inEasi: 2, notInEasi: 4, otherZones: 1, closed: 1, fundedElsewhere: 1 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d.rwa.counts)), { rows: 9, inEasi: 3, notInEasi: 4, otherZones: 1, closed: 1, fundedElsewhere: 1 });
   const rwas = d.prs.filter((p) => p.source === 'rwa');
   const byNumber = {};
   rwas.forEach((p) => { byNumber[p.pr] = p; });
@@ -387,6 +389,10 @@ test('RWA dashboard: RWAs with no PR and no money are added; PRs show their RWA'
   const sharedPlan = carriers.map((p) => p.plans.filter((x) => x.id === '3999001')[0]).filter(Boolean);
   assert.strictEqual(sharedPlan.length, 2);
   assert.ok(sharedPlan.every((x) => x.prCount === 2 && /Demo Affairs/.test(x.note)));
+  assert.ok(!byNumber['3999009'], 'an RWA number in a PR title is in EASi');
+  const titled = d.prs.filter((p) => p.pr === src.pipeline[5][0])[0];
+  assert.strictEqual(titled.plans.filter((x) => x.id === '3999009')[0].how, 'RWA number in the PR title');
+  assert.deepStrictEqual(rt_rwaNumbers('For Bid - BA80 P00A0000 N3850370, RWA #n3858013 and 1234567'), ['3850370', '3858013']);
   assert.strictEqual(d.sources[4].updated, '2026-10-30');
   // RWA_ID OFF leaves them out.
   const off = filled(JSON.parse(createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { RWA_ID: 'OFF' } }).ctx.apiLoad())).data;

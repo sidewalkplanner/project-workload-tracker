@@ -184,6 +184,8 @@ function demoSources(count) {
   const rwaPr = pipeline.findIndex((r, i) => i > 0 && /^\d+$/.test(String(r[rwaCol])));
   const shared = pipeline.findIndex((r, i) => i > rwaPr + 1 && /^\d+$/.test(String(r[rwaCol])));
   if (shared > 0 && pipeline[shared + 1]) { pipeline[shared][rwaCol] = '3999001'; pipeline[shared + 1][rwaCol] = '3999001'; }
+  // A PR that only writes its RWA number in the title.
+  if (pipeline[5]) pipeline[5][1] += ' RWA #N3999009';
   const kc = OFFICES[2];  // Kansas City North
   const kcStaff = officeStaff[kc[1]];
   [
@@ -196,7 +198,8 @@ function demoSources(count) {
     ['3999005', 'N', 'Nonseverable', 'Accepted', 120000, null, kcStaff[5], ''],
     ['3999006', 'N', 'Nonseverable', 'Substantially Completed', 0, null, kcStaff[5], ''],
     ['3999007', 'R', 'Severable', 'Accepted', 0, null, kcStaff[3], ''],
-    ['3999008', 'N', 'Nonseverable', 'Accepted', 0, 'WA0001ZZ', 'pat.seattle@gsa.gov', '']
+    ['3999008', 'N', 'Nonseverable', 'Accepted', 0, 'WA0001ZZ', 'pat.seattle@gsa.gov', ''],
+    ['3999009', 'N', 'Nonseverable', 'Accepted', 0, null, kcStaff[4], '']
   ].forEach((x) => {
     const row = new Array(rwaHeader.length).fill(null);
     row[colR('Building Type')] = 'Owned';

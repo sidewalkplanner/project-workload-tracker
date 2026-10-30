@@ -995,7 +995,7 @@ function footnote() {
     h('p', { class: 'footnote' },
     'A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
     '“Paid in full” means Pegasys shows all the obligated money spent.' +
-    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes, an RWA’s number on the PR. RWAs and work requests count only while nothing is committed or obligated on them (one with money but no PR is funded another way, such as a lease or purchase card); severable RWAs count as service contracts. Then the PR shows the plan next to what EASi has committed.' : '')));
+    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes, an RWA’s number on the PR or in its title (RWAs are BA80). RWAs and work requests count only while nothing is committed or obligated on them (one with money but no PR is funded another way, such as a lease or purchase card); severable RWAs count as service contracts. Then the PR shows the plan next to what EASi has committed.' : '')));
 }
 
 window.addEventListener('load', start);

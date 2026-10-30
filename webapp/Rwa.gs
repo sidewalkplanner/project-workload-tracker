@@ -3,7 +3,8 @@
  * tab, Script property RWA_ID). The dashboard is only read; the records it makes are
  * described in Planned.gs.
  *
- * An RWA is in EASi when a PR lists its number in FE_RWA_List; that PR then shows the RWA
+ * RWAs are BA80 (reimbursable work). An RWA is in EASi when a PR lists its number in
+ * FE_RWA_List, or writes it in its title or comments ("RWA #N3858013"); that PR then shows the RWA
  * (customer, authorized amount, GSA PM) as its plan. One that no PR lists is added as "Not
  * in EASi yet" when nothing has been committed or obligated on it: work requests being
  * estimated (Planning/Estimate, Unassigned) are planning, ones waiting for the customer's
@@ -53,6 +54,17 @@ function rwaAsOf_(values) {
   return '';
 }
 
+/** An RWA number as people write it in a PR title: its type letter and seven digits ("N3858013"). */
+var RWA_IN_TITLE_RE = /\b[NRFABCDW](\d{7})\b/g;
+
+/** RWA numbers written in a PR's title or comments: "RWA #N3858013" -> ['3858013']. */
+function rwaNumbersIn_(text) {
+  var out = [], m;
+  RWA_IN_TITLE_RE.lastIndex = 0;
+  while ((m = RWA_IN_TITLE_RE.exec(str_(text).toUpperCase()))) if (out.indexOf(m[1]) === -1) out.push(m[1]);
+  return out;
+}
+
 /** RETA writes RWA numbers as numbers or text ("3779613", 3779613, "3779613.0"). */
 function rwaNumber_(value) {
   return str_(value).replace(/\.0+$/, '').toUpperCase();
@@ -100,7 +112,8 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
       out.plans.push({ prs: prs, plan: {
         source: 'rwa', sourceLabel: 'RWA', id: number, title: description.slice(0, 200), status: status,
         estimate: authorized, person: pm.map(function (k) { return k.indexOf('@') === -1 ? people.names[k] : k; }).join(', '),
-        fy: planFiscalYear_(get('acceptedFy')), link: link, how: 'RWA number on the PR', note: customer ? 'Customer: ' + customer : ''
+        fy: planFiscalYear_(get('acceptedFy')), link: link, note: customer ? 'Customer: ' + customer : '',
+        how: prs.every(function (n) { return inEasi.rwaInTitle[number + '|' + n]; }) ? 'RWA number in the PR title' : 'RWA number on the PR'
       } });
       out.counts.inEasi++;
       continue;
