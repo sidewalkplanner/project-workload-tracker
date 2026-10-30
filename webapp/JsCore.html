@@ -37,6 +37,36 @@ function statusOptions() { return STATUS_OPTIONS.filter(function (s) { return !s
 /** A project from the BA61 portal or BA54 tracker that has no PR in EASi yet. */
 function isPlanned(p) { return !!p.source; }
 
+/**
+ * Plan vs. EASi for a PR that carries planned projects: { planned, committed, ratio, key, label }.
+ * key: 'over' / 'under' (more than 25% off the plan), 'near', 'none' (nothing committed yet), 'mixed' (the PR
+ * is also funded from other programs, so its committed amount isn't comparable), 'noamount' (the plan has no
+ * amount), or '' with no plan.
+ */
+function planCheck(p) {
+  if (p._plan !== undefined) return p._plan;
+  var plans = p.plans || [];
+  var planned = plans.reduce(function (s, x) { return s + (x.estimate || 0); }, 0);
+  var out = { planned: planned, committed: p.committed, ratio: null, key: '', label: '' };
+  var planPrograms = plans.map(function (x) { return x.source === 'ba54' ? 'PG54' : 'PG61'; });
+  var others = p.programs.filter(function (c) { return planPrograms.indexOf(c) === -1; });
+  if (plans.length && planned <= 0) { out.key = 'noamount'; out.label = 'No amount in the plan'; }
+  else if (plans.length) {
+    if (p.committed <= 0) { out.key = 'none'; out.label = 'Nothing committed in EASi yet'; }
+    else if (others.length) {
+      out.key = 'mixed';
+      out.label = 'Also funded from ' + others.map(function (c) { return c.replace(/^PG/, 'BA'); }).join(', ') + ', so not comparable to the plan';
+    }
+    else {
+      out.ratio = p.committed / planned - 1;
+      out.key = out.ratio > 0.25 ? 'over' : out.ratio < -0.25 ? 'under' : 'near';
+      out.label = (out.ratio >= 0 ? '+' : '−') + Math.round(Math.abs(out.ratio) * 100) + '% vs. plan';
+    }
+  }
+  p._plan = out;
+  return out;
+}
+
 /** Small stroked icons (24-unit grid, 2px stroke), drawn inline so they follow the text color. */
 var ICON_PATHS = {
   up: 'M7 14l5-5 5 5',
@@ -161,6 +191,7 @@ function prepareData(data) {
   data.prs.forEach(function (p) {
     p.stageOrder = S.stageIndex[p.stage] ? S.stageIndex[p.stage].order : 99;
     p._search = [p.pr, p.title, p.vendor, p.awardNumber, p.buildings.join(' '), p.buildingNames.join(' '), p.portalNumbers.join(' '),
+      (p.plans || []).map(function (x) { return x.id + ' ' + x.title + ' ' + x.person; }).join(' '),
       (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join(' '),
       p.offices.join(' '), p.rwas.join(' '), p.projectCodes.join(' ')]
       .concat(['lead', 'cor', 'requestor', 'co', 'cs', 'programManager', 'buildingManager'].map(function (r) {

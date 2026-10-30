@@ -1,13 +1,13 @@
 /**
- * NEH Project Workload Tracker — configuration.
+ * NEH Projects (the NEH Project Workload Tracker) — configuration.
  *
  * Every value here can be overridden without touching code: Apps Script ›
  * Project Settings › Script properties, using the key names in SETTINGS_DEFAULTS.
  */
 
 var APP = {
-  name: 'NEH Project Workload Tracker',
-  shortName: 'NEH Workload'
+  name: 'NEH Projects',
+  shortName: 'NEH Projects'
 };
 
 var SETTINGS_DEFAULTS = {

@@ -33,7 +33,9 @@ def main(pipeline_path, directory_path, out_path, portal_path=None, ba54_path=No
     if portal_path:
         data['portal'] = rows(openpyxl.load_workbook(portal_path, read_only=True, data_only=True)['Projects'])
     if ba54_path:
-        data['ba54'] = rows(openpyxl.load_workbook(ba54_path, read_only=True, data_only=True)['Current Program'])
+        ba54 = openpyxl.load_workbook(ba54_path, read_only=True, data_only=True)
+        data['ba54'] = rows(ba54['Current Program'])
+        data['ba54Dashboard'] = rows(ba54['Dashboard'])[:12]
     with open(out_path, 'w') as f:
         json.dump(data, f)
     print('Wrote %s: %d pipeline rows, %d building rows' % (out_path, len(data['pipeline']) - 1, len(data['buildings'])))

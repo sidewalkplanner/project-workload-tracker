@@ -36,7 +36,9 @@ var PROJECT_CSV = [
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
   ['Contracting officer', function (p) { return peopleNames(p.co); }], ['Contract specialist', function (p) { return peopleNames(p.cs); }], ['Building manager', function (p) { return peopleNames(p.buildingManager); }],
-  ['BA61 portal number', function (p) { return p.portalNumbers.join(' '); }], ['Status in the plan', function (p) { return p.planStatus || ''; }],
+  ['BA61 portal number', function (p) { return p.portalNumbers.join(' '); }],
+  ['Plan', function (p) { return (p.plans || []).map(function (x) { return x.sourceLabel + ' ' + x.id; }).join('; '); }],
+  ['Planned amount', function (p) { return p.plans && p.plans.length ? planCheck(p).planned : ''; }], ['Committed vs. plan', function (p) { return planCheck(p).label; }], ['Status in the plan', function (p) { return p.planStatus || ''; }],
   ['Service contract', function (p) { return p.service; }], ['Link', function (p) { return p.link; }]
 ];
 var GROUPS = [
@@ -48,7 +50,14 @@ var GROUPS = [
   { key: 'stage', label: 'Status' },
   { key: 'program', label: 'Program' },
   { key: 'building', label: 'Building' },
-  { key: 'fy', label: 'Fiscal year' }
+  { key: 'fy', label: 'Fiscal year' },
+  { key: 'plan', label: 'Plan vs. EASi' }
+];
+/** The "Plan vs. EASi" groups, in order. */
+var PLAN_GROUPS = [
+  ['planned', 'Planned, not in EASi yet'], ['over', 'In EASi, committed more than 25% over the plan'], ['near', 'In EASi, within 25% of the plan'],
+  ['under', 'In EASi, committed more than 25% under the plan'], ['none', 'In EASi with a plan, nothing committed yet'],
+  ['mixed', 'In EASi with a plan, also funded from other programs'], ['noamount', 'In EASi with a plan that has no amount'], ['', 'No plan on file (EASi only)']
 ];
 
 // ---------------------------------------------------------------------------
@@ -220,10 +229,10 @@ function topBar() {
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
-      h('span', { class: 'brand-title' }, d.scopeLabel + ' Project Workload'),
-      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' projects from ' + andList(['EASi'].concat(plannedSources())))),
+      h('span', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
+      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
     h('div', { class: 'freshness' },
-      h('span', null, 'Updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
+      h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
     tabs));
 }
@@ -689,6 +698,11 @@ function groupProjects(list, key) {
     else if (key === 'team') (p.lead.length ? p.lead : ['']).map(teamOf).filter(function (t, i, a) { return a.indexOf(t) === i; }).forEach(function (t) { put('t:' + t, t ? teamLabel(t) : '(no lead in EASi)', p, t || '~'); });
     else if (key === 'org') (p.lead.length ? p.lead : ['']).map(orgOf).filter(function (o, i, a) { return a.indexOf(o) === i; }).forEach(function (o) { put('g:' + o, o || '(no org code)', p, o || '~'); });
     else if (key === 'fy') put('f:' + p.fy, p.fy ? 'FY' + p.fy : '(no fiscal year)', p, p.fy ? -p.fy : 0);
+    else if (key === 'plan') {
+      var k = isPlanned(p) ? 'planned' : planCheck(p).key;
+      var i = PLAN_GROUPS.map(function (g) { return g[0]; }).indexOf(k);
+      put('pl:' + k, PLAN_GROUPS[i][1], p, i);
+    }
   });
   order.sort(function (a, b) {
     if (key === 'lead' || key === 'cor' || key === 'requestor' || key === 'office') return b.items.length - a.items.length || compareValues(a.sortKey, b.sortKey);
@@ -734,7 +748,11 @@ function projectRow(p, cols) {
     },
     committed: function () {
       if (isPlanned(p)) return h('td', { class: 'num', title: fmtMoney(p.estimate) + (p.source === 'ba54' ? ' total cost in the BA54 tracker' : ' budgeted in the BA61 portal') + '. Nothing is committed in EASi yet.' }, p.estimate ? [fmtMoneyShort(p.estimate), h('div', { class: 'sub' }, 'estimated')] : '–');
-      return h('td', { class: 'num', title: fmtMoney(p.committed) }, fmtMoneyShort(p.committed));
+      var plan = planCheck(p);
+      if (!plan.key) return h('td', { class: 'num', title: fmtMoney(p.committed) }, fmtMoneyShort(p.committed));
+      var off = plan.key === 'over' || plan.key === 'under';
+      return h('td', { class: 'num', title: fmtMoney(p.committed) + ' committed; ' + fmtMoney(plan.planned) + ' planned in ' + andList(uniqueLabels(p.plans)) + (plan.ratio !== null ? ' (' + plan.label + ')' : '') },
+        fmtMoneyShort(p.committed), h('div', { class: 'sub' + (off ? ' off-plan' : '') }, plan.key === 'noamount' ? 'in a plan' : 'plan ' + fmtMoneyShort(plan.planned) + (off ? ' (' + plan.label.replace(' vs. plan', '') + ')' : '')));
     },
     remaining: function () { return h('td', { class: 'num', title: p.remaining ? fmtMoney(p.remaining) : null }, p.remaining ? fmtMoneyShort(p.remaining) : '–'); },
     executed: function () {
@@ -873,6 +891,7 @@ function openDrawer(p) {
         (p.details || []).map(function (x) { return item(x[0], /^\d{4}-\d{2}-\d{2}$/.test(x[1]) ? fmtDate(x[1]) : x[1]); }),
         item('Fiscal year', p.fy ? 'FY' + p.fy : ''))
     ] : null,
+    !planned && p.plans && p.plans.length ? planSection(p, item) : null,
     planned ? null : h('div', { class: 'section-title' }, 'Status in EASi'),
     planned ? null : h('dl', { class: 'dl' },
       item('Where it is now', st.label),
@@ -923,19 +942,53 @@ function openDrawer(p) {
   close.focus();
 }
 
+/** Where a PR's planned projects come from: ['the BA61 portal', 'the BA54 tracker'] */
+function uniqueLabels(plans) { return (plans || []).map(function (x) { return 'the ' + x.sourceLabel; }).filter(function (l, i, a) { return a.indexOf(l) === i; }); }
+
+/** The project panel's "Planned as" section: each plan this PR carries, and plan vs. committed. */
+function planSection(p, item) {
+  var plan = planCheck(p);
+  return [
+    h('div', { class: 'section-title' }, p.plans.length === 1 ? 'Planned as' : 'Planned as ' + p.plans.length + ' projects'),
+    h('ul', { class: 'plans' }, p.plans.map(function (x) {
+      return h('li', null,
+        x.link ? h('a', { href: x.link, target: '_blank', rel: 'noopener' }, x.id || x.sourceLabel) : h('strong', null, x.id || x.sourceLabel),
+        ' · ', x.sourceLabel, x.status ? ' · ' + x.status : '',
+        h('div', { class: 'small' }, x.title),
+        h('div', { class: 'small muted' }, [x.estimate ? fmtMoney(x.estimate) + ' planned' : 'No amount planned', x.person ? (x.source === 'ba54' ? 'project manager ' : 'COR ') + x.person : '', x.fy ? 'FY' + x.fy : '']
+          .filter(Boolean).join(' · ') + '. Matched by ' + x.how + '.'));
+    })),
+    plan.planned > 0 ? h('dl', { class: 'dl' },
+      item('Planned', fmtMoney(plan.planned)),
+      item('Committed in EASi', fmtMoney(p.committed) + (plan.label ? ' (' + plan.label + ')' : ''))) : null
+  ];
+}
+
 /** ['a', 'b', 'c'] -> "a, b and c" */
 function andList(list) { return list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''); }
 
 /** "the BA61 portal" / "the BA54 tracker" */
 function plannedName(p) { return p.source === 'ba54' ? 'the BA54 tracker' : 'the BA61 portal'; }
 
+/** "Where this comes from": every source, what it adds and how fresh it is, then how the numbers work. */
 function footnote() {
   var d = S.data;
   var service = d.prs.filter(function (p) { return p.service; }).length;
-  return h('p', { class: 'footnote' },
-    'From the EASi BA61 Pipeline report' + (d.generatedAt ? ', updated ' + fmtDateTime(d.generatedAt) : '') + '. A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
+  var when = function (s) {
+    if (!s.updated) return 'read at the last refresh';
+    if (/T/.test(s.updated)) return 'updated ' + fmtDateTime(s.updated);
+    return (s.key === 'portal' ? 'last project change ' : s.key === 'ba54' ? 'data as of ' : 'updated ') + (/^\d{4}-/.test(s.updated) ? fmtDate(s.updated) : s.updated);
+  };
+  var sources = (d.sources || []).filter(function (s) { return s.read !== false; });
+  return h('section', { class: 'sources', 'aria-label': 'Where this comes from' },
+    sources.length ? [h('h2', null, 'Where this comes from'), h('ul', null, sources.map(function (s) {
+      return h('li', null, s.link ? h('a', { href: s.link, target: '_blank', rel: 'noopener' }, s.name) : h('strong', null, s.name),
+        h('span', { class: 'muted' }, ' · ' + when(s) + ' · ' + plural(s.rows, s.key === 'directory' ? 'building' : 'row')), h('div', { class: 'small muted' }, s.gives));
+    }))] : null,
+    h('p', { class: 'footnote' },
+    'A project shows up here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + d.zones.join(', ') : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
     '“Paid in full” means Pegasys shows all the obligated money spent.' +
-    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes.' : ''));
+    (hasPlanned() ? ' Projects planned or approved in ' + andList(plannedSources()) + ' are listed as “Not in EASi yet” until a PR carries them: a BA61 portal project’s number in the PR title or as its EQ number, a BA54 project’s PCN or ASID among the PR’s project codes. Then the PR shows the plan next to what EASi has committed.' : '')));
 }
 
 window.addEventListener('load', start);

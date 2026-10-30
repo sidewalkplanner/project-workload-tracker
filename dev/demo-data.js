@@ -171,7 +171,8 @@ function demoSources(count) {
   });
 
   const reportInfo = [['Report Name', 'BA61 Pipeline'], ['Generated At', '2026-10-29T12:08:31.000Z']];
-  return { pipeline, reportInfo, buildings, org, portal, ba54 };
+  const ba54Dashboard = [['All Divisions - National BA54 Tracker'], [], [null, 'Obligation Data As of', '2026-10-30T05:00:00.000Z']];
+  return { pipeline, reportInfo, buildings, org, portal, ba54, ba54Dashboard };
 }
 
 /**
