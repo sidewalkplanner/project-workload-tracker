@@ -5,19 +5,19 @@
 var VIEWS = [
   { key: 'overview', label: 'Overview' },
   { key: 'projects', label: 'Projects' },
-  { key: 'workload', label: 'Workload' }
+  { key: 'workload', label: 'People' }
 ];
 
 var PROJECT_COLUMNS = [
-  { key: 'pr', label: 'PR' },
-  { key: 'title', label: 'Title · building' },
+  { key: 'pr', label: 'PR number' },
+  { key: 'title', label: 'Project' },
   { key: 'program', label: 'Program' },
-  { key: 'stageOrder', label: 'EASi status' },
+  { key: 'stageOrder', label: 'Status' },
   { key: 'office', label: 'Field office' },
-  { key: 'leadName', label: 'Project lead' },
+  { key: 'leadName', label: 'Assigned to' },
   { key: 'committed', label: 'Committed', num: true },
-  { key: 'remaining', label: 'Unexpended', num: true },
-  { key: 'executed', label: 'Award', dir: -1 }
+  { key: 'remaining', label: 'Left to spend', num: true },
+  { key: 'executed', label: 'Contractor', dir: -1 }
 ];
 var PROJECT_ACCESSORS = {
   program: function (p) { return programLabels(p).join('/'); },
@@ -28,10 +28,10 @@ var PROJECT_ACCESSORS = {
 var PROJECT_CSV = [
   ['PR', function (p) { return p.pr; }], ['Title', function (p) { return p.title; }],
   ['Projects', function (p) { return unitsOf(p); }], ['Sub-projects', function (p) { return (p.subprojects || []).map(function (s) { return s.id + ' ' + s.title; }).join('; '); }], ['Program', function (p) { return programLabels(p).join(' / '); }],
-  ['EASi status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
+  ['Status', function (p) { return stageOf(p).label; }], ['Field office', function (p) { return officeLabel(p); }], ['Service center', function (p) { return p.serviceCenters.join('; '); }],
   ['Building', function (p) { return p.buildings.join(' '); }], ['Building names', function (p) { return p.buildingNames.join('; '); }],
-  ['Project lead', function (p) { return peopleNames(p.lead); }], ['Lead team', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e)); }).join('; '); }], ['Lead org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
-  ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Unexpended', function (p) { return p.remaining; }],
+  ['Assigned to', function (p) { return peopleNames(p.lead); }], ['Role', function (p) { return p.lead.map(function (e) { return teamLabel(teamOf(e), true); }).join('; '); }], ['Org code', function (p) { return p.lead.map(orgOf).join('; '); }], ['COR', function (p) { return peopleNames(p.cor); }], ['Requestor', function (p) { return peopleNames(p.requestor); }],
+  ['Committed', function (p) { return p.committed; }], ['Obligated', function (p) { return p.obligated; }], ['Expended', function (p) { return p.expended; }], ['Left to spend', function (p) { return p.remaining; }],
   ['PR fiscal year', function (p) { return p.fy || ''; }], ['Awarded', function (p) { return p.executed; }], ['Vendor', function (p) { return p.vendor; }], ['Award number', function (p) { return p.awardNumber; }],
   ['Acquisition status', function (p) { return p.acquisitionStatus; }], ['PR status', function (p) { return p.prStatus; }],
   ['Contracting officer', function (p) { return peopleNames(p.co); }], ['Contract specialist', function (p) { return peopleNames(p.cs); }], ['Building manager', function (p) { return peopleNames(p.buildingManager); }],
@@ -40,14 +40,14 @@ var PROJECT_CSV = [
 var GROUPS = [
   { key: '', label: 'No grouping' },
   { key: 'office', label: 'Field office' },
-  { key: 'lead', label: 'Project lead' },
-  { key: 'cor', label: 'COR' },
-  { key: 'requestor', label: 'Requestor' },
-  { key: 'stage', label: 'EASi status' },
+  { key: 'lead', label: 'Person assigned' },
+  { key: 'team', label: 'Building or project manager' },
+  { key: 'org', label: 'Org code' },
+  { key: 'stage', label: 'Status' },
   { key: 'program', label: 'Program' },
   { key: 'building', label: 'Building' },
-  { key: 'team', label: 'Lead team' },
-  { key: 'org', label: 'Lead org code' },
+  { key: 'cor', label: 'COR' },
+  { key: 'requestor', label: 'Requestor' },
   { key: 'fy', label: 'Fiscal year' }
 ];
 
@@ -187,9 +187,9 @@ function topBar() {
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
       h('span', { class: 'brand-title' }, 'Zone ' + d.zone + ' Project Workload'),
-      h('span', { class: 'brand-sub' }, 'EASi pipeline · ' + d.serviceCenters.map(function (s) { return s.short; }).join(' & ') + ' · BA61, BA80, BA54')),
+      h('span', { class: 'brand-sub' }, d.serviceCenters.map(function (s) { return s.short; }).join(' and ') + ' projects from EASi')),
     h('div', { class: 'freshness' },
-      h('span', null, 'EASi report ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : 'date unknown')),
+      h('span', null, 'Updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
     tabs));
 }
@@ -202,7 +202,7 @@ function scopeBanner() {
   var why = n.kind === 'manager' ? ', the field office you manage.'
     : n.kind === 'director' ? ', the service center you lead.'
     : n.kind === 'org' ? (n.office ? ', your field office' : ', your service center') + (S.user.orgCode ? ' (' + S.user.orgCode + ' in your GSA profile).' : '.')
-    : ', where you lead the most projects.';
+    : ', where you have the most projects.';
   return h('div', { class: 'banner', role: 'note' }, icon('info'),
     h('div', { class: 'banner-text' },
       h('span', null, 'Showing ', h('strong', null, n.office ? officeShort(n.office) : n.sc.replace(/ Service Center$/, '')), why),
@@ -238,7 +238,7 @@ function filterBar() {
       }
     }, h('span', { class: 'dot', style: { background: PROGRAM_COLORS[l] } }), l);
   }));
-  var status = h('div', { class: 'seg', role: 'group', 'aria-label': 'EASi status' }, STATUS_OPTIONS.map(function (s) {
+  var status = h('div', { class: 'seg', role: 'group', 'aria-label': 'Status' }, STATUS_OPTIONS.map(function (s) {
     return h('button', { type: 'button', 'aria-pressed': String(!f.stage && f.status === s.key), title: s.help || null, onClick: function () { f.status = s.key; f.stage = ''; rerender(); } }, s.label);
   }));
   var years = {};
@@ -246,9 +246,9 @@ function filterBar() {
   var fySel = h('select', { 'aria-label': 'Fiscal year' }, h('option', { value: '' }, 'All years'),
     Object.keys(years).sort().reverse().map(function (y) { return h('option', { value: y, selected: String(f.fy) === y }, 'FY' + y.slice(2)); }));
   fySel.addEventListener('change', function () { f.fy = fySel.value; rerender(); });
-  var typeSel = h('select', { 'aria-label': 'Type' }, TYPE_OPTIONS.map(function (t) { return h('option', { value: t.key, selected: f.type === t.key }, t.label); }));
-  typeSel.addEventListener('change', function () { f.type = typeSel.value; rerender(); });
-  var search = h('input', { type: 'search', placeholder: 'PR, title, building, person, vendor…', value: f.q, 'aria-label': 'Search' });
+  var serviceBox = h('input', { type: 'checkbox', checked: f.type !== 'projects' });
+  serviceBox.addEventListener('change', function () { f.type = serviceBox.checked ? 'all' : 'projects'; rerender(); });
+  var search = h('input', { type: 'search', placeholder: 'PR number, building, name…', value: f.q, 'aria-label': 'Search' });
   var timer = null;
   search.addEventListener('input', function () {
     clearTimeout(timer);
@@ -266,7 +266,7 @@ function filterBar() {
     active.push(pill(role.short + ': ' + (f.person.email ? personName(f.person.email) : '(none)'), function () { f.person = null; }));
   }
   if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
-  if (f.team !== 'all') active.push(pill('Led by ' + teamLabel(f.team).toLowerCase(), function () { f.team = 'all'; }));
+  if (f.team !== 'all') active.push(pill(teamLabel(f.team) + ' only', function () { f.team = 'all'; }));
   var mineBtn = null;
   if (S.user && S.user.email && !f.person) {
     var myRole = null;
@@ -279,6 +279,10 @@ function filterBar() {
   var any = f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all';
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
+  // Service center, fiscal year and service contracts sit behind "More filters" unless one is in use.
+  var more = S.moreFilters || !!f.fy || f.type !== 'projects' || (!!f.sc && !f.office);
+  var moreBtn = h('button', { class: 'link-btn more-btn', type: 'button', 'aria-expanded': String(more), onClick: function () { S.moreFilters = !more; rerender(); } }, more ? 'Fewer filters' : 'More filters');
+
   // On a phone the filters fold into one line that says what is showing.
   var summary = [scopeName(), statusLabel(), f.programs.length < PROGRAM_LABELS.length ? f.programs.join(', ') : 'all programs',
     f.fy ? 'FY' + String(f.fy).slice(2) : '', f.type !== 'projects' ? TYPE_OPTIONS.filter(function (t) { return t.key === f.type; })[0].label.toLowerCase() : '', f.q ? '“' + f.q + '”' : '']
@@ -290,13 +294,15 @@ function filterBar() {
   return h('section', { class: 'filters' + (S.filtersOpen ? ' open' : ''), 'aria-label': 'Filters' },
     toggle,
     h('div', { class: 'filter-row', id: 'filter-row' },
-      h('label', { class: 'field' }, h('span', null, 'Service center'), scSel),
       h('label', { class: 'field' }, h('span', null, 'Field office'), foSel),
       h('div', { class: 'field' }, h('span', null, 'Program'), programs),
-      h('div', { class: 'field' }, h('span', null, 'EASi status'), status),
-      h('label', { class: 'field' }, h('span', null, 'PR fiscal year'), fySel),
-      h('label', { class: 'field', title: 'Service contracts (custodial, O&M, snow removal, utilities, option years) are not projects and are hidden unless you ask for them.' }, h('span', null, 'Type'), typeSel),
-      h('label', { class: 'field' }, h('span', null, 'Search'), search)),
+      h('div', { class: 'field' }, h('span', null, 'Status'), status),
+      h('label', { class: 'field' }, h('span', null, 'Search'), search),
+      moreBtn),
+    more ? h('div', { class: 'filter-row more-row' },
+      h('label', { class: 'field' }, h('span', null, 'Service center'), scSel),
+      h('label', { class: 'field' }, h('span', null, 'Fiscal year'), fySel),
+      h('label', { class: 'check', title: 'Custodial, O&M, snow removal, utilities, option years and other recurring contracts. They are not projects, so they are left out unless you tick this.' }, serviceBox, h('span', null, 'Include service contracts'))) : null,
     (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null);
 }
 
@@ -333,10 +339,10 @@ function overviewView() {
 
   wrap.appendChild(h('section', { class: 'card summary', 'aria-label': 'Summary' },
     stat(S.filters.status === 'all' && !S.filters.stage ? 'Projects' : statusLabel() + ' projects', fmtInt(t.count), scopeName()),
-    stat('Pre-award', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed · ' + fmtInt(withContracting) + ' with contracting' : 'none waiting'),
-    stat('Awarded · open', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' not yet expended'),
-    stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' expended so far'),
-    stat('Project leads', fmtInt(leads.length), leads.length ? avg.toFixed(1) + ' projects each · most: ' + top.name + ' (' + top.count + ')' : 'none')));
+    stat('Not awarded yet', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting'),
+    stat('Awarded', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend'),
+    stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far'),
+    stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none')));
 
   wrap.appendChild(h('div', { class: 'grid grid-main' },
     topPeopleCard(leads, avg),
@@ -359,7 +365,7 @@ function stat(label, value, sub) {
 /** All leads · Building managers · Project managers (a page-wide filter, shown where people are ranked). */
 function teamSwitch() {
   var f = S.filters;
-  return h('div', { class: 'seg', role: 'group', 'aria-label': 'Lead team' }, TEAM_OPTIONS.map(function (t) {
+  return h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' }, TEAM_OPTIONS.map(function (t) {
     return h('button', { type: 'button', 'aria-pressed': String(f.team === t.key), title: t.help || null, onClick: function () { f.team = t.key; rerender(); } }, t.label);
   }));
 }
@@ -367,26 +373,26 @@ function teamSwitch() {
 function topPeopleCard(leads, avg) {
   var top = leads.slice(0, 15);
   var max = top.length ? top[0].count : 1;
-  var all = h('button', { class: 'btn', type: 'button', onClick: function () { S.workload.role = 'lead'; go('workload'); } }, 'Everyone', icon('arrow'));
+  var all = h('button', { class: 'btn', type: 'button', onClick: function () { S.workload.role = 'lead'; go('workload'); } }, 'See everyone', icon('arrow'));
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Who has the most projects'),
-      h('p', null, (S.filters.team === 'all' ? 'Project leads' : teamLabel(S.filters.team)) + ' in ' + scopeName() + ': the COR, or the requestor until a COR is named. Click a name for their projects.')), all),
+      h('p', null, 'Open projects assigned to each ' + (S.filters.team === 'all' ? 'person' : teamLabel(S.filters.team).toLowerCase().replace(/s$/, '')) + ' in ' + scopeName() + '. Click a name to see their projects.')), all),
     h('div', { class: 'toolbar' }, teamSwitch()),
     top.length ? [
       h('div', { class: 'chart-legend' }, groupLegend('Average ' + avg.toFixed(1))),
       h('div', { class: 'hbars people' }, top.map(function (r) {
-        var b = h('button', { class: 'hbar', type: 'button', 'aria-label': r.name + ': ' + r.count + ' projects, ' + r.preaward + ' pre-award' },
+        var b = h('button', { class: 'hbar', type: 'button', 'aria-label': r.name + ': ' + r.count + ' projects, ' + r.preaward + ' not awarded yet' },
           h('span', { class: 'hbar-label', title: r.name + (r.office ? ' · ' + officeShort(r.office) : '') + (r.team ? ' · ' + teamLabel(r.team) : '') + (r.org ? ' (' + r.org + ')' : '') }, r.name,
             r.office && !S.filters.office ? h('span', { class: 'muted' }, ' · ' + officeShort(r.office)) : null),
           stackedBar(groupSegments(r), max, 'hbar-track', avg),
           h('span', { class: 'hbar-value' }, fmtInt(r.count)));
         b.addEventListener('click', function () { showPerson('lead', r.email); });
         return withTooltip(b, r.name, function () {
-          return [{ label: 'Pre-award', value: fmtInt(r.preaward), color: GROUP_COLORS.preaward }, { label: 'Awarded · open', value: fmtInt(r.awarded), color: GROUP_COLORS.awarded },
-            r.expended ? { label: 'Fully expended', value: fmtInt(r.expended), color: GROUP_COLORS.closed } : null, { label: 'Unexpended', value: fmtMoney(r.remaining) }].filter(Boolean);
+          return [{ label: 'Not awarded yet', value: fmtInt(r.preaward), color: GROUP_COLORS.preaward }, { label: 'Awarded', value: fmtInt(r.awarded), color: GROUP_COLORS.awarded },
+            r.expended ? { label: 'Paid in full', value: fmtInt(r.expended), color: GROUP_COLORS.closed } : null, { label: 'Left to spend', value: fmtMoney(r.remaining) }].filter(Boolean);
         });
       })),
-      leads.length > top.length ? h('p', { class: 'card-foot' }, (leads.length - top.length) + ' more ' + (leads.length - top.length === 1 ? 'person' : 'people') + ' on the Workload tab.') : null
+      leads.length > top.length ? h('p', { class: 'card-foot' }, (leads.length - top.length) + ' more ' + (leads.length - top.length === 1 ? 'person' : 'people') + ' on the People tab.') : null
     ] : emptyState());
 }
 
@@ -406,10 +412,10 @@ function pipelineCard() {
       bar ? stackedBar([{ value: n, color: GROUP_COLORS[s.group] }], max) : h('span', { class: 'hbar-note' }, fmtMoneyShort(dollars[s.key] || 0) + ' committed'),
       h('span', { class: 'hbar-value' + (n ? '' : ' zero') }, fmtInt(n)));
     b.addEventListener('click', function () { open(s.key); });
-    return withTooltip(b, s.label, function () { return [{ label: 'PRs', value: fmtInt(n) }, { label: 'Committed', value: fmtMoney(dollars[s.key] || 0) }]; });
+    return withTooltip(b, s.label, function () { return [{ label: 'Projects', value: fmtInt(n) }, { label: 'Committed', value: fmtMoney(dollars[s.key] || 0) }]; });
   };
   return h('section', { class: 'card' },
-    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Pre-award pipeline'), h('p', null, 'Where PRs are before award. Click a stage to list them.'))),
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'On the way to award'), h('p', null, 'Where projects are before they are awarded. Click a step to see them.'))),
     h('div', { class: 'hbars' }, pre.map(function (s) { return row(s, true); })),
     h('div', { class: 'hbars after' }, S.data.stages.filter(function (s) { return s.group !== 'preaward'; }).map(function (s) { return row(s, false); })));
 }
@@ -425,9 +431,9 @@ function programCard(list) {
   S.data.programs.forEach(function (p) { names[p.label] = p.name.replace(/^[^·]*· /, ''); });
   names.Other = 'Other budget activities, or none listed';
   return h('section', { class: 'card' },
-    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'By program'), h('p', null, 'A PR funded from two programs counts in both. Click one to show only it.'))),
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'By program'), h('p', null, 'Click a program to see only its projects.'))),
     h('div', { class: 'table-wrap' }, h('table', null,
-      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), h('th', { class: 'num', scope: 'col' }, 'Pre-award'), h('th', { class: 'num', scope: 'col' }, 'Unexpended'))),
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), h('th', { class: 'num', scope: 'col' }, 'Not awarded'), h('th', { class: 'num', scope: 'col' }, 'Left to spend'))),
       h('tbody', null, rows.map(function (r) {
         var tr = h('tr', { class: 'clickable', title: names[r.label] + '. Show only ' + r.label + '.' },
           h('td', { class: 'nowrap' }, h('span', { class: 'stage' }, h('span', { class: 'swatch', style: { background: PROGRAM_COLORS[r.label] } }), h('strong', null, r.label))),
@@ -474,10 +480,10 @@ function officeCard() {
   var zoneAvg = zoneLeads ? zonePeople.reduce(function (s, r) { return s + r.count; }, 0) / zoneLeads : 0;
   var cols = [
     { key: 'name', label: 'Field office' }, { key: 'manager', label: 'Manager', hideSm: true },
-    { key: 'count', label: 'Projects', num: true }, { key: 'mix', label: 'Mix' },
-    { key: 'preaward', label: 'Pre-award', num: true }, { key: 'awarded', label: 'Awarded', num: true },
-    { key: 'remaining', label: 'Unexpended', num: true },
-    { key: 'leads', label: 'Leads', num: true }, { key: 'perLead', label: 'Per lead', num: true }, { key: 'topCount', label: 'Most assigned', num: true }
+    { key: 'count', label: 'Projects', num: true }, { key: 'mix', label: 'Progress' },
+    { key: 'preaward', label: 'Not awarded', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    { key: 'remaining', label: 'Left to spend', num: true },
+    { key: 'leads', label: 'People', num: true }, { key: 'perLead', label: 'Projects each', num: true }, { key: 'topCount', label: 'Busiest', num: true }
   ];
   var onSort = function (key, multi, dir) { if (key === 'mix') key = 'count'; S.officesSort = toggleSort(S.officesSort, key, multi, dir); rerender(); };
   var tbody = h('tbody', null, sorted.map(function (r) {
@@ -507,7 +513,7 @@ function officeCard() {
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null,
       h('h2', null, comparing ? 'How ' + officeShort(f.office) + ' compares' : 'Field offices'),
-      h('p', null, (comparing ? 'Every Zone ' + S.data.zone + ' office, with the same filters. ' : '') + 'Click a column to sort, a row to focus on that office. A PR on buildings in two offices counts in each.')),
+      h('p', null, (comparing ? 'Your office next to every other Zone ' + S.data.zone + ' office. ' : '') + 'Click an office to see its projects.')),
       groupLegend()),
     h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody, foot)));
 }
@@ -532,10 +538,10 @@ function projectsView() {
   var card = h('section', { class: 'card' });
   var groupSel = h('select', { 'aria-label': 'Group by' }, GROUPS.map(function (g) { return h('option', { value: g.key, selected: S.projects.group === g.key }, g.label); }));
   groupSel.addEventListener('change', function () { S.projects.group = groupSel.value; S.projects.collapsed = {}; rerender(); });
-  var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Export CSV');
+  var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () { exportProjects(list); } }, 'Download for Excel');
   card.appendChild(h('div', { class: 'card-head' },
     h('div', null, h('h2', null, plural(t.count, S.filters.stage || S.filters.status === 'all' ? 'project' : statusLabel().toLowerCase() + ' project') + ' · ' + scopeName()),
-      h('p', null, fmtMoneyShort(t.committed) + ' committed · ' + fmtMoneyShort(t.obligated) + ' obligated · ' + fmtMoneyShort(t.remaining) + ' not yet expended'))));
+      h('p', null, fmtMoneyShort(t.committed) + ' committed, ' + fmtMoneyShort(t.obligated) + ' obligated, ' + fmtMoneyShort(t.remaining) + ' left to spend. Click a project for details.'))));
   card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
   if (!list.length) { card.appendChild(emptyState()); return card; }
 
@@ -552,7 +558,7 @@ function projectsView() {
       var collapsed = !!S.projects.collapsed[g.key];
       var gt = totalsOf(g.items);
       var row = h('tr', { class: 'group-row' + (collapsed ? ' collapsed' : ''), tabindex: '0', 'aria-expanded': String(!collapsed) },
-        h('td', { colspan: String(moneyAt) }, h('span', { class: 'caret' }, icon('chevron')), g.label, h('span', { class: 'muted small' }, '  ' + plural(gt.count, 'project') + ' · ' + gt.preaward + ' pre-award · ' + gt.awarded + ' awarded')),
+        h('td', { colspan: String(moneyAt) }, h('span', { class: 'caret' }, icon('chevron')), g.label, h('span', { class: 'muted small' }, '  ' + plural(gt.count, 'project') + ', ' + gt.preaward + ' not awarded yet, ' + gt.awarded + ' awarded')),
         h('td', { class: 'num' }, fmtMoneyShort(gt.committed)), h('td', { class: 'num' }, fmtMoneyShort(gt.remaining)), h('td', { colspan: String(cols.length - moneyAt - 2) }));
       var toggle = function () { S.projects.collapsed[g.key] = !collapsed; rerender(); };
       row.addEventListener('click', toggle);
@@ -567,7 +573,7 @@ function projectsView() {
     });
   });
   card.appendChild(h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)));
-  var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'PR') + (t.count !== list.length ? ' (' + plural(t.count, 'project') + ')' : '') + '. Click a column to sort; Shift-click to add a second sort.'));
+  var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'PR') + (t.count !== list.length ? ' (' + plural(t.count, 'project') + ')' : '') + '. Click a column heading to sort.'));
   if (shown >= limit && limit < list.length) {
     foot.appendChild(h('button', { class: 'btn', type: 'button', onClick: function () { S.projects.limit += 400; rerender(); } }, 'Show more'));
   }
@@ -660,7 +666,6 @@ function workloadView() {
   // People first; projects with nobody in this role go last, unranked.
   rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
   var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
-  var roleWord = /^[A-Z]{2,}$/.test(role.short) ? role.short : role.short.toLowerCase();
   var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
   roleSel.addEventListener('change', function () { w.role = roleSel.value; S.filters.person = null; rerender(); });
   var byOffice = h('input', { type: 'checkbox', checked: w.byOffice });
@@ -672,12 +677,12 @@ function workloadView() {
 
   var cols = [
     { key: 'rank', label: '#', num: true },
-    { key: 'name', label: role.short }, { key: 'teamOrg', label: 'Team · org', hideSm: true }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main field office', hideSm: true },
+    { key: 'name', label: 'Name' }, { key: 'teamOrg', label: 'Role', hideSm: true }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main office', hideSm: true },
     { key: 'count', label: 'Projects', num: true },
-    { key: 'bar', label: 'Mix' },
-    { key: 'preaward', label: 'Pre-award', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    { key: 'bar', label: 'Progress' },
+    { key: 'preaward', label: 'Not awarded', num: true }, { key: 'awarded', label: 'Awarded', num: true },
     { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true },
-    { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Unexpended', num: true }, { key: 'oldestFy', label: 'Oldest FY', num: true, dir: 1 }
+    { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Left to spend', num: true }, { key: 'oldestFy', label: 'Oldest', num: true, dir: 1 }
   ];
   var onSort = function (key, multi, dir) {
     if (key === 'rank' || key === 'bar') key = 'count';
@@ -710,20 +715,20 @@ function workloadView() {
     return tr;
   }));
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () {
-    var header = ['Rank', role.short, 'Email', 'Team', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Pre-award', 'Awarded', 'Fully expended', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Unexpended', 'Oldest open FY'];
+    var header = ['Rank', role.short, 'Email', 'Role', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Not awarded yet', 'Awarded', 'Paid in full', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Left to spend', 'Oldest open FY'];
     var data = rows.map(function (r, i) { return [i + 1, r.name, r.email, teamLabel(r.team), r.org, r.office ? officeShort(r.office) : '', r.count, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
     downloadFile('Zone ' + d.zone + ' workload by ' + role.short + ' - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(data)), 'text/csv;charset=utf-8');
-  } }, 'Export CSV');
+  } }, 'Download for Excel');
 
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null,
-      h('h2', null, 'Workload by ' + role.short + ' · ' + scopeName()),
-      h('p', null, plural(people.length, 'person', 'people') + ' on ' + plural(total, 'project') + ' (' + statusLabel().toLowerCase() + '), ' + avg.toFixed(1) + ' each on average. A project with two ' + roleWord + 's counts for both. Click a person for their projects.')),
+      h('h2', null, 'Who has how many projects · ' + scopeName()),
+      h('p', null, plural(people.length, 'person', 'people') + ', ' + plural(total, statusLabel().toLowerCase() + ' project') + ', about ' + avg.toFixed(1) + ' each. Click a name to see their projects.')),
       groupLegend('Average ' + avg.toFixed(1))),
     h('div', { class: 'toolbar' },
+      h('div', { class: 'field' }, h('span', null, 'Show'), teamSwitch()),
       h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
-      h('div', { class: 'field' }, h('span', null, 'Lead team'), teamSwitch()),
-      h('label', { class: 'check' }, byOffice, h('span', null, 'Split by field office')),
+      h('label', { class: 'check' }, byOffice, h('span', null, 'Show each office separately')),
       h('div', { class: 'spacer' }), exportBtn),
     rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState());
 }
@@ -746,15 +751,15 @@ function openDrawer(p) {
       h('div', null, h('div', { class: 'label' }, 'Committed'), h('div', { class: 'value' }, fmtMoney(p.committed))),
       h('div', null, h('div', { class: 'label' }, 'Obligated'), h('div', { class: 'value' }, fmtMoney(p.obligated))),
       h('div', null, h('div', { class: 'label' }, 'Expended'), h('div', { class: 'value' }, fmtMoney(p.expended))),
-      h('div', null, h('div', { class: 'label' }, 'Unexpended'), h('div', { class: 'value' }, fmtMoney(p.remaining)))),
+      h('div', null, h('div', { class: 'label' }, 'Left to spend'), h('div', { class: 'value' }, fmtMoney(p.remaining)))),
     p.subprojects && p.subprojects.length ? [
       h('div', { class: 'section-title' }, p.subprojects.length + ' projects on this PR'),
       h('p', { class: 'small muted', style: { margin: '8px 0 0' } }, 'One award funds all of them, so EASi shows one PR. The tracker counts each project.'),
       h('ol', { class: 'subprojects' }, p.subprojects.map(function (s) { return h('li', null, h('strong', null, s.id), ' ', s.title); }))
     ] : null,
-    h('div', { class: 'section-title' }, 'EASi status'),
+    h('div', { class: 'section-title' }, 'Status in EASi'),
     h('dl', { class: 'dl' },
-      item('Where it is', st.label),
+      item('Where it is now', st.label),
       item('PR status', p.prStatus),
       item('Acquisition status', p.acquisitionStatus),
       item('Solicitation status', p.solicitationStatus),
@@ -803,12 +808,12 @@ function openDrawer(p) {
 }
 
 function footnote() {
-  var d = S.data, c = d.counts;
+  var d = S.data;
+  var service = d.prs.filter(function (p) { return p.service; }).length;
   return h('p', { class: 'footnote' },
-    'Source: the EASi BA61 Pipeline report (' + fmtInt(c.pipelineRows) + ' PRs nationwide, generated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : 'date unknown') + '), matched to Zone ' + d.zone +
-    ' field offices through the buildings on each PR and the OFM Building Assignments sheet' + (d.directoryUpdated ? ' (updated ' + d.directoryUpdated + ')' : '') + '. ' +
-    fmtInt(c.zonePrs) + ' PRs are on Zone ' + d.zone + ' buildings, ' + fmtInt(d.prs.filter(function (p) { return p.service; }).length) + ' of them service contracts (custodial, O&M, snow removal, utilities, option years), which are hidden unless Type includes them. PRs without a building (national contracts, broker leases) are not shown. ' +
-    '“Fully expended” means Pegasys shows the whole obligation spent. Snapshot built ' + fmtDateTime(d.builtAt) + '.');
+    'From the EASi BA61 Pipeline report' + (d.generatedAt ? ', updated ' + fmtDateTime(d.generatedAt) : '') + '. A project shows up here when it is on a Zone ' + d.zone +
+    ' building in the OFM Building Assignments sheet. ' + fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities and the like) are left out unless you include them under More filters. ' +
+    '“Paid in full” means Pegasys shows all the obligated money spent.');
 }
 
 window.addEventListener('load', start);

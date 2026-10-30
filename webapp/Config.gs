@@ -53,25 +53,25 @@ var PROGRAMS = [
  * Fully expended = awarded and Pegasys shows the whole obligation spent (or nothing was obligated).
  */
 var STAGES = [
-  { key: 'draft', label: 'PR in draft', short: 'Draft', group: 'preaward' },
-  { key: 'review', label: 'PR in review', short: 'In review', group: 'preaward' },
-  { key: 'approved', label: 'PR approved · awaiting assignment', short: 'Awaiting assignment', group: 'preaward' },
-  { key: 'assigned', label: 'With contracting', short: 'With contracting', group: 'preaward' },
-  { key: 'solicitation', label: 'Out for solicitation', short: 'Solicitation', group: 'preaward' },
-  { key: 'drafting', label: 'Award being drafted', short: 'Award drafting', group: 'preaward' },
-  { key: 'awarded', label: 'Awarded · funds open', short: 'Awarded', group: 'awarded' },
-  { key: 'expended', label: 'Fully expended', short: 'Fully expended', group: 'closed' }
+  { key: 'draft', label: 'PR being written (draft in EASi)', short: 'Draft PR', group: 'preaward' },
+  { key: 'review', label: 'PR in review', short: 'PR in review', group: 'preaward' },
+  { key: 'approved', label: 'PR approved, waiting for a contract specialist', short: 'Waiting for contracting', group: 'preaward' },
+  { key: 'assigned', label: 'With a contract specialist', short: 'With contracting', group: 'preaward' },
+  { key: 'solicitation', label: 'Out for bids (solicitation)', short: 'Out for bids', group: 'preaward' },
+  { key: 'drafting', label: 'Contract being written', short: 'Contract being written', group: 'preaward' },
+  { key: 'awarded', label: 'Awarded, money still to be spent', short: 'Awarded', group: 'awarded' },
+  { key: 'expended', label: 'Paid in full (all obligated money spent)', short: 'Paid in full', group: 'closed' }
 ];
 
 /** People roles the Workload tab can rank. "field" is the PR field holding the emails. */
 var ROLES = [
-  { key: 'lead', label: 'Project lead (COR, or the requestor until a COR is named)', short: 'Project lead' },
-  { key: 'cor', label: 'COR (Contracting Officer Representative)', short: 'COR' },
+  { key: 'lead', label: 'Person assigned (the COR, or the requestor until there is one)', short: 'Person assigned' },
+  { key: 'cor', label: 'COR', short: 'COR' },
   { key: 'requestor', label: 'Requestor', short: 'Requestor' },
-  { key: 'buildingManager', label: 'Building manager (ServiceNow primary POC)', short: 'Building manager' },
-  { key: 'programManager', label: 'Program manager', short: 'Program manager' },
-  { key: 'co', label: 'Contracting officer', short: 'CO' },
-  { key: 'cs', label: 'Contract specialist', short: 'CS' }
+  { key: 'buildingManager', label: "The building's building manager", short: 'Building manager' },
+  { key: 'programManager', label: 'Program manager in EASi', short: 'Program manager' },
+  { key: 'co', label: 'Contracting officer', short: 'Contracting officer' },
+  { key: 'cs', label: 'Contract specialist', short: 'Contract specialist' }
 ];
 
 /**

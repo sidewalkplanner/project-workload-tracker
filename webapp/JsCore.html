@@ -13,18 +13,18 @@ var TYPE_OPTIONS = [
   { key: 'service', label: 'Service contracts' }
 ];
 var STATUS_OPTIONS = [
-  { key: 'open', label: 'Open', help: 'Everything not fully expended' },
-  { key: 'preaward', label: 'Pre-award', help: 'Not awarded yet: draft, review, awaiting assignment, with contracting, solicitation, award drafting' },
-  { key: 'awarded', label: 'Awarded', help: 'Awarded, with obligated money not yet fully expended' },
-  { key: 'expended', label: 'Expended', help: 'Awarded and fully expended in Pegasys' },
+  { key: 'open', label: 'Open', help: 'Everything not yet paid in full' },
+  { key: 'preaward', label: 'Not awarded yet', help: 'From draft PR through contract being written' },
+  { key: 'awarded', label: 'Awarded', help: 'Awarded, with money still to be spent' },
+  { key: 'expended', label: 'Paid in full', help: 'Awarded and all obligated money spent (Pegasys)' },
   { key: 'all', label: 'All' }
 ];
 var TEAM_OPTIONS = [
-  { key: 'all', label: 'All leads' },
-  { key: 'bm', label: 'Building managers', short: 'Bldg mgr', help: 'OFM: an org code starting PM in their GSA profile, or a ServiceNow contact for a zone building' },
-  { key: 'pm', label: 'Project managers', short: 'Proj mgr', help: 'Everyone else who leads projects' }
+  { key: 'all', label: 'Everyone' },
+  { key: 'bm', label: 'Building managers', short: 'Building mgr', help: 'Facilities Management staff: an org code starting PM in their GSA profile, or listed in ServiceNow for a building' },
+  { key: 'pm', label: 'Project managers', short: 'Project mgr', help: 'Everyone else assigned to projects' }
 ];
-var GROUP_LABELS = { preaward: 'Pre-award', awarded: 'Awarded · open', closed: 'Fully expended' };
+var GROUP_LABELS = { preaward: 'Not awarded yet', awarded: 'Awarded', closed: 'Paid in full' };
 
 /** Small stroked icons (24-unit grid, 2px stroke), drawn inline so they follow the text color. */
 var ICON_PATHS = {
@@ -318,7 +318,7 @@ function sortHeader(col, sorts, onSort) {
     class: 'sortable' + (col.num ? ' num' : '') + (col.hideSm ? ' hide-sm' : ''),
     scope: 'col',
     tabindex: '0',
-    title: 'Sort by ' + col.label + ' (Shift-click to add a second sort)',
+    title: 'Sort by ' + col.label.toLowerCase(),
     'aria-sort': idx === 0 ? (dir > 0 ? 'ascending' : 'descending') : 'none'
   }, h('span', { class: 'th-inner' }, col.label, h('span', { class: 'arrow' }, active ? icon(dir > 0 ? 'up' : 'down') : null),
     active && sorts.length > 1 ? h('span', { class: 'rank' }, String(idx + 1)) : null));

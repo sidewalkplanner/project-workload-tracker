@@ -17,11 +17,12 @@ const assert = require('assert');
   const count = async () => Number((await page.textContent('.stat .value')).replace(/,/g, ''));
   const all = await count();
 
-  // Service contracts are hidden by default; the Type filter brings them back.
-  await page.selectOption('select[aria-label="Type"]', 'all');
+  // Service contracts are hidden by default; More filters › Include service contracts brings them back.
+  await page.click('button:has-text("More filters")');
+  await page.check('label:has-text("Include service contracts") input');
   const withService = await count();
   assert.ok(withService >= all, 'including service contracts: ' + withService + ' >= ' + all);
-  await page.selectOption('select[aria-label="Type"]', 'projects');
+  await page.uncheck('label:has-text("Include service contracts") input');
   assert.strictEqual(await count(), all);
 
   // Program chip narrows, the stage bar opens Projects on that stage.
@@ -32,7 +33,7 @@ const assert = require('assert');
   assert.ok(ba61 > 0 && ba61 < all, 'BA61 only: ' + ba61 + ' of ' + all);
   await page.click('.hbar:has-text("With contracting")');
   await page.waitForSelector('table');
-  assert.ok((await page.textContent('.active-filters')).includes('With contracting'));
+  assert.ok((await page.textContent('.active-filters')).includes('With a contract specialist'));
   const rows = await page.$$eval('tbody tr.clickable', (r) => r.length);
   assert.ok(rows > 0, 'contracting rows');
 
@@ -62,9 +63,9 @@ const assert = require('assert');
   await page.keyboard.press('Escape');
   assert.ok(!(await page.$('.drawer')));
 
-  // Workload: click the top person, land on their projects.
+  // People: click the top person, land on their projects.
   await page.click('.link-btn:has-text("Reset filters")');
-  await page.click('.tab:has-text("Workload")');
+  await page.click('.tab:has-text("People")');
   await page.waitForSelector('tbody tr.clickable');
   const top = await page.$eval('table', (table) => {
     const at = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Projects'));
@@ -76,7 +77,7 @@ const assert = require('assert');
   assert.strictEqual(heading, Number(top), 'person has ' + top + ' projects');
 
   // CSV export.
-  const [download] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text("Export CSV")')]);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text("Download for Excel")')]);
   assert.ok(/\.csv$/.test(download.suggestedFilename()));
 
   // Field office filter via URL, and the manager banner.

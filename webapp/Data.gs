@@ -6,7 +6,10 @@
  *   refreshDataset_()    rebuild now (daily trigger, and the Refresh button)
  */
 
-var CACHE_PREFIX = 'zone5ds:v1:';
+// Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
+// of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
+var DATASET_VERSION = 3;
+var CACHE_PREFIX = 'zone5ds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
 
