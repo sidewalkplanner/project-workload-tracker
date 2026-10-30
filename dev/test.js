@@ -82,7 +82,7 @@ test('the snapshot is cached in chunks and reused', () => {
   const rt = runtimeWith(demoSources(2500));
   load(rt);
   const reads = rt.state.reads;
-  assert.ok(Number(rt.cache['zone5ds:v1:n']) > 1, 'more than one chunk');
+  assert.ok(Number(rt.cache[rt.ctx.CACHE_PREFIX + 'n']) > 1, 'more than one chunk');
   load(rt);
   assert.strictEqual(rt.state.reads, reads, 'second load reads no sheets');
   rt.ctx.apiRefresh();
@@ -90,6 +90,14 @@ test('the snapshot is cached in chunks and reused', () => {
   rt.setUser('owner@gsa.gov');
   rt.ctx.apiRefresh();
   assert.ok(rt.state.reads > reads, 'an admin refresh reads again');
+});
+
+test('a snapshot saved by older code is not reused', () => {
+  const rt = runtimeWith(demoSources(5));
+  rt.cache['zone5ds:v1:n'] = '1';
+  rt.cache['zone5ds:v1:0'] = JSON.stringify({ prs: [], people: {} });
+  const d = load(rt).data;
+  assert.ok(d.prs.length > 0 && d.teams, 'rebuilt with the current shape');
 });
 
 test('placement: building in the title, OFM org code, several offices', () => {
