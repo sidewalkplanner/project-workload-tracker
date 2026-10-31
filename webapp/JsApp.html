@@ -105,9 +105,38 @@ function show(data, user, refreshed) {
   prepareData(S.data);
   if (first) applyDefaultsForUser();
   render();
+  if (data.laterCount) loadLater();
   if (refreshed === 'done') toast('Read all the sources again. Everything is up to date.');
   else if (refreshed === 'recent') toast('The sources were read less than 10 minutes ago, so this is that copy.');
   else if (refreshed === 'busy') toast('Someone else is refreshing right now. This is the latest copy.');
+}
+
+/**
+ * The page opens with the open projects; paid-in-full projects and service contracts (hidden at
+ * first) come right after, so the first view arrives sooner.
+ */
+function loadLater() {
+  var data = S.data;
+  google.script.run
+    .withSuccessHandler(function (json) {
+      var res = JSON.parse(json);
+      if (!res.gz || S.data !== data) return;
+      gunzipJson(res.gz).then(function (list) {
+        if (S.data !== data) return;
+        data.prs = data.prs.concat(list);
+        data.laterCount = 0;
+        prepareData(data);
+        rerender();
+      }).catch(function () { toast('Paid-in-full projects and service contracts could not be loaded. Reload the page to try again.'); });
+    })
+    .withFailureHandler(function () { toast('Paid-in-full projects and service contracts could not be loaded. Reload the page to try again.'); })
+    .apiLoad({ packed: true, part: 'later' });
+}
+
+/** True while the second part is on its way and the filters would show some of it. */
+function waitingForLater() {
+  var f = S.filters;
+  return !!(S.data && S.data.laterCount) && (f.type !== 'projects' || f.status === 'expended' || f.status === 'all' || f.stage === 'expended');
 }
 
 /** base64 gzip -> parsed JSON, with the browser's own decompressor. */
@@ -371,7 +400,8 @@ function filterBar() {
       h('label', { class: 'field' }, h('span', null, 'Fiscal year'), fySel),
       h('label', { class: 'check', title: 'Custodial, O&M, snow removal, utilities, option years and other recurring contracts. They are not projects, so they are left out unless you tick this.' }, serviceBox, h('span', null, 'Include service contracts')),
       hasPlanned() ? h('label', { class: 'check', title: 'Projects planned or approved in ' + andList(plannedSources()) + ' that have no PR in EASi yet. Untick to count only what is in EASi.' }, plannedBox, h('span', null, 'Include planned projects not in EASi yet')) : null) : null,
-    (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null);
+    (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null,
+    waitingForLater() ? h('p', { class: 'loading-note', role: 'status' }, h('span', { class: 'spinner small' }), 'Loading ' + plural(S.data.laterCount, 'paid-in-full project or service contract', 'paid-in-full projects and service contracts') + '…') : null);
 }
 
 function pill(text, onRemove) {

@@ -200,15 +200,40 @@ function officeLabel(p) {
   return p.serviceCenters.map(function (s) { return s.replace(/ Service Center$/, ''); }).join(', ') + ' SC';
 }
 
-/** Prepares the loaded dataset: stage order, searchable text, each person's home office. */
-function prepareData(data) {
-  // Planned projects leave out the EASi fields they don't have (data.plannedDefaults says what to fill in).
-  var fill = data.plannedDefaults || { values: {}, lists: [] };
-  data.prs.forEach(function (p) {
-    if (!p.source) return;
-    Object.keys(fill.values).forEach(function (k) { if (p[k] === undefined) p[k] = fill.values[k]; });
-    fill.lists.forEach(function (k) { if (!p[k]) p[k] = []; });
+/**
+ * Puts back what the server left out of a project to keep the snapshot small: default values,
+ * the EASi link, building names and managers, the person assigned. The same steps as
+ * expandProject_ in Compact.gs (a test checks they agree).
+ */
+function expandProject(c, data) {
+  if (c._x) return c;
+  var p = {};
+  Object.keys(c).forEach(function (k) { p[k] = c[k]; });
+  var d = data.compact;
+  Object.keys(d.values).forEach(function (k) { if (p[k] === undefined) p[k] = d.values[k]; });
+  d.lists.forEach(function (k) { if (!p[k]) p[k] = []; });
+  if (!p.source && p.link === undefined) p.link = d.easiLink + encodeURIComponent(p.pr);
+  var built = buildingFacts(p.buildings, data.buildingIndex);
+  if (c.buildingNames === undefined) p.buildingNames = built.names;
+  if (c.buildingManager === undefined) p.buildingManager = built.managers;
+  if (p.lead === undefined) p.lead = (p.cor || []).length ? p.cor.slice() : (p.requestor || []).slice();
+  p._x = true;
+  return p;
+}
+
+function buildingFacts(buildings, index) {
+  var names = [], managers = [];
+  buildings.forEach(function (b) {
+    var e = index[b] || ['', []];
+    names.push(e[0]);
+    e[1].forEach(function (m) { if (managers.indexOf(m) === -1) managers.push(m); });
   });
+  return { names: names, managers: managers };
+}
+
+/** Prepares the loaded dataset: every project whole again, stage order, searchable text, each person's home office. */
+function prepareData(data) {
+  if (data.compact) data.prs = data.prs.map(function (c) { return expandProject(c, data); });
   S.stageIndex = {};
   data.stages.forEach(function (s, i) { s.order = i; S.stageIndex[s.key] = s; });
   data.prs.forEach(function (p) {

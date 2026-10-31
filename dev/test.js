@@ -14,17 +14,8 @@ function test(name, fn) { tests.push({ name, fn }); }
 function runtimeWith(sources, user) {
   return createRuntime({ quiet: true, user: user || 'someone@gsa.gov', owner: 'owner@gsa.gov', sheets: sheetsFrom(sources) });
 }
-/** The snapshot as the page sees it: planned projects get the fields they leave out (as prepareData does). */
-function filled(res) {
-  const d = res.data || res;
-  const fill = d.plannedDefaults;
-  d.prs.forEach((p) => {
-    if (!p.source) return;
-    Object.keys(fill.values).forEach((k) => { if (p[k] === undefined) p[k] = fill.values[k]; });
-    fill.lists.forEach((k) => { if (!p[k]) p[k] = []; });
-  });
-  return res;
-}
+/** The snapshot as the page sees it: apiLoad() already sends every project whole (unpackDataset_). */
+function filled(res) { return res; }
 function load(rt) { return filled(JSON.parse(rt.ctx.apiLoad())); }
 
 test('demo: only PRs on NEH buildings are kept, across its zones', () => {
@@ -470,6 +461,38 @@ test('stage history: days in stage, changes between refreshes, plans before thei
   // Long-gone projects are forgotten.
   const gone = ctx.updateHistory_({ prs: [] }, next, '2101-06-01');
   assert.strictEqual(Object.keys(gone.items).length, 0);
+});
+
+test('the snapshot travels compact and in two parts, and comes back whole', () => {
+  const vm = require('vm');
+  const rt = runtimeWith(demoSources());
+  const full = JSON.parse(rt.ctx.refreshDataset_());
+  const packed = rt.ctx.loadPacked_();
+  const first = JSON.parse(rt.ctx.gunzipText_(packed.gz));
+  const later = JSON.parse(rt.ctx.gunzipText_(packed.gzLater));
+  assert.strictEqual(first.prs.length + later.length, full.prs.length);
+  assert.strictEqual(first.laterCount, later.length);
+  assert.ok(first.prs.every((p) => !p.service && p.stage !== 'expended'), 'open projects come first');
+  assert.ok(later.length && later.every((p) => p.service || p.stage === 'expended'));
+  // Every field comes back as it was (except the two the page never shows).
+  const strip = (p) => { const c = Object.assign({}, p); delete c.assigned; delete c.reserved; return c; };
+  const byPr = {};
+  // (Planned projects never carried the EASi fields they lack; the page always filled those in.)
+  full.prs.forEach((p) => { byPr[(p.source || '') + p.pr] = rt.ctx.expandProject_(strip(p), first); });
+  const back = rt.ctx.unpackDataset_(packed);
+  back.prs.forEach((p) => assert.deepStrictEqual(JSON.parse(JSON.stringify(p)), JSON.parse(JSON.stringify(byPr[(p.source || '') + p.pr])), p.pr));
+  // The page's expandProject (JsCore) rebuilds exactly what the server's does.
+  const core = fs.readFileSync(__dirname + '/../webapp/JsCore.html', 'utf8');
+  const pick = (name) => core.slice(core.indexOf('function ' + name + '('), core.indexOf('\n}\n', core.indexOf('function ' + name + '(')) + 2);
+  const page = vm.createContext({});
+  vm.runInContext(pick('expandProject') + pick('buildingFacts'), page);
+  first.prs.concat(later).forEach((c) => {
+    const a = JSON.parse(JSON.stringify(page.expandProject(c, first))); delete a._x;
+    assert.deepStrictEqual(a, JSON.parse(JSON.stringify(rt.ctx.expandProject_(c, first))));
+  });
+  // Smaller than sending it all.
+  const whole = rt.ctx.gzipText_(JSON.stringify(full)).length;
+  assert.ok(packed.gz.length < whole * 0.75, packed.gz.length + ' vs ' + whole);
 });
 
 test('helpers: dates, money, names, emails', () => {

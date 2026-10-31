@@ -133,7 +133,6 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     teams: teams,
     teamNames: TEAMS,
     prs: prs,
-    plannedDefaults: PLANNED_DEFAULTS,
     portal: { read: readOk('portal', options.portalValues), url: str_(options.portalUrl), counts: portal.counts },
     ba54: { read: readOk('ba54', options.ba54Values), url: str_(options.ba54Link), counts: ba54.counts },
     rwa: { read: readOk('rwa', options.rwaValues), url: str_(options.rwaLink), counts: rwa.counts },

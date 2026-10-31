@@ -5,13 +5,16 @@
 
 /**
  * The page's data: the snapshot plus who is signed in, as a JSON string (faster to send).
- * opts.packed: send the snapshot gzipped (gz, base64) for the page to unpack; otherwise as data.
+ * opts.packed: send the snapshot compacted and gzipped (gz, base64) for the page to unpack: the
+ * open projects; opts.part = 'later' sends the rest (paid in full, service contracts) on its own.
+ * Otherwise the whole snapshot as data.
  */
 function apiLoad(opts) {
   var packed = loadPacked_();
+  if (opts && opts.part === 'later') return JSON.stringify({ gz: packed.gzLater || '' });
   var user = currentUser_(packed.meta);
   if (opts && opts.packed) return JSON.stringify({ user: user, gz: packed.gz });
-  return JSON.stringify({ user: user, data: JSON.parse(gunzipText_(packed.gz)) });
+  return JSON.stringify({ user: user, data: unpackDataset_(packed) });
 }
 
 /**

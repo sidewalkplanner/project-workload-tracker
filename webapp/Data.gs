@@ -2,7 +2,7 @@
  * Reading the source sheets and keeping a built snapshot in the script cache, so
  * page loads don't re-read 10,000 pipeline rows. The sheets are only ever read.
  *
- *   loadPacked_()        { meta, gz }: the snapshot gzipped (base64) plus the few fields the
+ *   loadPacked_()        { meta, gz, gzLater }: the snapshot compacted and gzipped (base64) in two parts, plus the few fields the
  *                        server needs itself; what the page downloads (built on a cache miss)
  *   loadDataset_()       the snapshot as JSON text, for setup and editor checks
  *   refreshDataset_()    rebuild now (daily trigger, and the Refresh button)
@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 10;
+var DATASET_VERSION = 11;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -22,7 +22,7 @@ function loadPacked_() {
   var packed = cachedOrSavedPacked_();
   if (packed) return packed;
   var json = refreshDataset_();
-  return packDataset_(JSON.parse(json), json);
+  return packDataset_(JSON.parse(json));
 }
 
 /**
@@ -111,15 +111,33 @@ function readSavedSnapshot_() {
 }
 
 function loadDataset_() {
-  return gunzipText_(loadPacked_().gz);
+  return JSON.stringify(unpackDataset_(loadPacked_()));
 }
 
 /** What the cache holds: the gzipped snapshot and the parts the server reads (who is signed in). */
-function packDataset_(dataset, json) {
+function packDataset_(dataset) {
+  // Compacted (Compact.gs), and in two parts: the open projects the page shows first (gz), and
+  // the paid-in-full projects and service contracts it fetches right after (gzLater).
+  var small = compactDataset_(dataset);
+  var first = [], later = [];
+  dataset.prs.forEach(function (p, i) { (shownFirst_(p) ? first : later).push(small.prs[i]); });
+  small.prs = first;
+  small.laterCount = later.length;
   return {
     meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
-    gz: gzipText_(json || JSON.stringify(dataset))
+    gz: gzipText_(JSON.stringify(small)),
+    gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
   };
+}
+
+/** The whole snapshot as one dataset again (both parts, every field), for the editor and older browsers. */
+function unpackDataset_(packed) {
+  var data = JSON.parse(gunzipText_(packed.gz));
+  var later = packed.gzLater ? JSON.parse(gunzipText_(packed.gzLater)) : [];
+  data.prs = data.prs.concat(later).map(function (c) { return expandProject_(c, data); });
+  data.prs.sort(function (a, b) { return a.pr < b.pr ? -1 : a.pr > b.pr ? 1 : 0; });
+  delete data.laterCount;
+  return data;
 }
 
 function gzipText_(text) {
@@ -181,7 +199,7 @@ function refreshDataset_() {
   }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
-  var packedJson = JSON.stringify(packDataset_(dataset, json));
+  var packedJson = JSON.stringify(packDataset_(dataset));
   writeCachedJson_(packedJson);
   try { writeSavedSnapshot_(packedJson); } catch (e) { console.warn('Could not save the snapshot copy: ' + e); }
   try {
