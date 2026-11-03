@@ -550,6 +550,56 @@ test('editor functions (setup, dailyRefresh, checkDirectoryLookup) refuse viewer
   assert.ok(reads() > before);
 });
 
+test('lint: no function name is defined twice (Apps Script files share one namespace)', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  // Server files all load into one global scope, and so do the page's script files: a second
+  // definition silently replaces the first, depending on file order.
+  const groups = {
+    server: fs.readdirSync(dir).filter((f) => f.endsWith('.gs')),
+    page: fs.readdirSync(dir).filter((f) => /^Js.*\.html$/.test(f))
+  };
+  Object.keys(groups).forEach((g) => {
+    const seen = {};
+    const dupes = [];
+    groups[g].forEach((f) => {
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      const re = /^\s{0,2}function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      while ((m = re.exec(text))) {
+        if (seen[m[1]]) dupes.push(m[1] + ' in ' + seen[m[1]] + ' and ' + f);
+        else seen[m[1]] = f;
+      }
+    });
+    assert.deepStrictEqual(dupes, [], g + ' functions defined twice');
+  });
+});
+
+test('national: a blank enterprise reads every enterprise, and OFM org codes place PRs in any of them', () => {
+  const rt = runtimeWith(demoSources(3));
+  const header = ['Building Number', 'Building Name', 'City', 'State', 'Enterprise', 'Zone', 'Service Center', 'Field Office', 'OFM Dept ID', 'ServiceNow Primary POC(s)'];
+  const buildings = [['Sheet Last Updated: 10/20/2026'], [], header,
+    ['CO0026ZZ', 'BYRON G ROGERS FED BLDG', 'DENVER', 'CO', 'Northeast Heartland', '5', 'Rocky Mountain Service Center', 'Colorado Field Office', 'PMCGA', 'quinn.peak@gsa.gov'],
+    ['NY0001AB', 'DEMO FEDERAL BUILDING', 'NEW YORK', 'NY', 'Demo Atlantic', '1', 'Demo Harbor Service Center', 'Demo Harbor Field Office', 'PMBAA', 'No ServiceNow POC'],
+    ['TX0005ZZ', 'DEMO COURTHOUSE', 'AUSTIN', 'TX', 'Demo Southwest', '7', 'Demo Plains Service Center', 'Demo Plains Field Office', 'PMEKB', 'lee.plains@gsa.gov, kim.plains@gsa.gov']];
+  const national = rt.ctx.readDirectory_(buildings, [], { enterprise: '', zone: '' });
+  assert.deepStrictEqual(Object.keys(national.buildings).sort(), ['CO0026ZZ', 'NY0001AB', 'TX0005ZZ']);
+  assert.deepStrictEqual(Array.from(national.zones), ['1', '5', '7']);
+  assert.deepStrictEqual(Array.from(national.buildings.NY0001AB.manager), [], '"No ServiceNow POC" is not an email');
+  assert.deepStrictEqual(Array.from(national.buildings.TX0005ZZ.manager), ['lee.plains@gsa.gov', 'kim.plains@gsa.gov']);
+  assert.ok(national.scByCode.PMBA && national.scByCode.PMEK && national.scByCode.PMCG);
+  const neh = rt.ctx.readDirectory_(buildings, [], { enterprise: 'Northeast Heartland', zone: '' });
+  assert.deepStrictEqual(Object.keys(neh.buildings), ['CO0026ZZ']);
+  // A PR with no building but an OFM org code lands on that code's service center, NEH or not.
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MBA00', national).serviceCenters), ['Demo Harbor Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MEK00', national).serviceCenters), ['Demo Plains Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MCG00', national).serviceCenters), ['Rocky Mountain Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MZZ00', national).serviceCenters), [], 'an unknown service center places nothing');
+  // Org codes in directory names are read the same way in every enterprise.
+  assert.strictEqual(rt.ctx.parseOrgCode_('Lee Plains - PMEKB'), 'PMEKB');
+  assert.strictEqual(rt.ctx.cleanDisplayName_('Lee Plains - PMEKB'), 'Lee Plains');
+});
+
 if (process.env.SOURCES_JSON) {
   test('real data: the EASi report and building directory', () => {
     const src = JSON.parse(fs.readFileSync(process.env.SOURCES_JSON, 'utf8'));
