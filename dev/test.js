@@ -575,6 +575,33 @@ test('lint: no function name is defined twice (Apps Script files share one names
   });
 });
 
+test('the shared files (Rules.gs and the readers Cornerstone copies) only call functions defined in them', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  const shared = ['Rules.gs', 'Pipeline.gs', 'Planned.gs', 'Portal.gs', 'Ba54.gs', 'Rwa.gs'];
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith('.gs'));
+  const defined = (files) => {
+    const out = {};
+    files.forEach((f) => {
+      const re = /^function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      while ((m = re.exec(text))) out[m[1]] = f;
+    });
+    return out;
+  };
+  const inShared = defined(shared);
+  const elsewhere = defined(all.filter((f) => shared.indexOf(f) === -1));
+  const leaks = [];
+  shared.forEach((f) => {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    Object.keys(elsewhere).forEach((fn) => {
+      if (!inShared[fn] && new RegExp('\\b' + fn.replace(/\$/g, '\\$') + '\\(').test(text)) leaks.push(f + ' calls ' + fn + ' (' + elsewhere[fn] + ')');
+    });
+  });
+  assert.deepStrictEqual(leaks, []);
+});
+
 test('national: a blank enterprise reads every enterprise, and OFM org codes place PRs in any of them', () => {
   const rt = runtimeWith(demoSources(3));
   const header = ['Building Number', 'Building Name', 'City', 'State', 'Enterprise', 'Zone', 'Service Center', 'Field Office', 'OFM Dept ID', 'ServiceNow Primary POC(s)'];

@@ -250,10 +250,6 @@ function asOfDate_(values) {
   return '';
 }
 
-function isDateValue_(value) {
-  return Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime());
-}
-
 function cacheSeconds_() {
   var minutes = parseInt(setting_('CACHE_MINUTES'), 10);
   if (!isFinite(minutes) || minutes < 1) minutes = 360;
