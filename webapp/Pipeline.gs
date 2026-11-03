@@ -488,6 +488,11 @@ function pipelineDate_(value) {
   return shifted.getUTCFullYear() + '-' + pad2_(shifted.getUTCMonth() + 1) + '-' + pad2_(shifted.getUTCDate());
 }
 
+/** True for a real Date (sheet date cells arrive as Dates; text dates don't). */
+function isDateValue_(value) {
+  return Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime());
+}
+
 function pad2_(n) {
   return (n < 10 ? '0' : '') + n;
 }
