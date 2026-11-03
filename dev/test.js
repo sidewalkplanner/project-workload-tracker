@@ -519,10 +519,35 @@ test('doGet renders the page with every include', () => {
 });
 
 test('setup schedules the refresh once', () => {
-  const rt = runtimeWith(demoSources(3));
+  const rt = runtimeWith(demoSources(3), 'owner@gsa.gov');
   rt.ctx.setup();
   rt.ctx.setup();
   assert.strictEqual(rt.triggers.filter((t) => t.getHandlerFunction() === 'dailyRefresh').length, 2);
+});
+
+test('editor functions (setup, dailyRefresh, checkDirectoryLookup) refuse viewers', () => {
+  const rt = runtimeWith(demoSources(3), 'viewer@gsa.gov');
+  // Every top-level function without a trailing underscore can be called with google.script.run.
+  const vm = require('vm');
+  const publicFns = Object.keys(vm.runInContext('this', rt.ctx))
+    .filter((k) => typeof rt.ctx[k] === 'function' && !/_$/.test(k) && /^[a-z]/.test(k)).sort();
+  assert.deepStrictEqual(publicFns, ['apiLoad', 'apiRefresh', 'checkDirectoryLookup', 'dailyRefresh', 'doGet', 'include', 'setup']);
+  const reads = () => rt.state.reads;
+  const before = reads();
+  assert.throws(() => rt.ctx.setup(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh({ triggerUid: 'made-up' }), /is for admins/);
+  assert.throws(() => rt.ctx.checkDirectoryLookup('someone@gsa.gov'), /is for admins/);
+  assert.strictEqual(reads(), before, 'a refused call reads no sheets');
+  assert.strictEqual(rt.triggers.length, 0, 'a refused setup schedules nothing');
+  // A listed admin may run them, and a real trigger may run dailyRefresh with nobody signed in.
+  rt.props.ADMIN_EMAILS = 'viewer@gsa.gov';
+  rt.ctx.setup();
+  rt.props.ADMIN_EMAILS = '';
+  rt.setUser('');
+  const t = rt.triggers.filter((x) => x.getHandlerFunction() === 'dailyRefresh')[0];
+  rt.ctx.dailyRefresh({ triggerUid: t.getUniqueId() });
+  assert.ok(reads() > before);
 });
 
 if (process.env.SOURCES_JSON) {
