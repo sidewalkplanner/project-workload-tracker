@@ -7,25 +7,6 @@
  * opens on the whole enterprise (Field Office Managers and Directors still get their own).
  */
 
-// Facilities codes ("PMCGC") are recognised after any separator, other codes only after
-// an explicit one ("Jane Doe - BCB"), so a capitalised surname is never taken for a code.
-var PM_CODE_RE = /(?:^|[\s\-–—(|,\/])(PM[A-Z][A-Z0-9]{0,6})\)?\s*$/;
-var OTHER_CODE_RE = /\s[\-–—|(]\s*([A-Z][A-Z0-9]{1,7})\)?\s*$/;
-
-/** "Robert Sells - PMCGC" -> "PMCGC"; "Jane Doe - BCB" -> "BCB" */
-function parseOrgCode_(displayName) {
-  var name = str_(displayName);
-  var m = name.match(PM_CODE_RE) || name.match(OTHER_CODE_RE);
-  return m ? m[1] : '';
-}
-
-/** "Robert Sells - PMCGC" -> "Robert Sells" */
-function cleanDisplayName_(displayName) {
-  var name = str_(displayName);
-  var m = name.match(PM_CODE_RE) || name.match(OTHER_CODE_RE);
-  return (m ? name.slice(0, m.index) : name).replace(/[\s\-–—|(,\/]+$/, '').trim();
-}
-
 /** { displayName, name, orgCode } from the Workspace directory, cached for 6 hours. */
 function directoryProfile_(email, skipCache) {
   var key = 'profile:v1:' + email;
