@@ -130,7 +130,7 @@ function createRuntime(opts) {
       deleteTrigger(t) { triggers.splice(triggers.indexOf(t), 1); },
       newTrigger(fn) {
         const b = { timeBased() { return b; }, everyDays() { return b; }, everyHours() { return b; }, atHour() { return b; }, nearMinute() { return b; }, inTimezone() { return b; },
-          create() { const t = { getHandlerFunction() { return fn; } }; triggers.push(t); return t; } };
+          create() { const uid = 'trigger-' + (triggers.length + 1) + '-' + fn; const t = { getHandlerFunction() { return fn; }, getUniqueId() { return uid; } }; triggers.push(t); return t; } };
         return b;
       }
     },

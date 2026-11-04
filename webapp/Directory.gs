@@ -79,6 +79,7 @@ function placeForOrgCode_(code, dataset) {
  * you (and any emails passed in). Run it from the Apps Script editor.
  */
 function checkDirectoryLookup(emails) {
+  requireAdmin_('checkDirectoryLookup()');
   var dataset = JSON.parse(loadDataset_());
   var list = [String(Session.getEffectiveUser().getEmail() || '').toLowerCase()].concat(parseEmailList_(emails || ''));
   var lines = ['People API service: ' + (typeof People !== 'undefined' ? 'available' : 'NOT ADDED (Services + > People API)')];
