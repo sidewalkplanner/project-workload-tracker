@@ -3,11 +3,17 @@
    App shell, filters and the three views: Overview, Projects, Workload.
    ========================================================================== */
 var VIEWS = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'projects', label: 'Projects' },
+  { key: 'home', label: 'Buildings' },
+  { key: 'projects', label: 'All projects' },
+  { key: 'attention', label: 'Needs attention' },
   { key: 'workload', label: 'People' },
-  { key: 'attention', label: 'Needs attention' }
+  { key: 'overview', label: 'Summary' }
 ];
+/** Pages reached from a building or a project, not from the tabs; each belongs to a tab. */
+var PAGES = { building: 'home', project: 'home' };
+/** Views without the filter bar: the building pages show everything about their building. */
+function isBuildingPage(view) { return view === 'home' || !!PAGES[view]; }
+function viewExists(key) { return !!PAGES[key] || VIEWS.some(function (v) { return v.key === key; }); }
 
 var PROJECT_COLUMNS = [
   { key: 'pr', label: 'Number' },
@@ -70,6 +76,16 @@ var PLAN_GROUPS = [
 // ---------------------------------------------------------------------------
 function start() {
   applyRoute(BOOT.route || {});
+  // The browser's Back and Forward buttons move between buildings and projects.
+  try {
+    google.script.history.setChangeHandler(function (e) {
+      var params = (e && e.location && e.location.parameter) || {};
+      S.view = 'home'; S.building = ''; S.project = '';
+      applyRoute(params);
+      if (S.data) { render(); window.scrollTo(0, 0); }
+    });
+    S.history = true;
+  } catch (e) { S.history = false; }
   load(false);
 }
 
@@ -150,7 +166,11 @@ function gunzipJson(base64) {
 
 function applyRoute(r) {
   var f = S.filters;
-  if (r.view && VIEWS.some(function (v) { return v.key === r.view; })) S.view = r.view;
+  if (r.view && viewExists(r.view)) S.view = r.view;
+  if (r.building && /^[A-Za-z0-9]{4,12}$/.test(r.building)) S.building = r.building.toUpperCase();
+  if (r.project) S.project = r.project;
+  if (S.view === 'building' && !S.building) S.view = 'home';
+  if (S.view === 'project' && !S.project) S.view = S.building ? 'building' : 'home';
   if (r.office) f.office = r.office;
   if (r.sc) f.sc = r.sc;
   if (r.zone && /^\d+$/.test(r.zone)) f.zone = r.zone;
@@ -200,10 +220,15 @@ function applyDefaultsForUser() {
   }
 }
 
-function syncUrl() {
-  try {
-    var f = S.filters, p = {};
-    if (S.view !== 'overview') p.view = S.view;
+/** The link parameters for what is on the page now. */
+function routeParams() {
+  var f = S.filters, p = {};
+  if (S.view !== 'home') p.view = S.view;
+  if (isBuildingPage(S.view)) {
+    if (S.view !== 'home' && S.building) p.building = S.building;
+    if (S.view === 'project') p.project = S.project;
+    return p;
+  }
     if (f.office) p.office = f.office;
     else if (f.sc) p.sc = f.sc;
     else if (f.zone) p.zone = f.zone;
@@ -218,8 +243,29 @@ function syncUrl() {
     else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
     if (S.view === 'projects' && S.projects.group) p.group = S.projects.group;
     if (f.check) p.check = f.check;
-    google.script.history.replace(null, p);
-  } catch (e) { /* outside Apps Script */ }
+    return p;
+}
+
+function syncUrl() {
+  try { google.script.history.replace(null, routeParams()); } catch (e) { /* outside Apps Script */ }
+}
+
+/**
+ * Moves to a page and adds it to the browser history, so Back returns here:
+ * navigate('building', { building: 'CO1085ZZ' }), navigate('project', { project: 'EQ…', building: … }).
+ */
+function navigate(view, opts) {
+  opts = opts || {};
+  hideTooltip();
+  S.view = view;
+  S.building = opts.building !== undefined ? opts.building : (view === 'home' ? '' : S.building);
+  S.project = view === 'project' ? opts.project : '';
+  // Push first: render() then replaces the new entry, not the page being left.
+  try { if (S.history) google.script.history.push(null, routeParams()); } catch (e) { /* outside Apps Script */ }
+  render();
+  window.scrollTo(0, 0);
+  var main = document.getElementById('main');
+  if (main && opts.focus !== false) main.focus({ preventScroll: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +281,15 @@ function render() {
   var app = clear(document.getElementById('app'));
   app.appendChild(topBar());
   var main = h('main', { id: 'main', tabindex: '-1' });
+  if (isBuildingPage(S.view)) {
+    if (S.view === 'building') main.appendChild(buildingView(S.building));
+    else if (S.view === 'project') main.appendChild(projectPage(S.project));
+    else main.appendChild(homeView());
+    main.appendChild(footnote());
+    app.appendChild(main);
+    syncUrl();
+    return;
+  }
   main.appendChild(filterBar());
   var banner = scopeBanner();
   if (banner) main.appendChild(banner);
@@ -254,7 +309,9 @@ function rerender() {
 }
 
 function go(view) {
+  if (isBuildingPage(view)) { navigate(view); return; }
   S.view = view;
+  try { if (S.history) google.script.history.push(null, routeParams()); } catch (e) { /* outside Apps Script */ }
   render();
   window.scrollTo(0, 0);
 }
@@ -265,7 +322,7 @@ function topBar() {
   refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
   // The views are pages of one site, so they are navigation (aria-current), not an ARIA tab widget.
   var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.map(function (v) {
-    return h('button', { class: 'tab', type: 'button', 'aria-current': S.view === v.key ? 'page' : null, onClick: function () { go(v.key); } }, v.label);
+    return h('button', { class: 'tab', type: 'button', 'aria-current': (PAGES[S.view] || S.view) === v.key ? 'page' : null, onClick: function () { go(v.key); } }, v.label);
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
@@ -937,20 +994,22 @@ function workloadView() {
 // ---------------------------------------------------------------------------
 // Project detail
 // ---------------------------------------------------------------------------
-function openDrawer(p) {
-  hideTooltip();
+/**
+ * Everything about one project: the project panel's contents, also used by the project page.
+ * close: the panel's close button (none on the page).
+ */
+function projectDetail(p, close) {
   var st = stageOf(p);
   var people = function (list) { return list.length ? list.map(function (e) { return personName(e) + (e.indexOf('@') !== -1 ? ' (' + e + ')' : ' (as written in ' + plannedName(p) + ')'); }).join(', ') : '–'; };
   var planned = isPlanned(p);
   var item = function (label, value) { return [h('dt', null, label), h('dd', null, value === '' || value === null || value === undefined ? '–' : value)]; };
   // Fields that are only filled in later (solicitation, award) are left out until they are.
   var itemIf = function (label, value) { return value === '' || value === null || value === undefined ? null : item(label, value); };
-  var close = h('button', { class: 'close-btn', type: 'button', 'aria-label': 'Close' }, icon('close'));
-  var drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': p.pr },
+  var children = [
     h('div', { class: 'drawer-head' }, h('div', null,
       p.link ? h('a', { class: 'pr-link', href: p.link, target: '_blank', rel: 'noopener' }, p.pr + (planned ? ' · open in ' + plannedName(p) : ' · open in EASi'), icon('external')) : h('span', { class: 'pr-link' }, p.pr),
       h('h2', null, p.title),
-      h('div', null, programTags(p), ' ', stageBadge(p), p.service ? [' ', h('span', { class: 'tag' }, 'Service contract')] : null)), close),
+      h('div', null, programTags(p), ' ', stageBadge(p), p.service ? [' ', h('span', { class: 'tag' }, 'Service contract')] : null)), close || null),
     planned ? h('div', { class: 'money-row' },
       h('div', null, h('div', { class: 'label' }, planSource(p).amount), h('div', { class: 'value' }, p.estimate ? fmtMoney(p.estimate) : 'None yet')),
       h('div', null, h('div', { class: 'label' }, 'Committed in EASi'), h('div', { class: 'value' }, 'Not yet'))) :
@@ -1013,8 +1072,16 @@ function openDrawer(p) {
         return [i ? ', ' : '', h('a', { href: S.data.portal.url + '?view=project&id=' + encodeURIComponent(n), target: '_blank', rel: 'noopener' }, n)];
       }) : p.portalNumbers.join(', ')),
       item('Contracting office', p.officeCode),
-      p.comments ? item('Comments', p.comments) : null));
-  drawer.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
+      p.comments ? item('Comments', p.comments) : null)];
+  var box = h('div', { class: 'project-detail' }, children);
+  box.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
+  return box;
+}
+
+function openDrawer(p) {
+  hideTooltip();
+  var close = h('button', { class: 'close-btn', type: 'button', 'aria-label': 'Close' }, icon('close'));
+  var drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': p.pr }, projectDetail(p, close));
   var backdrop = h('div', { class: 'drawer-backdrop' }, drawer);
   var opener = document.activeElement;
   // A modal panel: the page behind it is inert, and Tab cycles inside the panel.

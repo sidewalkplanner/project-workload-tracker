@@ -125,6 +125,12 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     builtAt: new Date().toISOString(),
     serviceCenters: directory.serviceCenters,
     offices: directory.offices,
+    // Every in-scope building, with or without projects, for the building pages:
+    // [number, name, city, state, field office, primary contacts, secondary contacts].
+    buildingList: Object.keys(directory.buildings).sort().map(function (n) {
+      var b = directory.buildings[n];
+      return [b.number, b.name, b.city, b.state, b.office, b.manager, b.secondary || []];
+    }),
     programs: PROGRAMS,
     stages: STAGES,
     roles: ROLES,
@@ -226,7 +232,8 @@ function readDirectory_(buildingValues, orgValues, scope) {
       office: foName,
       serviceCenter: scName,
       zone: zone,
-      manager: idx.primary === -1 ? [] : parseEmailList_(row[idx.primary])
+      manager: idx.primary === -1 ? [] : parseEmailList_(row[idx.primary]),
+      secondary: idx.secondary === -1 ? [] : parseEmailList_(row[idx.secondary])
     };
     // Everyone ServiceNow lists for a zone building, primary or secondary: the building managers.
     out.buildings[number].manager.concat(idx.secondary === -1 ? [] : parseEmailList_(row[idx.secondary]))

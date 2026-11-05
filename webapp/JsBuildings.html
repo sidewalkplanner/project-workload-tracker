@@ -1,0 +1,23 @@
+<script>
+/* ==========================================================================
+   Building pages: Buildings (home), one building, one project.
+   ========================================================================== */
+
+/** Builds S.buildings from the dataset's building list (and the projects on each building). */
+function prepareBuildings(data) {
+  S.buildings = {};
+  (data.buildingList || []).forEach(function (b) {
+    S.buildings[b[0]] = { number: b[0], name: b[1], city: b[2], state: b[3], office: b[4], primary: b[5] || [], secondary: b[6] || [], projects: [] };
+  });
+  data.prs.forEach(function (p) {
+    p.buildings.forEach(function (n, i) {
+      if (!S.buildings[n]) S.buildings[n] = { number: n, name: String(p.buildingNames[i] || '').split(' · ')[0], city: '', state: '', office: p.offices[0] || '', primary: [], secondary: [], projects: [] };
+      S.buildings[n].projects.push(p);
+    });
+  });
+}
+
+function homeView() { return h('div', { class: 'stack' }, h('h2', null, 'Buildings')); }
+function buildingView(num) { return h('div', { class: 'stack' }, h('h2', null, 'Building ' + num)); }
+function projectPage(pr) { return h('div', { class: 'stack' }, h('h2', null, 'Project ' + pr)); }
+</script>

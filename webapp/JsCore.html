@@ -109,7 +109,10 @@ function icon(name, cls) {
 var S = {
   data: null,
   user: null,
-  view: 'overview',
+  view: 'home',
+  building: '',
+  project: '',
+  history: false,
   filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
@@ -246,6 +249,7 @@ function prepareData(data) {
         return (p[r] || []).map(function (e) { return e + ' ' + (data.people[e] || ''); }).join(' ');
       })).join(' ').toLowerCase();
   });
+  prepareBuildings(data);
   S.homeOffice = {};
   data.roles.forEach(function (role) {
     var tally = {};

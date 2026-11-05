@@ -51,10 +51,18 @@ const SHIM = `
       }
     });
   }
-  window.google = { script: { run: runner(null, null), history: { replace: function (s, p) {
-    var q = new URLSearchParams(p || {}); if (who) q.set('as', who);
-    window.history.replaceState(null, '', '?' + q.toString());
-  } } } };
+  function query(p) { var q = new URLSearchParams(p || {}); if (who) q.set('as', who); return '?' + q.toString(); }
+  window.google = { script: { run: runner(null, null), history: {
+    replace: function (s, p) { window.history.replaceState(null, '', query(p)); },
+    push: function (s, p) { window.history.pushState(null, '', query(p)); },
+    setChangeHandler: function (fn) {
+      window.addEventListener('popstate', function () {
+        var parameter = {};
+        new URLSearchParams(location.search).forEach(function (v, k) { if (k !== 'as') parameter[k] = v; });
+        fn({ state: null, location: { parameter: parameter } });
+      });
+    }
+  } } };
 })();
 </script>`;
 
