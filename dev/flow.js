@@ -12,7 +12,8 @@ const assert = require('assert');
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(base + '/');
+  // The Summary tab (the old Overview); Home, the portal, is checked at the end.
+  await page.goto(base + '/?view=overview');
   await page.waitForSelector('.stat');
   const count = async () => Number((await page.textContent('.stat .value')).replace(/,/g, ''));
   const all = await count();
@@ -97,17 +98,77 @@ const assert = require('assert');
   }
 
   // Field office filter via URL, and the manager banner.
-  await page.goto(base + '/?as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
+  await page.goto(base + '/?view=overview&as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
   await page.waitForSelector('.stat');
   const banner = await page.$('.banner');
   if (banner) console.log('  banner: ' + (await banner.textContent()).trim());
 
   // Someone whose GSA profile says PMCFB opens on Iowa (demo directory in dev/server.js).
-  await page.goto(base + '/?as=pat.viewer%40gsa.gov');
+  await page.goto(base + '/?view=overview&as=pat.viewer%40gsa.gov');
   await page.waitForSelector('.stat');
   const orgBanner = await page.$('.banner');
   if (orgBanner) console.log('  org banner: ' + (await orgBanner.textContent()).trim());
   assert.strictEqual(await page.$eval('select[aria-label="Field office"]', (s) => s.value), 'Iowa Field Office');
+
+  // Home, the portal: search finds a building, its page lists its projects, a project has its
+  // own page, and Back walks back through them.
+  await page.goto(base + '/?as=sam.foothills%40gsa.gov');
+  await page.waitForSelector('.bp-search-input');
+  assert.strictEqual(await page.$('.tab:has-text("Needs attention")'), null, 'Needs attention is not a tab');
+  await page.fill('.bp-search-input', 'CO1085');
+  await page.waitForSelector('.bp-hit');
+  await page.press('.bp-search-input', 'Enter');
+  await page.waitForSelector('.bp-row');
+  assert.ok(/view=building/.test(page.url()) && /CO1085ZZ/.test(page.url()), 'building link: ' + page.url());
+  const buildingTitle = await page.textContent('main h2');
+  const inBuilding = await page.$$eval('.bp-row', (r) => r.length);
+  assert.ok(inBuilding > 0, 'projects in the building');
+  await page.click('.bp-row-main >> nth=0');
+  await page.waitForSelector('.bp-detail');
+  assert.ok(/view=project/.test(page.url()), 'project link: ' + page.url());
+  assert.ok((await page.textContent('main')).includes('Who to contact'));
+  await page.goBack();
+  await page.waitForSelector('.bp-row');
+  assert.strictEqual(await page.textContent('main h2'), buildingTitle, 'Back returns to the building');
+  await page.goBack();
+  await page.waitForSelector('.bp-search-input');
+
+  // A person, found by name, with their projects switchable by role; a field office page.
+  await page.fill('.bp-search-input', 'Kai Ortiz');
+  await page.click('.bp-hit:has-text("Kai Ortiz")');
+  await page.waitForSelector('.bp-row');
+  assert.ok(/view=person/.test(page.url()), 'person link: ' + page.url());
+  await page.goto(base + '/?view=office&fo=' + encodeURIComponent('Denver Federal Center Field Office'));
+  await page.waitForSelector('.bp-card');
+  assert.ok((await page.textContent('main h2')).includes('Denver Federal Center'));
+  // Building numbers in the projects table open the building's page.
+  await page.goto(base + '/?view=projects');
+  await page.click('.bldg-link >> nth=0');
+  await page.waitForSelector('.bp-row, .bp-empty');
+  assert.ok(/view=building/.test(page.url()));
+
+  // Back doesn't carry one page's filters into another: All projects → building → its
+  // "Open in All projects" (a search) → Back → Back is the unsearched table again.
+  await page.goto(base + '/?view=projects');
+  await page.waitForSelector('tbody tr.clickable');
+  const unsearched = await page.$$eval('tbody tr.clickable', (r) => r.length);
+  await page.click('.bldg-link >> nth=0');
+  await page.waitForSelector('.bp-row, .bp-empty');
+  await page.click('button:has-text("Open in All projects")');
+  await page.waitForSelector('tbody tr.clickable');
+  await page.goBack();
+  await page.waitForSelector('.bp-row, .bp-empty');
+  await page.goBack();
+  await page.waitForSelector('tbody tr.clickable');
+  assert.ok(!/[?&]q=/.test(page.url()), 'no search left in the link: ' + page.url());
+  assert.strictEqual(await page.$$eval('tbody tr.clickable', (r) => r.length), unsearched, 'the table is unsearched again');
+  // Back with a project panel open closes it and leaves the page usable.
+  await page.click('tbody tr.clickable >> nth=0');
+  await page.waitForSelector('.drawer');
+  await page.goBack();
+  await page.waitForSelector('.bp-page');
+  assert.strictEqual(await page.$('.drawer'), null, 'the panel closed');
+  assert.strictEqual(await page.$eval('#app', (a) => a.inert), false, 'the page is not inert');
 
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }

@@ -30,16 +30,16 @@ function doGet(e) {
 
 function routeFromParams_(params) {
   var route = {};
-  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check'].forEach(function (key) {
+  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check', 'building', 'project', 'fo', 'who'].forEach(function (key) {
     var value = str_(params[key]).slice(0, 160);
     if (value && !/[\u0000-\u001f\u007f<>]/.test(value)) route[key] = value;
   });
   return route;
 }
 
-/** Used by Index.html: <?!= include('Styles') ?> */
+/** Used by Index.html: <?!= include('Styles') ?>, include('StylesBuildings'), include('JsCore') … */
 function include(name) {
-  if (!/^(Styles|Js[A-Za-z]+)$/.test(String(name))) throw new Error('Unknown include: ' + name);
+  if (!/^(Styles[A-Za-z]*|Js[A-Za-z]+)$/.test(String(name))) throw new Error('Unknown include: ' + name);
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 

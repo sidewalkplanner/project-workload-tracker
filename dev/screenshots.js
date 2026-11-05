@@ -1,5 +1,5 @@
 /**
- * Screenshots of each view, light and dark, desktop and phone, with the preview running:
+ * Screenshots of each view and page, light and dark, desktop and phone, with the preview running:
  *   node dev/screenshots.js out/ [http://localhost:8080] [as-email]
  * Fails if the page logs an error.
  */
@@ -16,8 +16,12 @@ const fs = require('fs');
   const browser = await chromium.launch();
   const errors = [];
   const shots = [
-    ['overview', '', 1440, 'light'], ['projects', 'view=projects', 1440, 'light'], ['workload', 'view=workload', 1440, 'light'],
-    ['overview-dark', '', 1440, 'dark'], ['workload-phone', 'view=workload', 390, 'light'], ['overview-phone', '', 390, 'dark']
+    ['home', '', 1440, 'light'], ['home-phone', '', 390, 'light'], ['home-dark', '', 1440, 'dark'],
+    ['building', 'view=building&building=CO1085ZZ', 1440, 'light'], ['building-phone', 'view=building&building=CO1085ZZ', 390, 'dark'],
+    ['office', 'view=office&fo=Denver+Federal+Center+Field+Office', 1440, 'light'], ['person', 'view=person&who=kai.hughes%40gsa.gov', 1440, 'light'],
+    ['person-phone', 'view=person&who=kai.hughes%40gsa.gov', 390, 'light'],
+    ['overview', 'view=overview', 1440, 'light'], ['projects', 'view=projects', 1440, 'light'], ['projects-phone', 'view=projects', 390, 'light'],
+    ['workload', 'view=workload', 1440, 'light'], ['overview-dark', 'view=overview', 1440, 'dark'], ['workload-phone', 'view=workload', 390, 'light']
   ];
   for (const [name, query, width, scheme] of shots) {
     const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: scheme });
@@ -26,6 +30,7 @@ const fs = require('fs');
     const q = [query, as ? 'as=' + encodeURIComponent(as) : ''].filter(Boolean).join('&');
     await page.goto(base + '/' + (q ? '?' + q : ''));
     await page.waitForSelector('.topbar', { timeout: 30000 });
+    await page.waitForTimeout(600); // the paid-in-full part arrives a moment later
     await page.screenshot({ path: path.join(out, name + '.png'), fullPage: true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 1) errors.push(name + ': page scrolls sideways by ' + overflow + 'px');
