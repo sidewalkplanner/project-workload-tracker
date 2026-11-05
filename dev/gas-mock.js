@@ -26,10 +26,11 @@ function createRuntime(opts) {
       getName() { return ''; },
       getSheetId() { return 1234; },
       getLastRow() { return rows.length; },
+      getLastColumn() { return rows.reduce((m, r) => Math.max(m, r.length), 0); },
       clear() { rows.length = 0; },
-      getRange(r, c, nr) {
+      getRange(r, c, nr, nc) {
         return {
-          getValues() { state.snapshotReads = (state.snapshotReads || 0) + 1; return rows.slice(r - 1, r - 1 + nr).map((x) => x.slice()); },
+          getValues() { state.snapshotReads = (state.snapshotReads || 0) + 1; return rows.slice(r - 1, r - 1 + nr).map((x) => (nc ? x.slice(c - 1, c - 1 + nc) : x.slice())); },
           setValues(v) {
             if (!writable) throw new Error('read-only sheet');
             v.forEach((row, i) => { if (String(row[0]).length > 50000) throw new Error('Your input contains more than the maximum of 50000 characters in a single cell.'); rows[r - 1 + i] = row.slice(); });
@@ -171,6 +172,7 @@ function sheetsFrom(sources) {
   const portalId = '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y';
   const ba54Id = '1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8';
   const rwaId = '1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0';
+  const rosterId = '1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ';
   const dated = (rows) => rows.map((r) => r.map((v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? new Date(v) : v)));
   const tabs = { Pipeline: sources.pipeline };
   if (sources.reportInfo && sources.reportInfo.length) {
@@ -182,7 +184,8 @@ function sheetsFrom(sources) {
     // The BA61 portal's data sheet, when the sources include it.
     ...(sources.portal ? { [portalId]: { Projects: sources.portal } } : {}),
     ...(sources.ba54 ? { [ba54Id]: { 'Current Program': sources.ba54, Dashboard: dated(sources.ba54Dashboard || []) } } : {}),
-    ...(sources.rwa ? { [rwaId]: { 'Detailed Data': dated(sources.rwa) } } : {})
+    ...(sources.rwa ? { [rwaId]: { 'Detailed Data': dated(sources.rwa) } } : {}),
+    ...(sources.roster ? { [rosterId]: { 'GSA-Wide Roster': dated(sources.roster) } } : {})
   };
 }
 

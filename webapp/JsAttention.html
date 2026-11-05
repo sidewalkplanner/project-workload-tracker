@@ -123,9 +123,18 @@ ATTENTION_CHECKS.forEach(function (c) { ATTENTION_INDEX[c.key] = c; });
 /** What a check says about a project ('' when the project doesn't need it). */
 function attentionDetail(key, p) { var c = ATTENTION_INDEX[key]; return c ? c.test(p) : ''; }
 
-/** Every check with the projects it finds in the current filters. */
+/**
+ * Whose projects Needs attention covers: an admin's follows the page's filters; a leader's is what
+ * they are over (their places, their team) wherever the page is; anyone else's is the projects
+ * they are named on. '' for the filters, else the "own" scope it uses.
+ */
+function attentionScope() { return leadsEverything() ? '' : isLeader() ? 'portfolio' : 'mine'; }
+
+/** Every check with the projects it finds. */
 function attentionResults() {
-  var list = filtered({ status: true, check: true });
+  var own = attentionScope();
+  var list = !own ? filtered({ status: true, check: true })
+    : filtered({ status: true, check: true, place: true, person: true }).filter(function (p) { return inOwnScope(p, own); });
   return ATTENTION_CHECKS.map(function (c) {
     var items = list.filter(function (p) { return !!c.test(p); });
     items = sortRows(items, [{ key: 'k', dir: 1 }], { k: c.sortKey });
@@ -133,9 +142,51 @@ function attentionResults() {
   });
 }
 
-/** Opens the Projects tab showing everything one check finds. */
+/** What a leader is over, for headings: "Denver Federal Center", "Zone 5", "your team". */
+function portfolioName() {
+  var pf = S.user && S.user.portfolio;
+  if (!pf || pf.all) return 'your projects';
+  return pf.label ? pf.label + (pf.team ? ' and your team' : '') : 'your team';
+}
+
+/** The sentence under the heading: where the checks looked. */
+function attentionWhere() {
+  var own = attentionScope();
+  if (!own) return 'in ' + scopePhrase();
+  if (own === 'mine') return 'on projects you are named on';
+  var pf = S.user.portfolio;
+  var parts = [];
+  if (pf.label) parts.push('in ' + pf.label);
+  if (pf.team) parts.push('on your team’s projects');
+  parts.push('on projects you are named on');
+  return parts.length > 2 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts.join(' and ');
+}
+
+/** " in these filters" when a filter other than the place narrows the checks (search, program, year…). */
+function attentionFiltersNote() {
+  var f = S.filters;
+  var on = f.q || f.fy || f.programs.length < PROGRAM_LABELS.length || !f.planned || f.type !== 'projects' || f.team !== 'all' || (f.person && !attentionScope());
+  return on ? ' in these filters' : '';
+}
+
+/** True when the Needs attention tab has something for this viewer. */
+function attentionShown() {
+  if (isLeader()) return true;
+  if (!S.user || !S.user.email) return false;
+  // Over all their projects, not the filters, so the tab doesn't come and go while they search.
+  var key = S.user.email + '|' + S.data.prs.length;
+  if (S.attentionMine && S.attentionMine.data === S.data && S.attentionMine.key === key) return S.attentionMine.shown;
+  var mine = S.data.prs.filter(function (p) { return !p.service && isMine(p); });
+  var shown = ATTENTION_CHECKS.some(function (c) { return mine.some(function (p) { return !!c.test(p); }); });
+  S.attentionMine = { data: S.data, key: key, shown: shown };
+  return shown;
+}
+
+/** Opens the Projects tab showing everything one check finds (in the same scope as its count). */
 function showCheck(key) {
   S.filters.check = key;
+  var own = attentionScope();
+  if (own) { S.filters.own = own; S.filters.person = null; }
   S.filters.status = 'all';
   S.filters.stage = '';
   go('projects');
@@ -144,9 +195,13 @@ function showCheck(key) {
 /** The Overview's summary: each check that finds something, with its count. */
 function attentionCard() {
   var results = attentionResults().filter(function (r) { return r.count; });
+  var own = attentionScope();
+  // Someone who leads nothing gets the card only when one of their own projects needs something.
+  if (own === 'mine' && !results.length && !attentionShown()) return null;
+  var title = own === 'mine' ? 'Your projects that need attention' : 'Needs attention' + (own ? ' · ' + portfolioName() : '');
   return h('section', { class: 'card' },
-    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Needs attention'),
-      h('p', null, results.length ? 'Things the data says to look at in ' + scopePhrase() + '. Click one to see the projects.' : 'Nothing stands out in ' + scopePhrase() + '.')),
+    h('div', { class: 'card-head' }, h('div', null, h('h2', null, title),
+      h('p', null, results.length ? 'Things the data says to look at ' + attentionWhere() + attentionFiltersNote() + '. Click one to see the projects.' : 'Nothing stands out ' + attentionWhere() + attentionFiltersNote() + '.')),
       results.length ? h('button', { class: 'btn', type: 'button', onClick: function () { go('attention'); } }, 'See details', icon('arrow')) : null),
     results.length ? h('div', { class: 'attention-grid' }, ATTENTION_GROUPS.map(function (g) {
       var rows = results.filter(function (r) { return r.check.group === g.key; });
@@ -164,8 +219,9 @@ function attentionView() {
   var found = results.filter(function (r) { return r.count; });
   var wrap = h('div', { class: 'stack' });
   wrap.appendChild(h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('div', null,
-    h('h2', null, 'Needs attention · ' + scopeName()),
-    h('p', null, found.length ? plural(found.length, 'check') + ' found something. Each lists the most pressing first; open one to see them all in Projects.' : 'None of the checks found anything in these filters.')))));
+    h('h2', null, attentionScope() === 'mine' ? 'Your projects that need attention' : 'Needs attention · ' + portfolioName()),
+    h('p', null, found.length ? plural(found.length, 'check') + ' found something ' + attentionWhere() + '. Each lists the most pressing first; open one to see them all in Projects.'
+      : 'None of the checks found anything ' + attentionWhere() + attentionFiltersNote() + '.')))));
   ATTENTION_GROUPS.forEach(function (g) {
     var rows = results.filter(function (r) { return r.check.group === g.key && r.count; });
     if (!rows.length) return;

@@ -29,6 +29,10 @@ var SETTINGS_DEFAULTS = {
   // The All Open RWAs and WRs Dashboard: RWAs and work requests, before and after their PRs. OFF leaves them out.
   RWA_ID: '1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0',
   RWA_TAB: 'Detailed Data',
+  // The GSA-Wide Roster: who reports to whom, so a supervisor's Needs attention covers the people
+  // under them. Only the employee email and supervisor email columns are read. OFF skips it.
+  ROSTER_ID: '1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ',
+  ROSTER_TAB: 'GSA-Wide Roster',
   // Names in the BA61 portal or BA54 tracker the tracker can't match to an email on its own: "Name = email; Name = email".
   NAME_EMAILS: '',
   // The site's name, in the header and the browser tab.
@@ -46,6 +50,12 @@ var SETTINGS_DEFAULTS = {
   PROJECT_MANAGER_EMAILS: '',
   // Comma-separated emails that see the Admin tools (refresh status). The deployer always does.
   ADMIN_EMAILS: '',
+  // Leaders and what they are over, for Needs attention. Places, a supervisor's project managers
+  // (by email), or a PBS org code (P…) for a whole team:
+  // "a@gsa.gov = Zone 5; b@gsa.gov = Northeast Heartland; c@gsa.gov = pm1@gsa.gov, pm2@gsa.gov;
+  //  d@gsa.gov = PMCGCA; e@gsa.gov = All". Field Office Managers and Service Center Directors are
+  // known from the OFM Building Assignments sheet; admins see every place.
+  LEADERS: '',
   // How long a built snapshot is reused before the sources are read again (minutes, max 360).
   CACHE_MINUTES: '360'
 };

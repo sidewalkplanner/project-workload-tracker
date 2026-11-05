@@ -36,7 +36,7 @@ function doGet(e) {
 
 function routeFromParams_(params) {
   var route = {};
-  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check', 'enterprise'].forEach(function (key) {
+  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check', 'enterprise', 'own'].forEach(function (key) {
     var value = str_(params[key]).slice(0, 160);
     if (value && !/[\u0000-\u001f\u007f<>]/.test(value)) route[key] = value;
   });

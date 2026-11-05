@@ -233,12 +233,20 @@ function applyRoute(r) {
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
   if (r.group) S.projects.group = r.group;
   if (r.check && ATTENTION_INDEX[r.check]) f.check = r.check;
+  if (r.own === 'mine' || r.own === 'portfolio') f.own = r.own;
   // A link that names any place (down to an enterprise) opens there, not on the viewer's own office.
   S.routeHadScope = !!(r.office || r.sc || r.zone || r.enterprise);
 }
 
 /** Field Office Managers open on their office, Service Center Directors on their service center. */
+/** The defaults below, keeping a linked "own" scope only when it is this viewer's own (see attentionScope). */
 function applyDefaultsForUser() {
+  var own = S.filters.own;
+  placeDefaultsForUser();
+  S.filters.own = own && own === attentionScope() ? own : '';
+}
+
+function placeDefaultsForUser() {
   var f = S.filters;
   if (f.office && !S.data.offices.some(function (o) { return o.name === f.office; })) f.office = '';
   if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
@@ -256,12 +264,24 @@ function applyDefaultsForUser() {
   // GSA profile (as the NEH BA61 Project Portal does), then where they lead the most projects.
   if (u.manages.length === 1) S.scopeNote = { kind: 'manager', office: u.manages[0] };
   else if (u.directs.length === 1) S.scopeNote = { kind: 'director', sc: u.directs[0] };
+  else if (leadsOnePlace(u.portfolio)) S.scopeNote = Object.assign({ kind: 'leader' }, leadsOnePlace(u.portfolio));
   else if (u.orgOffice && officeOf(u.orgOffice)) S.scopeNote = { kind: 'org', office: u.orgOffice };
   else if (u.orgSc) S.scopeNote = { kind: 'org', sc: u.orgSc };
   else if (lead && officeOf(lead)) S.scopeNote = { kind: 'lead', office: lead };
   else return;
   if (S.scopeNote.office) setPlace('office', S.scopeNote.office);
-  else setPlace('sc', S.scopeNote.sc);
+  else if (S.scopeNote.sc) setPlace('sc', S.scopeNote.sc);
+  else if (S.scopeNote.zone) setPlace('zone', S.scopeNote.zone);
+  else setPlace('enterprise', S.scopeNote.enterprise);
+}
+
+/** A LEADERS entry for just one zone or one enterprise (and no office or service center): { zone } or { enterprise } to open on, else null. */
+function leadsOnePlace(pf) {
+  if (!pf || pf.all || pf.offices.length || pf.serviceCenters.length) return null;
+  var zones = pf.zones.filter(function (z) { return S.data.zones.indexOf(z) !== -1; });
+  var ents = pf.enterprises.filter(function (e) { return (S.data.enterprises || []).some(function (x) { return x.name === e; }); });
+  if (zones.length + ents.length !== 1) return null;
+  return zones.length ? { zone: zones[0], enterprise: '' } : { zone: '', enterprise: ents[0] };
 }
 
 function syncUrl() {
@@ -283,6 +303,7 @@ function syncUrl() {
     else if (S.view === 'workload' && S.workload.role !== 'lead') p.role = S.workload.role;
     if (S.view === 'projects' && S.projects.group) p.group = S.projects.group;
     if (f.check) p.check = f.check;
+    if (f.own) p.own = f.own;
     google.script.history.replace(null, p);
   } catch (e) { /* outside Apps Script */ }
 }
@@ -361,7 +382,7 @@ function topBar() {
   var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read EASi and the other source sheets again (takes about a minute)' }, 'Refresh');
   refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
   // The views are pages of one site, so they are navigation (aria-current), not an ARIA tab widget.
-  var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.map(function (v) {
+  var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.filter(function (v) { return v.key !== 'attention' || S.view === 'attention' || attentionShown(); }).map(function (v) {
     return h('button', { class: 'tab', type: 'button', 'aria-current': S.view === v.key ? 'page' : null, onClick: function () { go(v.key); } }, v.label);
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
@@ -376,18 +397,19 @@ function topBar() {
 
 function scopeBanner() {
   var n = S.scopeNote;
-  if (!n || !S.user) return null;
+  if (!n || !S.user || S.filters.own) return null;
   var f = S.filters;
-  if (n.office ? f.office !== n.office : (f.sc !== n.sc || f.office)) return null;
+  if (n.office ? f.office !== n.office : n.sc ? (f.sc !== n.sc || f.office) : n.zone ? (f.zone !== n.zone || f.sc || f.office) : (f.enterprise !== n.enterprise || f.zone || f.sc || f.office)) return null;
   var why = n.kind === 'manager' ? ', the field office you manage.'
+    : n.kind === 'leader' ? (n.zone ? ', the zone you lead.' : ', the enterprise you lead.')
     : n.kind === 'director' ? ', the service center you lead.'
     : n.kind === 'org' ? (n.office ? ', your field office' : ', your service center') + (S.user.orgCode ? ' (' + S.user.orgCode + ' in your GSA profile).' : '.')
     : ', where you have the most projects.';
   return h('div', { class: 'banner', role: 'note' }, icon('info'),
     h('div', { class: 'banner-text' },
-      h('span', null, 'Showing ', h('strong', null, n.office ? officeShort(n.office) : n.sc.replace(/ Service Center$/, '')), why),
+      h('span', null, 'Showing ', h('strong', null, n.office ? officeShort(n.office) : n.sc ? n.sc.replace(/ Service Center$/, '') : n.zone ? 'Zone ' + n.zone : enterpriseShort(n.enterprise)), why),
       // Wider views one step at a time: the enterprise, then (from there) the whole area.
-      (S.data.enterprises || []).length > 1 && f.enterprise
+      (S.data.enterprises || []).length > 1 && f.enterprise && (f.zone || f.sc || f.office)
         ? h('button', { class: 'link-btn', type: 'button', onClick: function () { setPlace('enterprise', f.enterprise); S.scopeNote = ''; rerender(); } }, 'Show all of ' + enterpriseShort(f.enterprise))
         : null,
       h('button', { class: 'link-btn', type: 'button', onClick: function () { setPlace('enterprise', ''); S.scopeNote = ''; rerender(); } }, !S.data.enterprise && !S.data.zone ? 'Show the whole country' : 'Show all of ' + S.data.scopeLabel)));
@@ -458,8 +480,9 @@ function filterBar() {
   if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
   if (f.team !== 'all') active.push(pill(teamLabel(f.team) + ' only', function () { f.team = 'all'; }));
   if (f.check) active.push(pill('Needs attention: ' + ATTENTION_INDEX[f.check].title, function () { f.check = ''; f.status = 'open'; }));
+  if (f.own) active.push(pill(f.own === 'portfolio' ? 'Yours: ' + portfolioName() : 'Your projects (every office)', function () { f.own = ''; }));
   var mineBtn = null;
-  if (S.user && S.user.email && !f.person) {
+  if (S.user && S.user.email && !f.person && !f.own) {
     var myRole = null;
     ['lead', 'buildingManager', 'programManager', 'co', 'cs'].some(function (r) {
       if (d.prs.some(function (p) { return (p[r] || []).indexOf(S.user.email) !== -1; })) { myRole = r; return true; }
@@ -467,7 +490,7 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.enterprise || f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned || !!f.check;
+  var any = f.enterprise || f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned || !!f.check || !!f.own;
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
   // Service center, fiscal year and service contracts sit behind "More filters" unless one is in use.
@@ -507,13 +530,14 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '' };
+  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '', own: '' };
   S.scopeNote = '';
   rerender();
 }
 
 function scopeName() {
   var f = S.filters;
+  if (f.own) return f.own === 'portfolio' ? portfolioName() : 'Your projects';
   if (f.office) return officeShort(f.office);
   if (f.sc) return f.sc.replace(/ Service Center$/, '');
   if (f.zone) return 'Zone ' + f.zone;
@@ -524,6 +548,7 @@ function scopeName() {
 /** scopeName() for the middle of a sentence: "in Zone 5", "in the whole country". */
 function scopePhrase() {
   var f = S.filters, d = S.data;
+  if (f.own) return f.own === 'portfolio' ? portfolioName() : 'your projects';
   return !f.office && !f.sc && !f.zone && !f.enterprise && !d.enterprise && !d.zone ? 'the whole country' : scopeName();
 }
 
@@ -552,7 +577,8 @@ function overviewView() {
     stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
     stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none', function () { S.workload.role = 'lead'; go('workload'); })));
 
-  wrap.appendChild(attentionCard());
+  var attention = attentionCard();
+  if (attention) wrap.appendChild(attention);
   wrap.appendChild(h('div', { class: 'grid grid-main' },
     topPeopleCard(leads, avg),
     h('div', { class: 'stack' }, pipelineCard(), programCard(list))));
