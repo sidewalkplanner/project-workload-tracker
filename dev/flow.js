@@ -12,7 +12,8 @@ const assert = require('assert');
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(base + '/');
+  // The Summary tab (the old Overview); Home, the portal, is checked at the end.
+  await page.goto(base + '/?view=overview');
   await page.waitForSelector('.stat');
   const count = async () => Number((await page.textContent('.stat .value')).replace(/,/g, ''));
   const all = await count();
@@ -97,13 +98,13 @@ const assert = require('assert');
   }
 
   // Field office filter via URL, and the manager banner.
-  await page.goto(base + '/?as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
+  await page.goto(base + '/?view=overview&as=' + encodeURIComponent(process.argv[3] || 'sam.foothills@gsa.gov'));
   await page.waitForSelector('.stat');
   const banner = await page.$('.banner');
   if (banner) console.log('  banner: ' + (await banner.textContent()).trim());
 
   // Someone whose GSA profile says PMCFB opens on Iowa (demo directory in dev/server.js).
-  await page.goto(base + '/?as=pat.viewer%40gsa.gov');
+  await page.goto(base + '/?view=overview&as=pat.viewer%40gsa.gov');
   await page.waitForSelector('.stat');
   const orgBanner = await page.$('.banner');
   if (orgBanner) console.log('  org banner: ' + (await orgBanner.textContent()).trim());
