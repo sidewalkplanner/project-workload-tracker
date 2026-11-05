@@ -563,10 +563,112 @@ test('doGet renders the page with every include', () => {
 });
 
 test('setup schedules the refresh once', () => {
-  const rt = runtimeWith(demoSources(3));
+  const rt = runtimeWith(demoSources(3), 'owner@gsa.gov');
   rt.ctx.setup();
   rt.ctx.setup();
   assert.strictEqual(rt.triggers.filter((t) => t.getHandlerFunction() === 'dailyRefresh').length, 2);
+});
+
+test('editor functions (setup, dailyRefresh, checkDirectoryLookup) refuse viewers', () => {
+  const rt = runtimeWith(demoSources(3), 'viewer@gsa.gov');
+  // Every top-level function without a trailing underscore can be called with google.script.run.
+  const vm = require('vm');
+  const publicFns = Object.keys(vm.runInContext('this', rt.ctx))
+    .filter((k) => typeof rt.ctx[k] === 'function' && !/_$/.test(k) && /^[a-z]/.test(k)).sort();
+  assert.deepStrictEqual(publicFns, ['apiLoad', 'apiRefresh', 'checkDirectoryLookup', 'dailyRefresh', 'doGet', 'include', 'setup']);
+  const reads = () => rt.state.reads;
+  const before = reads();
+  assert.throws(() => rt.ctx.setup(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh({ triggerUid: 'made-up' }), /is for admins/);
+  assert.throws(() => rt.ctx.checkDirectoryLookup('someone@gsa.gov'), /is for admins/);
+  assert.strictEqual(reads(), before, 'a refused call reads no sheets');
+  assert.strictEqual(rt.triggers.length, 0, 'a refused setup schedules nothing');
+  // A listed admin may run them, and a real trigger may run dailyRefresh with nobody signed in.
+  rt.props.ADMIN_EMAILS = 'viewer@gsa.gov';
+  rt.ctx.setup();
+  rt.props.ADMIN_EMAILS = '';
+  rt.setUser('');
+  const t = rt.triggers.filter((x) => x.getHandlerFunction() === 'dailyRefresh')[0];
+  rt.ctx.dailyRefresh({ triggerUid: t.getUniqueId() });
+  assert.ok(reads() > before);
+});
+
+test('lint: no function name is defined twice (Apps Script files share one namespace)', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  // Server files all load into one global scope, and so do the page's script files: a second
+  // definition silently replaces the first, depending on file order.
+  const groups = {
+    server: fs.readdirSync(dir).filter((f) => f.endsWith('.gs')),
+    page: fs.readdirSync(dir).filter((f) => /^Js.*\.html$/.test(f))
+  };
+  Object.keys(groups).forEach((g) => {
+    const seen = {};
+    const dupes = [];
+    groups[g].forEach((f) => {
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      const re = /^\s{0,2}function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      while ((m = re.exec(text))) {
+        if (seen[m[1]]) dupes.push(m[1] + ' in ' + seen[m[1]] + ' and ' + f);
+        else seen[m[1]] = f;
+      }
+    });
+    assert.deepStrictEqual(dupes, [], g + ' functions defined twice');
+  });
+});
+
+test('the shared files (Rules.gs and the readers Cornerstone copies) only call functions defined in them', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  const shared = ['Rules.gs', 'Pipeline.gs', 'Planned.gs', 'Portal.gs', 'Ba54.gs', 'Rwa.gs'];
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith('.gs'));
+  const defined = (files) => {
+    const out = {};
+    files.forEach((f) => {
+      const re = /^function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      while ((m = re.exec(text))) out[m[1]] = f;
+    });
+    return out;
+  };
+  const inShared = defined(shared);
+  const elsewhere = defined(all.filter((f) => shared.indexOf(f) === -1));
+  const leaks = [];
+  shared.forEach((f) => {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    Object.keys(elsewhere).forEach((fn) => {
+      if (!inShared[fn] && new RegExp('\\b' + fn.replace(/\$/g, '\\$') + '\\(').test(text)) leaks.push(f + ' calls ' + fn + ' (' + elsewhere[fn] + ')');
+    });
+  });
+  assert.deepStrictEqual(leaks, []);
+});
+
+test('national: a blank enterprise reads every enterprise, and OFM org codes place PRs in any of them', () => {
+  const rt = runtimeWith(demoSources(3));
+  const header = ['Building Number', 'Building Name', 'City', 'State', 'Enterprise', 'Zone', 'Service Center', 'Field Office', 'OFM Dept ID', 'ServiceNow Primary POC(s)'];
+  const buildings = [['Sheet Last Updated: 10/20/2026'], [], header,
+    ['CO0026ZZ', 'BYRON G ROGERS FED BLDG', 'DENVER', 'CO', 'Northeast Heartland', '5', 'Rocky Mountain Service Center', 'Colorado Field Office', 'PMCGA', 'quinn.peak@gsa.gov'],
+    ['NY0001AB', 'DEMO FEDERAL BUILDING', 'NEW YORK', 'NY', 'Demo Atlantic', '1', 'Demo Harbor Service Center', 'Demo Harbor Field Office', 'PMBAA', 'No ServiceNow POC'],
+    ['TX0005ZZ', 'DEMO COURTHOUSE', 'AUSTIN', 'TX', 'Demo Southwest', '7', 'Demo Plains Service Center', 'Demo Plains Field Office', 'PMEKB', 'lee.plains@gsa.gov, kim.plains@gsa.gov']];
+  const national = rt.ctx.readDirectory_(buildings, [], { enterprise: '', zone: '' });
+  assert.deepStrictEqual(Object.keys(national.buildings).sort(), ['CO0026ZZ', 'NY0001AB', 'TX0005ZZ']);
+  assert.deepStrictEqual(Array.from(national.zones), ['1', '5', '7']);
+  assert.deepStrictEqual(Array.from(national.buildings.NY0001AB.manager), [], '"No ServiceNow POC" is not an email');
+  assert.deepStrictEqual(Array.from(national.buildings.TX0005ZZ.manager), ['lee.plains@gsa.gov', 'kim.plains@gsa.gov']);
+  assert.ok(national.scByCode.PMBA && national.scByCode.PMEK && national.scByCode.PMCG);
+  const neh = rt.ctx.readDirectory_(buildings, [], { enterprise: 'Northeast Heartland', zone: '' });
+  assert.deepStrictEqual(Object.keys(neh.buildings), ['CO0026ZZ']);
+  // A PR with no building but an OFM org code lands on that code's service center, NEH or not.
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MBA00', national).serviceCenters), ['Demo Harbor Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MEK00', national).serviceCenters), ['Demo Plains Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MCG00', national).serviceCenters), ['Rocky Mountain Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MZZ00', national).serviceCenters), [], 'an unknown service center places nothing');
+  // Org codes in directory names are read the same way in every enterprise.
+  assert.strictEqual(rt.ctx.parseOrgCode_('Lee Plains - PMEKB'), 'PMEKB');
+  assert.strictEqual(rt.ctx.cleanDisplayName_('Lee Plains - PMEKB'), 'Lee Plains');
 });
 
 if (process.env.SOURCES_JSON) {
