@@ -1,5 +1,6 @@
 /**
- * OFM Projects (formerly the NEH Project Workload Tracker) — configuration.
+ * National Project Overview Dashboard (formerly OFM Projects, NEH Projects and the NEH Project
+ * Workload Tracker) — configuration.
  *
  * This app's own settings. Every value here can be overridden without touching code: Apps
  * Script › Project Settings › Script properties, using the key names in SETTINGS_DEFAULTS.
@@ -31,7 +32,9 @@ var SETTINGS_DEFAULTS = {
   // Names in the BA61 portal or BA54 tracker the tracker can't match to an email on its own: "Name = email; Name = email".
   NAME_EMAILS: '',
   // The site's name, in the header and the browser tab.
-  APP_NAME: 'OFM Projects',
+  APP_NAME: 'National Project Overview Dashboard',
+  // The browser-tab icon (OFF for none).
+  FAVICON_URL: 'https://insite.gsa.gov/sites/insite.gsa.gov/themes/custom/insite/Seal_final_082726.png',
   // Which part of the OFM Building Assignments sheet to cover: ALL (every enterprise: the whole
   // country), or one enterprise ("Northeast Heartland"), optionally one zone of it (ZONE).
   ENTERPRISE: 'ALL',

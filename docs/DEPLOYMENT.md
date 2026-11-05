@@ -1,4 +1,4 @@
-# Deploying OFM Projects
+# Deploying the National Project Overview Dashboard
 
 About 15 minutes, all in the browser. Do this signed in with the GSA account that will own the app. That account must be able to open the five source sheets:
 
@@ -14,7 +14,7 @@ Open all five links first. If any says you need access, request it before going 
 ## 1. Create the Apps Script project
 
 1. Go to https://script.google.com and click **New project**.
-2. Click **Untitled project** at the top and name it **OFM Projects** (an existing project keeps whatever name it has; only the page title comes from the code).
+2. Click **Untitled project** at the top and name it **National Project Overview Dashboard** (an existing project keeps whatever name it has; only the page title comes from the code).
 3. Click the gear (**Project Settings**) and tick **Show "appsscript.json" manifest file in editor**.
 
 ## 2. Let GitHub upload the files
@@ -37,7 +37,7 @@ This is the same setup as the NEH BA61 dash: a GitHub workflow signs in to Googl
 ## 3. Run setup once
 
 1. In the function list next to **Run**, pick **setup**, then click **Run**.
-2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to OFM Projects** (or the project's name), **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the source sheets (and writes its own saved-snapshot sheet); it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
+2. Google asks for permission: **Review permissions**, pick your account, **Advanced** › **Go to National Project Overview Dashboard** (or the project's name), **Allow**. Google words the spreadsheet permission as "see, edit, create and delete" because opening a sheet by its ID needs it, but the tracker only reads the source sheets (and writes its own saved-snapshot sheet); it also asks to schedule its refresh, to see the email of whoever opens it, and to read the GSA directory (only to find each person's org code, so they open on their own field office).
 3. The log shows something like *"Set up: 14385 National PRs across 84 field offices … Refresh scheduled daily at 7:30 Central and every 4 hours."*
 
 If it says it can't open a document, your account can't open the pipeline report or the building directory (see the top of this page).
@@ -45,7 +45,7 @@ If it says it can't open a document, your account can't open the pipeline report
 ## 4. Deploy the web app
 
 1. **Deploy** › **New deployment**. Click the gear next to *Select type* and choose **Web app**.
-2. Description: `OFM Projects`.
+2. Description: `National Project Overview Dashboard`.
 3. **Execute as: Me**. Viewers then see the data through your access and don't need access to the sheets themselves.
 4. **Who has access: Anyone within GSA** (your Google Workspace domain).
 5. **Deploy**, then copy the **Web app URL**. That is the link to share.
@@ -82,14 +82,14 @@ If the repo is ever made private, nothing changes: the workflow runs inside GitH
 
 ## The saved-snapshot sheet
 
-After the first refresh, a Google Sheet named **OFM Projects - saved snapshot (do not edit)** appears in the owner's Drive (set-ups from before the rename keep theirs, called **NEH Projects - saved snapshot (do not edit)** or **NEH Project Workload Tracker - saved snapshot**; it keeps working). Its first tab holds a compressed copy of the tracker's data so the page stays fast when Google clears its cache. Its **History** tab holds when each project reached its stage, which is how the page knows "days in this stage"; nothing else records that, so this tab is the one thing worth keeping. Leave the sheet where it is and don't share or edit it. If it's deleted, the next refresh makes a new one, and the stage history starts again from that day.
+After the first refresh, a Google Sheet named **National Project Overview Dashboard - saved snapshot (do not edit)** appears in the owner's Drive (set-ups from before the rename keep theirs, called **OFM Projects - saved snapshot (do not edit)**, **NEH Projects - saved snapshot (do not edit)** or **NEH Project Workload Tracker - saved snapshot**; it keeps working). Its first tab holds a compressed copy of the tracker's data so the page stays fast when Google clears its cache. Its **History** tab holds when each project reached its stage, which is how the page knows "days in this stage"; nothing else records that, so this tab is the one thing worth keeping. Leave the sheet where it is and don't share or edit it. If it's deleted, the next refresh makes a new one, and the stage history starts again from that day.
 
 ## Settings
 
 All optional, in **Project Settings** › **Script properties**:
 
 - `ADMIN_EMAILS`: comma-separated emails that may press **Refresh** any time (everyone else: once every 10 minutes).
-- `ENTERPRISE`: `ALL` (the default) covers every enterprise; `Northeast Heartland` (or another enterprise's name in the OFM Building Assignments sheet) narrows the app to one, as before. `APP_NAME` sets the page title (default `OFM Projects`).
+- `ENTERPRISE`: `ALL` (the default) covers every enterprise; `Northeast Heartland` (or another enterprise's name in the OFM Building Assignments sheet) narrows the app to one, as before. `APP_NAME` sets the page title and heading (default `National Project Overview Dashboard`).
 - `ZONE`: track only one zone (for example `5`); blank covers every zone.
 - `BUILDING_MANAGER_EMAILS`, `PROJECT_MANAGER_EMAILS`: comma-separated emails that correct someone's role in the building manager / project manager split.
 - `PIPELINE_ID`, `DIRECTORY_ID`, `PORTAL_ID`, `BA54_ID`, `RWA_ID`: point at other copies of the sheets. `PORTAL_ID`, `BA54_ID` or `RWA_ID` set to `OFF` leaves out what that sheet adds.

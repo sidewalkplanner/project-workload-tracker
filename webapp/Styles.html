@@ -1,6 +1,6 @@
 <style>
 /* ==========================================================================
-   OFM Projects — styles
+   National Project Overview Dashboard — styles
    Federal (USWDS-inspired) palette, Public Sans, light + dark themes.
    ========================================================================== */
 :root {
@@ -112,9 +112,13 @@ input[type="checkbox"] { accent-color: var(--primary); width: 16px; height: 16px
 /* ---------- Top bar ---------- */
 .topbar { background: var(--navy); color: #fff; }
 .topbar-inner { max-width: 1480px; margin: 0 auto; padding: 14px 24px 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 24px; }
-.brand { display: flex; flex-direction: column; padding-bottom: 12px; margin-right: auto; }
+.brand { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; margin-right: auto; min-width: 0; }
+.brand-seal { width: 52px; height: auto; flex: none; }
 .brand-title { font-size: 23px; font-weight: 800; letter-spacing: -.015em; margin: 0; line-height: 1.25; }
-.brand-sub { font-size: 13px; color: var(--on-navy-2); }
+@media (max-width: 640px) {
+  .brand-seal { width: 40px; }
+  .brand-title { font-size: 19px; }
+}
 .tabs { display: flex; gap: 4px; }
 .tab { background: transparent; border: 0; color: var(--on-navy); padding: 10px 16px 12px; font-weight: 600; cursor: pointer; border-radius: 8px 8px 0 0; }
 .tab:hover { color: #fff; background: var(--navy-2); }

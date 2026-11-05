@@ -366,9 +366,8 @@ function topBar() {
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
-      h('h1', { class: 'brand-title' }, (BOOT.app && BOOT.app.name) || d.scopeLabel + ' Projects'),
-      h('span', { class: 'brand-sub' }, ((d.enterprises || []).length > 1 ? andList(d.enterprises.map(function (e) { return e.short; }))
-        : d.zones.length > 1 ? 'Zones ' + andList(d.zones) : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
+      typeof GSA_SEAL === 'string' ? h('img', { class: 'brand-seal', src: GSA_SEAL, alt: 'U.S. General Services Administration seal', width: '52', height: '53' }) : null,
+      h('h1', { class: 'brand-title' }, (BOOT.app && BOOT.app.name) || d.scopeLabel + ' Projects')),
     h('div', { class: 'freshness' },
       h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),

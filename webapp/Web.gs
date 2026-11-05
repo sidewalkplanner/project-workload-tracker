@@ -23,9 +23,15 @@ function doGet(e) {
     console.warn('Page opened without its data: ' + err);
   }
   template.bootJson = safeJsonForHtml_({ app: { name: appName_() }, route: routeFromParams_(params), preload: preload });
-  return template.evaluate()
+  var page = template.evaluate()
     .setTitle(appName_())
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  // A link Google won't take must not stop the page from opening.
+  var favicon = setting_('FAVICON_URL');
+  if (favicon && !/^off$/i.test(favicon)) {
+    try { page.setFaviconUrl(favicon); } catch (e) { console.warn('Could not set the tab icon: ' + e); }
+  }
+  return page;
 }
 
 function routeFromParams_(params) {

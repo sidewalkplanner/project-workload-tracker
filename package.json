@@ -1,7 +1,7 @@
 {
-  "name": "ofm-projects",
+  "name": "national-project-overview-dashboard",
   "private": true,
-  "description": "OFM Projects, a national OFM project and workload dashboard (Google Apps Script web app) with local tests and preview",
+  "description": "National Project Overview Dashboard, a national OFM project and workload dashboard (Google Apps Script web app) with local tests and preview",
   "scripts": {
     "test": "node dev/test.js",
     "preview": "node dev/server.js --port 8080"
