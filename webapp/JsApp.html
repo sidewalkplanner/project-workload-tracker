@@ -1,6 +1,7 @@
 <script>
 /* ==========================================================================
-   App shell, filters and the three views: Overview, Projects, Workload.
+   App shell, routing, filters and the portfolio views: All projects, People, Summary
+   (and Needs attention, by link). Home and its pages are in JsBuildings.html.
    ========================================================================== */
 var VIEWS = [
   { key: 'home', label: 'Home' },
@@ -81,7 +82,10 @@ function start() {
   try {
     google.script.history.setChangeHandler(function (e) {
       var params = (e && e.location && e.location.parameter) || {};
+      // Start from nothing, so the page being left can't leak its filters into the one returned to.
+      closeDrawers();
       S.view = 'home'; S.building = ''; S.project = ''; S.officePage = ''; S.personPage = '';
+      S.filters = defaultFilters(); S.projects.group = ''; S.workload.role = 'lead';
       applyRoute(params);
       if (S.data) { render(); window.scrollTo(0, 0); }
     });
@@ -168,7 +172,7 @@ function gunzipJson(base64) {
 function applyRoute(r) {
   var f = S.filters;
   if (r.view && viewExists(r.view)) S.view = r.view;
-  if (r.building && /^[A-Za-z0-9]{4,12}$/.test(r.building)) S.building = r.building.toUpperCase();
+  if (r.building) S.building = r.building.toUpperCase().slice(0, 24);
   if (r.project) S.project = r.project;
   if (r.fo) S.officePage = r.fo;
   if (r.who) S.personPage = r.who.indexOf('@') !== -1 ? r.who.toLowerCase() : r.who;
@@ -254,7 +258,9 @@ function routeParams() {
 }
 
 function syncUrl() {
-  try { google.script.history.replace(null, routeParams()); } catch (e) { /* outside Apps Script */ }
+  var p = routeParams();
+  S.shownRoute = JSON.stringify(p);
+  try { google.script.history.replace(null, p); } catch (e) { /* outside Apps Script */ }
 }
 
 /**
@@ -271,8 +277,7 @@ function navigate(view, opts) {
   S.project = view === 'project' ? opts.project : '';
   if (opts.office !== undefined) S.officePage = opts.office;
   if (opts.person !== undefined) S.personPage = opts.person;
-  // Push first: render() then replaces the new entry, not the page being left.
-  try { if (S.history) google.script.history.push(null, routeParams()); } catch (e) { /* outside Apps Script */ }
+  pushRoute();
   render();
   window.scrollTo(0, 0);
   var main = document.getElementById('main');
@@ -317,16 +322,33 @@ function render() {
 
 function rerender() {
   var y = window.scrollY;
+  // Keep focus on the same control across the redraw (marked data-focus-key), when there is one.
+  var a = document.activeElement;
+  var key = a && a.getAttribute ? a.getAttribute('data-focus-key') : '';
   render();
   window.scrollTo(0, y);
+  if (key) {
+    var again = [].filter.call(document.querySelectorAll('[data-focus-key]'), function (el) { return el.getAttribute('data-focus-key') === key; })[0];
+    if (again) again.focus({ preventScroll: true });
+  }
 }
 
 function go(view) {
   if (isBuildingPage(view)) { navigate(view); return; }
   S.view = view;
-  try { if (S.history) google.script.history.push(null, routeParams()); } catch (e) { /* outside Apps Script */ }
+  pushRoute();
   render();
   window.scrollTo(0, 0);
+}
+
+/**
+ * Adds the page about to be shown to the browser history, unless it is the one already there.
+ * It runs before render(), whose syncUrl then replaces the new entry, not the page being left.
+ */
+function pushRoute() {
+  var next = routeParams();
+  if (JSON.stringify(next) === S.shownRoute) return;
+  try { if (S.history) google.script.history.push(null, next); } catch (e) { /* outside Apps Script */ }
 }
 
 function topBar() {
@@ -426,7 +448,7 @@ function filterBar() {
 
   var active = [];
   if (f.person) {
-    var role = d.roles.filter(function (r) { return r.key === f.person.role; })[0] || { short: f.person.role };
+    var role = d.roles.filter(function (r) { return r.key === f.person.role; })[0] || { short: f.person.role === 'any' ? 'Any role' : f.person.role };
     active.push(pill(role.short + ': ' + (f.person.email ? personName(f.person.email) : '(none)'), function () { f.person = null; }));
   }
   if (f.stage) active.push(pill('Status: ' + S.stageIndex[f.stage].label, function () { f.stage = ''; }));
@@ -479,7 +501,7 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' };
+  S.filters = defaultFilters();
   S.scopeNote = '';
   rerender();
 }
@@ -936,6 +958,7 @@ function buildingLinks(p, n) {
 
 /** Closes an open project panel without moving focus (the page is about to change). */
 function closeDrawers() {
+  if (S.closeDrawer) S.closeDrawer(false);
   document.querySelectorAll('.drawer-backdrop').forEach(function (b) { b.remove(); });
   document.getElementById('app').inert = false;
 }
@@ -1124,7 +1147,11 @@ function openDrawer(p) {
   var opener = document.activeElement;
   // A modal panel: the page behind it is inert, and Tab cycles inside the panel.
   var app = document.getElementById('app');
-  var shut = function () { backdrop.remove(); app.inert = false; document.removeEventListener('keydown', onKey); if (opener && opener.focus) opener.focus(); };
+  var shut = function (refocus) {
+    backdrop.remove(); app.inert = false; document.removeEventListener('keydown', onKey); S.closeDrawer = null;
+    if (refocus !== false && opener && opener.focus) opener.focus();
+  };
+  S.closeDrawer = shut;
   var onKey = function (e) {
     if (e.key === 'Escape') { shut(); return; }
     if (e.key !== 'Tab') return;
@@ -1134,7 +1161,7 @@ function openDrawer(p) {
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   };
-  close.addEventListener('click', shut);
+  close.addEventListener('click', function () { shut(); });
   backdrop.addEventListener('click', function (e) { if (e.target === backdrop) shut(); });
   document.addEventListener('keydown', onKey);
   document.body.appendChild(backdrop);

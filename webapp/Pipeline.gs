@@ -126,10 +126,12 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     serviceCenters: directory.serviceCenters,
     offices: directory.offices,
     // Every in-scope building, with or without projects, for the building pages:
-    // [number, name, city, state, field office, primary contacts, secondary contacts].
+    // [number, name, city, state, field office, primary contacts, secondary contacts (left off when none)].
     buildingList: Object.keys(directory.buildings).sort().map(function (n) {
       var b = directory.buildings[n];
-      return [b.number, b.name, b.city, b.state, b.office, b.manager, b.secondary || []];
+      var row = [b.number, b.name, b.city, b.state, b.office, b.manager];
+      if ((b.secondary || []).length) row.push(b.secondary);
+      return row;
     }),
     programs: PROGRAMS,
     stages: STAGES,

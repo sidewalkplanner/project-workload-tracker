@@ -107,6 +107,11 @@ function icon(name, cls) {
   return svg;
 }
 
+/** The filters as they start (All projects, People, Summary). */
+function defaultFilters() {
+  return { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' };
+}
+
 var S = {
   data: null,
   user: null,
@@ -116,7 +121,7 @@ var S = {
   officePage: '',
   personPage: '',
   history: false,
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' },
+  filters: defaultFilters(),
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -303,11 +308,17 @@ function filtered(skip) {
       else if (!matchesStatus(p, f.status)) return false;
     }
     if (f.fy && String(p.fy) !== String(f.fy)) return false;
-    if (!skip.person && f.person && (p[f.person.role] || []).indexOf(f.person.email) === -1) return false;
+    if (!skip.person && f.person && !personOn(p, f.person)) return false;
     if (f.team !== 'all' && !p.lead.some(function (e) { return teamOf(e) === f.team; })) return false;
     for (var i = 0; i < terms.length; i++) if (p._search.indexOf(terms[i]) === -1) return false;
     return true;
   });
+}
+
+/** True when the person is on the project in that role ('any': in any role). */
+function personOn(p, who) {
+  if (who.role !== 'any') return (p[who.role] || []).indexOf(who.email) !== -1;
+  return S.data.roles.some(function (r) { return (p[r.key] || []).indexOf(who.email) !== -1; });
 }
 
 function officesInScope() {

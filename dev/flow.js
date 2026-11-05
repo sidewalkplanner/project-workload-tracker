@@ -147,6 +147,29 @@ const assert = require('assert');
   await page.waitForSelector('.bp-row, .bp-empty');
   assert.ok(/view=building/.test(page.url()));
 
+  // Back doesn't carry one page's filters into another: All projects → building → its
+  // "Open in All projects" (a search) → Back → Back is the unsearched table again.
+  await page.goto(base + '/?view=projects');
+  await page.waitForSelector('tbody tr.clickable');
+  const unsearched = await page.$$eval('tbody tr.clickable', (r) => r.length);
+  await page.click('.bldg-link >> nth=0');
+  await page.waitForSelector('.bp-row, .bp-empty');
+  await page.click('button:has-text("Open in All projects")');
+  await page.waitForSelector('tbody tr.clickable');
+  await page.goBack();
+  await page.waitForSelector('.bp-row, .bp-empty');
+  await page.goBack();
+  await page.waitForSelector('tbody tr.clickable');
+  assert.ok(!/[?&]q=/.test(page.url()), 'no search left in the link: ' + page.url());
+  assert.strictEqual(await page.$$eval('tbody tr.clickable', (r) => r.length), unsearched, 'the table is unsearched again');
+  // Back with a project panel open closes it and leaves the page usable.
+  await page.click('tbody tr.clickable >> nth=0');
+  await page.waitForSelector('.drawer');
+  await page.goBack();
+  await page.waitForSelector('.bp-page');
+  assert.strictEqual(await page.$('.drawer'), null, 'the panel closed');
+  assert.strictEqual(await page.$eval('#app', (a) => a.inert), false, 'the page is not inert');
+
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
   console.log('Flow OK: ' + all + ' open PRs, ' + ba61 + ' BA61, top person ' + top + ' projects.');

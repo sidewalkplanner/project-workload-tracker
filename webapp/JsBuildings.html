@@ -20,13 +20,13 @@ function prepareBuildings(data) {
 }
 
 /** Page state that outlives a render: the search text, which person role is shown, expanded groups. */
-var BP = { q: '', typedAt: 0, caret: null, personFor: '', personRole: 'any', more: {}, cache: null };
+var BP = { q: '', typedAt: 0, caret: null, personFor: '', personRole: 'any', more: {}, open: {}, cache: null };
 
 /** The project-list groups, in order. Finished and service contracts start collapsed. */
 var BP_GROUPS = [
-  { key: 'planned', note: 'No PR in EASi yet' },
-  { key: 'preaward', note: 'From draft PR to contract being written' },
-  { key: 'awarded', note: 'Awarded, money still being spent' },
+  { key: 'planned', note: 'Being planned or approved, not sent to contracting yet' },
+  { key: 'preaward', note: 'With contracting, from the request to a signed contract' },
+  { key: 'awarded', note: 'Contract signed; the work and payments are under way' },
   { key: 'closed', note: 'All the awarded money is spent', collapsed: true, later: true },
   { key: 'service', label: 'Service contracts', note: 'Custodial, O&M, snow removal and other recurring services', collapsed: true, later: true }
 ];
@@ -225,10 +225,10 @@ function bpMoneyLine(t) {
 
 /** Sets the All projects filters and opens it, for the sortable table and the download. */
 function bpOpenInTable(set) {
-  var f = S.filters;
-  f.q = ''; f.check = ''; f.stage = ''; f.status = 'open'; f.person = null; f.type = 'projects'; f.fy = ''; f.team = 'all';
-  f.programs = PROGRAM_LABELS.slice(); f.office = ''; f.sc = ''; f.zone = '';
-  set(f);
+  S.filters = defaultFilters();
+  S.projects.group = '';
+  S.scopeNote = '';
+  set(S.filters);
   go('projects');
 }
 function bpTableButton(label, set) {
@@ -275,7 +275,12 @@ function groupedProjectList(list, opts) {
     var body = items.length ? bpRowList(items, opts, (opts.id || '') + '|' + g.key)
       : h('p', { class: 'bp-loading' }, h('span', { class: 'spinner small' }), g.key === 'service' ? 'Loading service contracts…' : 'Loading finished projects…');
     if (g.collapsed) {
-      wrap.appendChild(h('details', { class: 'bp-group bp-group-fold' }, h('summary', null, h('h3', { class: 'bp-group-head' }, head)), body));
+      // A fold stays open across redraws (the finished projects arrive a moment after the page).
+      var foldKey = (opts.id || '') + '|' + g.key;
+      var fold = h('details', { class: 'bp-group bp-group-fold', open: !!BP.open[foldKey] },
+        h('summary', { 'data-focus-key': 'fold:' + foldKey }, h('h3', { class: 'bp-group-head' }, head)), body);
+      fold.addEventListener('toggle', function () { BP.open[foldKey] = fold.open; });
+      wrap.appendChild(fold);
     } else {
       wrap.appendChild(h('section', { class: 'bp-group' }, h('h3', { class: 'bp-group-head' }, head), body));
     }
@@ -317,7 +322,7 @@ function bpRow(p, opts) {
   var roles = opts.person ? bpRolesOn(p, opts.person) : [];
   var lead = p.lead[0];
   var amount = isPlanned(p) ? (p.estimate ? fmtMoneyShort(p.estimate) : '') : fmtMoneyShort(p.committed);
-  var main = h('button', { type: 'button', class: 'bp-row-main', onClick: function () { navigate('project', { project: p.pr, building: opts.building || p.buildings[0] || '' }); } },
+  var main = h('button', { type: 'button', class: 'bp-row-main', 'data-focus-key': 'row:' + (opts.id || '') + ':' + p.pr, onClick: function () { navigate('project', { project: p.pr, building: opts.building || p.buildings[0] || '' }); } },
     h('span', { class: 'bp-row-title' }, p.title || p.pr),
     h('span', { class: 'bp-row-status' }, h('span', { class: 'swatch', style: { background: g === 'service' ? 'var(--other)' : GROUP_COLORS[st.group] } }),
       h('span', null, st.short + (age ? ' ' + age : '')),
@@ -329,7 +334,7 @@ function bpRow(p, opts) {
   return h('li', { class: 'bp-row' }, main,
     h('div', { class: 'bp-row-side' },
       h('div', { class: 'bp-amount' }, amount ? h('strong', null, amount) : null,
-        h('span', null, isPlanned(p) ? (amount ? 'estimated' : 'No estimate yet') : spent !== null && g === 'awarded' ? spent + '% spent' : g === 'preaward' ? 'committed' : '')),
+        h('span', null, isPlanned(p) ? (amount ? 'estimated' : 'No estimate yet') : spent !== null && g === 'awarded' ? spent + '% spent' : g === 'preaward' ? 'budget' : '')),
       h('div', { class: 'bp-person' }, lead ? [h('span', { class: 'sr-only' }, 'Assigned to '), bpPersonLink(lead), bpEmail(lead, true)] : h('span', { class: 'bp-nobody' }, 'Nobody assigned'))));
 }
 
@@ -343,7 +348,7 @@ function homeView() {
   var page = h('div', { class: 'bp-page bp-home' });
 
   var input = h('input', { type: 'search', id: 'bp-search', class: 'bp-search-input', autocomplete: 'off', spellcheck: 'false',
-    placeholder: 'Building, person, office or PR', 'aria-describedby': 'bp-search-status', value: BP.q });
+    placeholder: 'Building, person, office or project number', 'aria-describedby': 'bp-search-status', value: BP.q });
   var status = h('p', { id: 'bp-search-status', class: 'bp-search-status', role: 'status' });
   var results = h('div', { class: 'bp-results', id: 'bp-results' });
   var update = function () {
@@ -612,7 +617,7 @@ function personView(key) {
       h('p', { id: 'bp-seg-label', class: 'bp-seg-label' }, 'Show projects where they are'), seg),
     tallyBox,
     h('div', { class: 'bp-toolbar' }, h('p', { class: 'bp-money muted' }, 'Counts are open projects; finished ones are listed at the bottom.'),
-      bpHasEmail(key) ? bpTableButton(null, function (f) { f.person = { role: BP.personRole === 'any' ? 'lead' : BP.personRole, email: key }; }) : null),
+      bpHasEmail(key) ? bpTableButton(null, function (f) { f.person = { role: BP.personRole, email: key }; }) : null),
     listBox);
 }
 
@@ -640,7 +645,7 @@ function buildingView(num) {
         h('h2', { id: 'bp-b-p', class: 'sr-only' }, 'Projects in this building'),
         groupedProjectList(b.projects, { id: 'building:' + b.number, building: b.number }))
     ] : h('section', { class: 'bp-empty card' }, bpGlyph('building'), h('h3', null, 'No projects here yet'),
-      h('p', null, 'Nothing in EASi, the BA61 portal, the BA54 tracker or the RWA dashboard lists this building. When a project does, it shows up here the next morning.'),
+      h('p', null, 'No project lists this building yet. When one does, it shows up here the next morning.'),
       S.data.laterCount ? h('p', { class: 'bp-loading' }, h('span', { class: 'spinner small' }), 'Still loading finished projects and service contracts…') : null));
 }
 function uniqueKeys(list) { return list.filter(function (x, i) { return x && list.indexOf(x) === i; }); }

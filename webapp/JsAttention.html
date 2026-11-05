@@ -142,22 +142,6 @@ function showCheck(key) {
 }
 
 /** The Overview's summary: each check that finds something, with its count. */
-function attentionCard() {
-  var results = attentionResults().filter(function (r) { return r.count; });
-  return h('section', { class: 'card' },
-    h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Needs attention'),
-      h('p', null, results.length ? 'Things the data says to look at in ' + scopeName() + '. Click one to see the projects.' : 'Nothing stands out in ' + scopeName() + '.')),
-      results.length ? h('button', { class: 'btn', type: 'button', onClick: function () { go('attention'); } }, 'See details', icon('arrow')) : null),
-    results.length ? h('div', { class: 'attention-grid' }, ATTENTION_GROUPS.map(function (g) {
-      var rows = results.filter(function (r) { return r.check.group === g.key; });
-      if (!rows.length) return null;
-      return h('div', { class: 'attention-group' }, h('h3', null, g.label), rows.map(function (r) {
-        return h('button', { class: 'attention-item', type: 'button', onClick: function () { showCheck(r.check.key); } },
-          h('span', { class: 'count' }, fmtInt(r.count)), h('span', null, r.check.title));
-      }));
-    })) : null);
-}
-
 /** The Needs attention tab: every check, why it matters, and its most pressing projects. */
 function attentionView() {
   var results = attentionResults();
