@@ -61,7 +61,7 @@ robert.sells@gsa.gov -> display name "Robert Sells - PMCGC", org code PMCGC, ope
 
 The same directory also gives everyone's org code, shown in the People tab's Role column so people can be sorted by division. It's read once a week in one sweep, so the first refresh after setup can take a little longer.
 
-If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on all of NEH.
+If it says "(not found)", the People API service is missing (in the editor, **Services +** › **People API** › **Add**) or GSA's directory isn't shared with the account. The tracker still works: Field Office Managers and Service Center Directors still open on their own office, and everyone else opens on the office where they lead the most projects, or on the whole country (or the enterprise set in `ENTERPRISE`).
 
 
 Open the link. You should see the Overview for the whole country, or your own office if you are one of its Field Office Managers. Try clicking a field office row, a stage bar, and a name on the People tab.
