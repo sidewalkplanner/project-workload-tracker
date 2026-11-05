@@ -1,6 +1,8 @@
 <script>
 /* ==========================================================================
-   Building pages: Buildings (home), one building, one project.
+   The portal pages: Home (find projects), a field office, a person, a building, a project.
+   Every project in the enterprise's buildings, reachable by whatever you know: a building,
+   a person, an office or the project itself. All data is inserted as text, never as HTML.
    ========================================================================== */
 
 /** Builds S.buildings from the dataset's building list (and the projects on each building). */
@@ -17,7 +19,710 @@ function prepareBuildings(data) {
   });
 }
 
-function homeView() { return h('div', { class: 'stack' }, h('h2', null, 'Buildings')); }
-function buildingView(num) { return h('div', { class: 'stack' }, h('h2', null, 'Building ' + num)); }
-function projectPage(pr) { return h('div', { class: 'stack' }, h('h2', null, 'Project ' + pr)); }
+/** Page state that outlives a render: the search text, which person role is shown, expanded groups. */
+var BP = { q: '', typedAt: 0, caret: null, personFor: '', personRole: 'any', more: {}, cache: null };
+
+/** The project-list groups, in order. Finished and service contracts start collapsed. */
+var BP_GROUPS = [
+  { key: 'planned', note: 'No PR in EASi yet' },
+  { key: 'preaward', note: 'From draft PR to contract being written' },
+  { key: 'awarded', note: 'Awarded, money still being spent' },
+  { key: 'closed', note: 'All the awarded money is spent', collapsed: true, later: true },
+  { key: 'service', label: 'Service contracts', note: 'Custodial, O&M, snow removal and other recurring services', collapsed: true, later: true }
+];
+var BP_ROWS = 25;
+
+/** A person's roles on projects, in plain words. */
+var BP_ROLES = [
+  { key: 'lead', label: 'Assigned' },
+  { key: 'cor', label: 'COR' },
+  { key: 'requestor', label: 'Submitter' },
+  { key: 'buildingManager', label: 'Building manager' },
+  { key: 'co', label: 'Contracting officer' },
+  { key: 'cs', label: 'Contract specialist' },
+  { key: 'programManager', label: 'Program manager' }
+];
+
+/** Small stroked glyphs for the portal (24-unit grid), drawn like icon() in JsCore. */
+var BP_ICONS = {
+  building: 'M5 21V4.5A1.5 1.5 0 0 1 6.5 3h7A1.5 1.5 0 0 1 15 4.5V21M15 9h3.5A1.5 1.5 0 0 1 20 10.5V21M3 21h18M8.5 7h3M8.5 11h3M8.5 15h3M17.5 13h0M17.5 17h0',
+  person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 21a7.5 7.5 0 0 1 15 0',
+  office: 'M12 21s-7-6-7-11.2A7 7 0 0 1 19 9.8C19 15 12 21 12 21zM12 12.2a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8z',
+  project: 'M9 3.5h6v3H9zM7.5 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1.5M9 12h6M9 16h4',
+  mail: 'M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5zM4.5 6.5l7.5 6 7.5-6',
+  search: 'M10.5 18a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15zM21 21l-5.2-5.2',
+  next: 'M9 5.5l6.5 6.5L9 18.5',
+  table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14'
+};
+function bpIcon(name, cls) {
+  var ns = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('class', 'icon bp-icon' + (cls ? ' ' + cls : ''));
+  var path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', BP_ICONS[name]);
+  svg.appendChild(path);
+  return svg;
+}
+
+// ---------------------------------------------------------------------------
+// Data helpers
+// ---------------------------------------------------------------------------
+/** A project still happening: not paid in full, and not a service contract. */
+function bpIsOpen(p) { return !p.service && p.stage !== 'expended'; }
+function bpGroupOf(p) { return p.service ? 'service' : stageOf(p).group; }
+function bpHasEmail(key) { return String(key || '').indexOf('@') !== -1; }
+
+/** Who is on which open projects, and each office's open projects: worked out once per dataset. */
+function bpIndex() {
+  var d = S.data;
+  if (BP.cache && BP.cache.data === d && BP.cache.n === d.prs.length) return BP.cache;
+  var c = { data: d, n: d.prs.length, people: {}, offices: {} };
+  d.prs.forEach(function (p) {
+    if (!bpIsOpen(p)) return;
+    var seen = {};
+    BP_ROLES.forEach(function (r) {
+      (p[r.key] || []).forEach(function (e) {
+        if (seen[e]) return;
+        seen[e] = true;
+        c.people[e] = (c.people[e] || 0) + unitsOf(p);
+      });
+    });
+    p.offices.forEach(function (o) { (c.offices[o] = c.offices[o] || []).push(p); });
+  });
+  BP.cache = c;
+  return c;
+}
+
+/** Counts and money for a list of projects. */
+function bpTally(list) {
+  var t = { open: 0, planned: 0, preaward: 0, awarded: 0, closed: 0, service: 0, budget: 0, spent: 0, estimate: 0 };
+  list.forEach(function (p) {
+    var n = unitsOf(p), g = bpGroupOf(p);
+    t[g] += n;
+    if (!bpIsOpen(p)) return;
+    t.open += n;
+    if (isPlanned(p)) t.estimate += p.estimate || 0;
+    else { t.budget += p.committed || 0; t.spent += p.expended || 0; }
+  });
+  return t;
+}
+
+function bpOffice(name) {
+  var n = String(name || '').toLowerCase();
+  return (S.data.offices || []).filter(function (o) {
+    return o.name.toLowerCase() === n || String(o.short || '').toLowerCase() === n || (o.name.toLowerCase() === n + ' field office');
+  })[0] || null;
+}
+function bpOfficeShort(o) { return o ? (o.short || officeShort(o.name)) : ''; }
+function bpBuildingsOf(officeName) {
+  return Object.keys(S.buildings).map(function (k) { return S.buildings[k]; }).filter(function (b) { return b.office === officeName; });
+}
+function bpPlace(b) { return [b.city, b.state].filter(Boolean).join(', '); }
+function bpBuildingName(b) { return b.name || ('Building ' + b.number); }
+
+/** Every project a person is on, in any role. */
+function bpProjectsOf(key) {
+  return S.data.prs.filter(function (p) { return BP_ROLES.some(function (r) { return (p[r.key] || []).indexOf(key) !== -1; }); });
+}
+/** A person's roles on one project, without saying the same thing twice ("COR", not "Assigned, COR"). */
+function bpRolesOn(p, key) {
+  var keys = BP_ROLES.filter(function (r) { return (p[r.key] || []).indexOf(key) !== -1; }).map(function (r) { return r.key; });
+  if (keys.length > 1 && (keys.indexOf('cor') !== -1 || keys.indexOf('requestor') !== -1)) keys = keys.filter(function (k) { return k !== 'lead'; });
+  if (keys.indexOf('cor') !== -1) keys = keys.filter(function (k) { return k !== 'requestor'; });
+  return keys.map(function (k) { return BP_ROLES.filter(function (r) { return r.key === k; })[0].label; });
+}
+function bpTeamLabel(key) {
+  var t = teamOf(key);
+  return t === 'bm' ? 'Building manager' : t === 'pm' ? 'Project manager' : '';
+}
+
+/** "for 27 days" (known) or "for 40+ days" (at least since the tracker began recording). */
+function bpAge(p) {
+  var a = stageAge(p);
+  if (!a || (!a.known && a.days < 1)) return '';
+  if (a.known && a.days < 1) return 'since today';
+  return 'for ' + fmtInt(a.days) + (a.known ? '' : '+') + (a.days === 1 && a.known ? ' day' : ' days');
+}
+function bpMonth(iso) {
+  if (!iso) return '';
+  var d = new Date(iso.slice(0, 10) + 'T12:00:00Z');
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+// ---------------------------------------------------------------------------
+// Small parts
+// ---------------------------------------------------------------------------
+/** A link-styled button that moves to another page (a bare link would reload the whole app). */
+function bpLink(label, view, opts, cls) {
+  return h('button', { type: 'button', class: 'bp-link' + (cls ? ' ' + cls : ''), onClick: function (e) { e.stopPropagation(); navigate(view, opts); } }, label);
+}
+function bpPersonLink(key, cls) {
+  return bpLink(personName(key), 'person', { person: key }, cls);
+}
+/** An Email button. compact: the icon only (with a label for screen readers). */
+function bpEmail(key, compact) {
+  if (!bpHasEmail(key)) return null;
+  var name = personName(key);
+  return h('a', { class: 'bp-email' + (compact ? ' compact' : ''), href: 'mailto:' + key, title: 'Email ' + name + ' (' + key + ')', 'aria-label': compact ? 'Email ' + name : null },
+    bpIcon('mail'), compact ? null : h('span', null, 'Email'));
+}
+function bpGlyph(kind) { return h('span', { class: 'bp-glyph bp-glyph-' + kind }, bpIcon(kind)); }
+
+/** Home / office / building / … with the last item as the current page. */
+function bpCrumbs(items) {
+  var all = [{ label: 'Home', view: 'home', opts: {} }].concat(items);
+  var up = all[all.length - 2];
+  // On a phone the trail becomes one "back to" link to the page above this one.
+  return h('nav', { class: 'bp-crumbs', 'aria-label': 'Breadcrumb' },
+    h('ol', null, all.map(function (c, i) {
+      var last = i === all.length - 1;
+      return h('li', null, last ? h('span', { 'aria-current': 'page' }, c.label) : bpLink(c.label, c.view, c.opts));
+    })),
+    up ? h('button', { type: 'button', class: 'bp-up', onClick: function () { navigate(up.view, up.opts); } }, h('span', { 'aria-hidden': 'true' }, '←'), ' ' + up.label) : null);
+}
+
+/** A slim strip of where projects are, with the words beside it. */
+function bpStrip(t, words) {
+  var parts = [['planned', t.planned], ['preaward', t.preaward], ['awarded', t.awarded]].filter(function (x) { return x[1] > 0; });
+  var total = t.planned + t.preaward + t.awarded;
+  var bar = h('div', { class: 'bp-strip', 'aria-hidden': 'true' }, total ? parts.map(function (x) {
+    return h('span', { style: { 'flex-grow': String(x[1]), background: GROUP_COLORS[x[0]] } });
+  }) : h('span', { class: 'empty' }));
+  if (words === false) return bar;
+  return [bar, h('p', { class: 'bp-strip-words' }, total ? parts.map(function (x, i) {
+    return [i ? ' · ' : '', fmtInt(x[1]) + ' ' + GROUP_LABELS[x[0]].toLowerCase()];
+  }) : 'No open projects')];
+}
+
+/** The big-number row: [{ label, value, sub, group }]. */
+function bpStats(items) {
+  return h('div', { class: 'bp-stats' }, items.map(function (s) {
+    return h('div', { class: 'bp-stat' },
+      h('div', { class: 'bp-stat-label' }, s.group ? h('span', { class: 'swatch', style: { background: GROUP_COLORS[s.group] } }) : null, s.label),
+      h('div', { class: 'bp-stat-value' }, s.value),
+      s.sub ? h('div', { class: 'bp-stat-sub' }, s.sub) : null);
+  }));
+}
+function bpStageStats(t, first) {
+  return bpStats((first || []).concat([
+    { label: 'Open projects', value: fmtInt(t.open) },
+    { label: GROUP_LABELS.planned, value: fmtInt(t.planned), group: 'planned' },
+    { label: GROUP_LABELS.preaward, value: fmtInt(t.preaward), group: 'preaward' },
+    { label: GROUP_LABELS.awarded, value: fmtInt(t.awarded), group: 'awarded' }
+  ]));
+}
+/** "Budget $2.1M · Spent $1.2M · plus $121K planned" for the open projects. */
+function bpMoneyLine(t) {
+  var bits = [];
+  if (t.budget || t.spent) bits.push(h('span', null, 'Budget ', h('strong', null, fmtMoneyShort(t.budget))), h('span', null, 'Spent ', h('strong', null, fmtMoneyShort(t.spent))));
+  if (t.estimate) bits.push(h('span', null, (bits.length ? 'plus ' : '') + fmtMoneyShort(t.estimate) + ' planned'));
+  if (!bits.length) return null;
+  return h('p', { class: 'bp-money', title: 'Budget is what EASi has committed on the open projects; spent is what Pegasys shows paid. Planned amounts are estimates, kept apart.' }, bits);
+}
+
+/** Sets the All projects filters and opens it, for the sortable table and the download. */
+function bpOpenInTable(set) {
+  var f = S.filters;
+  f.q = ''; f.check = ''; f.stage = ''; f.status = 'open'; f.person = null; f.type = 'projects'; f.fy = ''; f.team = 'all';
+  f.programs = PROGRAM_LABELS.slice(); f.office = ''; f.sc = ''; f.zone = '';
+  set(f);
+  go('projects');
+}
+function bpTableButton(label, set) {
+  return h('button', { type: 'button', class: 'bp-btn', onClick: function () { bpOpenInTable(set); } }, bpIcon('table'), label || 'Open in All projects');
+}
+
+function bpPageHead(kind, kicker, title, meta, aside) {
+  return h('header', { class: 'bp-head' },
+    h('div', { class: 'bp-head-main' },
+      bpGlyph(kind),
+      h('div', { class: 'bp-head-text' },
+        h('p', { class: 'bp-kicker' }, kicker),
+        h('h2', { class: 'bp-title' }, title),
+        meta ? h('p', { class: 'bp-meta' }, meta) : null)),
+    aside ? h('div', { class: 'bp-head-aside' }, aside) : null);
+}
+
+function bpNotFound(kind, title, message) {
+  return h('div', { class: 'bp-page' }, bpCrumbs([{ label: 'Not found' }]),
+    h('section', { class: 'bp-empty card' }, bpGlyph(kind), h('h2', null, title), h('p', null, message),
+      h('button', { type: 'button', class: 'bp-btn bp-btn-primary', onClick: function () { navigate('home'); } }, 'Search for it from Home')));
+}
+
+// ---------------------------------------------------------------------------
+// The shared project list: Planned / In contracting / Under way / Finished / Service contracts
+// ---------------------------------------------------------------------------
+/**
+ * opts: { id (keeps "Show all" per page), building (hide the building on rows), person (show
+ * their roles on each row) }.
+ */
+function groupedProjectList(list, opts) {
+  opts = opts || {};
+  var waiting = !!(S.data && S.data.laterCount);
+  var byGroup = {};
+  list.forEach(function (p) { (byGroup[bpGroupOf(p)] = byGroup[bpGroupOf(p)] || []).push(p); });
+  var wrap = h('div', { class: 'bp-groups' });
+  BP_GROUPS.forEach(function (g) {
+    var items = bpSortGroup(g.key, byGroup[g.key] || []);
+    var n = countOf(items);
+    if (!items.length && !(g.later && waiting)) return;
+    var label = g.label || GROUP_LABELS[g.key];
+    var head = [h('span', { class: 'bp-group-name' }, g.key !== 'service' ? h('span', { class: 'swatch', style: { background: GROUP_COLORS[g.key] } }) : null, label),
+      h('span', { class: 'bp-count' }, items.length ? fmtInt(n) : '…'), h('span', { class: 'bp-group-note' }, g.note)];
+    var body = items.length ? bpRowList(items, opts, (opts.id || '') + '|' + g.key)
+      : h('p', { class: 'bp-loading' }, h('span', { class: 'spinner small' }), g.key === 'service' ? 'Loading service contracts…' : 'Loading finished projects…');
+    if (g.collapsed) {
+      wrap.appendChild(h('details', { class: 'bp-group bp-group-fold' }, h('summary', null, h('h3', { class: 'bp-group-head' }, head)), body));
+    } else {
+      wrap.appendChild(h('section', { class: 'bp-group' }, h('h3', { class: 'bp-group-head' }, head), body));
+    }
+  });
+  if (!wrap.firstChild) wrap.appendChild(h('p', { class: 'bp-none' }, 'No projects here.'));
+  return wrap;
+}
+
+function bpSortGroup(key, items) {
+  if (key === 'planned') return sortRows(items, [{ key: 'due', dir: 1 }, { key: 'title', dir: 1 }], { due: function (p) { return p.dueBy || ''; } });
+  if (key === 'preaward') return sortRows(items, [{ key: 'stageOrder', dir: -1 }, { key: 'since', dir: 1 }]);
+  if (key === 'awarded') return sortRows(items, [{ key: 'committed', dir: -1 }]);
+  return sortRows(items, [{ key: 'executed', dir: -1 }, { key: 'committed', dir: -1 }]);
+}
+
+/** Up to BP_ROWS rows, then a "Show all" button that fills the list in place. */
+function bpRowList(items, opts, key) {
+  var all = !!BP.more[key] || items.length <= BP_ROWS + 5;
+  var ul = h('ul', { class: 'bp-rows' }, (all ? items : items.slice(0, BP_ROWS)).map(function (p) { return bpRow(p, opts); }));
+  if (all) return ul;
+  var btn = h('button', { type: 'button', class: 'bp-btn bp-more' }, 'Show all ' + fmtInt(items.length));
+  var box = h('div', null, ul, btn);
+  btn.addEventListener('click', function () {
+    BP.more[key] = true;
+    items.slice(BP_ROWS).forEach(function (p) { ul.appendChild(bpRow(p, opts)); });
+    btn.remove();
+    var next = ul.children[BP_ROWS] && ul.children[BP_ROWS].querySelector('.bp-row-main');
+    if (next) next.focus();
+  });
+  return box;
+}
+
+/** One project: the title opens its page; the person and the Email button sit beside it (not inside). */
+function bpRow(p, opts) {
+  var st = stageOf(p), g = bpGroupOf(p);
+  var age = bpAge(p);
+  var spent = spentPct(p);
+  var where = !opts.building && p.buildings.length ? (S.buildings[p.buildings[0]] ? bpBuildingName(S.buildings[p.buildings[0]]) : p.buildingNames[0] || p.buildings[0]) + (p.buildings.length > 1 ? ' +' + (p.buildings.length - 1) : '') : '';
+  var roles = opts.person ? bpRolesOn(p, opts.person) : [];
+  var lead = p.lead[0];
+  var amount = isPlanned(p) ? (p.estimate ? fmtMoneyShort(p.estimate) : '') : fmtMoneyShort(p.committed);
+  var main = h('button', { type: 'button', class: 'bp-row-main', onClick: function () { navigate('project', { project: p.pr, building: opts.building || p.buildings[0] || '' }); } },
+    h('span', { class: 'bp-row-title' }, p.title || p.pr),
+    h('span', { class: 'bp-row-status' }, h('span', { class: 'swatch', style: { background: g === 'service' ? 'var(--other)' : GROUP_COLORS[st.group] } }),
+      h('span', null, st.short + (age ? ' ' + age : '')),
+      isPlanned(p) && p.dueBy ? h('span', { class: 'bp-due' }, (p.dueWhat || 'Due') .replace(/ \(estimated\)$/, '') + ' ' + bpMonth(p.dueBy)) : null),
+    h('span', { class: 'bp-row-tags' },
+      where ? h('span', { class: 'bp-where' }, bpIcon('building'), where) : null,
+      roles.length ? h('span', { class: 'bp-roles' }, roles.join(' · ')) : null,
+      programTags(p), unitsOf(p) > 1 ? h('span', { class: 'tag' }, unitsOf(p) + ' projects') : null));
+  return h('li', { class: 'bp-row' }, main,
+    h('div', { class: 'bp-row-side' },
+      h('div', { class: 'bp-amount' }, amount ? h('strong', null, amount) : null,
+        h('span', null, isPlanned(p) ? (amount ? 'estimated' : 'No estimate yet') : spent !== null && g === 'awarded' ? spent + '% spent' : g === 'preaward' ? 'committed' : '')),
+      h('div', { class: 'bp-person' }, lead ? [h('span', { class: 'sr-only' }, 'Assigned to '), bpPersonLink(lead), bpEmail(lead, true)] : h('span', { class: 'bp-nobody' }, 'Nobody assigned'))));
+}
+
+// ---------------------------------------------------------------------------
+// Home: find projects
+// ---------------------------------------------------------------------------
+function homeView() {
+  var d = S.data, ix = bpIndex();
+  var open = d.prs.filter(bpIsOpen);
+  var nBuildings = Object.keys(S.buildings).length;
+  var page = h('div', { class: 'bp-page bp-home' });
+
+  var input = h('input', { type: 'search', id: 'bp-search', class: 'bp-search-input', autocomplete: 'off', spellcheck: 'false',
+    placeholder: 'Building, person, office or PR', 'aria-describedby': 'bp-search-status', value: BP.q });
+  var status = h('p', { id: 'bp-search-status', class: 'bp-search-status', role: 'status' });
+  var results = h('div', { class: 'bp-results', id: 'bp-results' });
+  var update = function () {
+    BP.q = input.value;
+    clear(results);
+    var q = BP.q.trim();
+    if (!q) { status.textContent = ''; results.hidden = true; return; }
+    var found = bpSearch(q);
+    results.hidden = false;
+    var total = found.reduce(function (s, g) { return s + g.total; }, 0);
+    status.textContent = total ? plural(total, 'match', 'matches') + ' for “' + q + '”' : '';
+    if (!total) { results.appendChild(h('p', { class: 'bp-no-match' }, 'Nothing matches “' + q + '”. Try part of a building number (CO1085), a last name, or a city.')); return; }
+    found.forEach(function (g) {
+      if (!g.total) return;
+      results.appendChild(h('section', { class: 'bp-hit-group' },
+        h('h3', null, g.label, h('span', { class: 'bp-count' }, fmtInt(g.total))),
+        h('ul', { class: 'bp-hits' }, g.items.map(function (x) { return h('li', null, x); })),
+        g.total > g.items.length ? h('p', { class: 'bp-hit-more' }, fmtInt(g.total - g.items.length) + ' more — keep typing to narrow it down') : null));
+    });
+  };
+  input.addEventListener('input', function () { BP.typedAt = Date.now(); update(); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { var first = results.querySelector('.bp-hit'); if (first) { e.preventDefault(); first.click(); } }
+    if (e.key === 'ArrowDown') { var f = results.querySelector('.bp-hit'); if (f) { e.preventDefault(); f.focus(); } }
+    if (e.key === 'Escape' && input.value) { e.preventDefault(); input.value = ''; update(); }
+  });
+  results.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    var hits = [].slice.call(results.querySelectorAll('.bp-hit'));
+    var i = hits.indexOf(document.activeElement);
+    if (i === -1) return;
+    e.preventDefault();
+    if (e.key === 'ArrowUp' && i === 0) input.focus();
+    else if (hits[i + (e.key === 'ArrowDown' ? 1 : -1)]) hits[i + (e.key === 'ArrowDown' ? 1 : -1)].focus();
+  });
+  update();
+  // The page re-renders when the rest of the data arrives: keep typing where it was.
+  // (A microtask, so it runs before the next key press is handled and no letter is lost.)
+  if (Date.now() - BP.typedAt < 4000) {
+    Promise.resolve().then(function () { if (document.body.contains(input)) { input.focus({ preventScroll: true }); var n = input.value.length; input.setSelectionRange(n, n); } });
+  }
+
+  page.appendChild(h('section', { class: 'bp-hero' },
+    h('h2', { class: 'bp-title' }, 'Find projects'),
+    h('p', { class: 'bp-lede' }, 'Every project in ' + d.scopeLabel + ' buildings, from planned to finished: ',
+      h('strong', null, fmtInt(countOf(open)) + ' open'), ' in ' + fmtInt(nBuildings) + ' buildings across ' + plural(d.offices.length, 'field office') + '.'),
+    h('div', { class: 'bp-search' },
+      h('label', { for: 'bp-search', class: 'bp-search-label' }, 'Search buildings, people, field offices or projects'),
+      h('div', { class: 'bp-search-box' }, bpIcon('search', 'bp-search-icon'), input)),
+    status, results,
+    bpShortcuts(ix)));
+
+  page.appendChild(bpOfficeBrowse(ix));
+  return page;
+}
+
+/** The search over buildings, people, field offices and projects: [{ label, total, items }]. */
+function bpSearch(q) {
+  var terms = q.toLowerCase().split(/\s+/).filter(String);
+  var ix = bpIndex();
+  var hit = function (text) { text = text.toLowerCase(); return terms.every(function (t) { return text.indexOf(t) !== -1; }); };
+  var first = terms[0];
+  var MAX = 6;
+
+  var buildings = Object.keys(S.buildings).map(function (k) { return S.buildings[k]; })
+    .filter(function (b) { return hit(b.number + ' ' + b.name + ' ' + b.city + ' ' + b.state + ' ' + officeShort(b.office)); });
+  buildings = sortRows(buildings, [{ key: 'starts', dir: -1 }, { key: 'open', dir: -1 }], {
+    starts: function (b) { return b.number.toLowerCase().indexOf(first) === 0 ? 1 : 0; },
+    open: function (b) { return countOf(b.projects.filter(bpIsOpen)); }
+  });
+
+  var peopleMap = S.data.people || {};
+  var people = Object.keys(peopleMap).filter(function (k) { return hit((bpHasEmail(k) ? k : '') + ' ' + peopleMap[k]); });
+  people = sortRows(people.map(function (k) { return { key: k, name: peopleMap[k], open: ix.people[k] || 0 }; }), [{ key: 'open', dir: -1 }]);
+
+  var offices = (S.data.offices || []).filter(function (o) { return hit(o.name + ' ' + (o.short || '') + ' ' + o.serviceCenter + ' ' + (o.code || '')); });
+
+  var projects = S.data.prs.filter(function (p) { return hit(p.pr + ' ' + p.title + ' ' + (p.portalNumbers || []).join(' ') + ' ' + (p.rwas || []).join(' ')); });
+  projects = sortRows(projects, [{ key: 'open', dir: -1 }, { key: 'stageOrder', dir: 1 }], { open: function (p) { return bpIsOpen(p) ? 1 : 0; } });
+
+  return [
+    { label: 'Buildings', total: buildings.length, items: buildings.slice(0, MAX).map(function (b) {
+      var n = countOf(b.projects.filter(bpIsOpen));
+      return bpHit('building', bpMark(bpBuildingName(b), terms), [b.number, bpPlace(b), officeShort(b.office)].filter(Boolean).join(' · '), n ? plural(n, 'open project') : 'No open projects',
+        function () { navigate('building', { building: b.number }); });
+    }) },
+    { label: 'People', total: people.length, items: people.slice(0, MAX).map(function (r) {
+      return bpHit('person', bpMark(r.name, terms), [bpTeamLabel(r.key), orgOf(r.key), bpHasEmail(r.key) ? r.key : 'No email on file'].filter(Boolean).join(' · '), r.open ? plural(r.open, 'open project') : 'No open projects',
+        function () { navigate('person', { person: r.key }); });
+    }) },
+    { label: 'Field offices', total: offices.length, items: offices.slice(0, MAX).map(function (o) {
+      var n = countOf(ix.offices[o.name] || []);
+      return bpHit('office', bpMark(o.name, terms), o.serviceCenter + ' · Zone ' + o.zone + ' · ' + plural(o.buildings || bpBuildingsOf(o.name).length, 'building'), plural(n, 'open project'),
+        function () { navigate('office', { office: o.name }); });
+    }) },
+    { label: 'Projects', total: projects.length, items: projects.slice(0, MAX).map(function (p) {
+      var b = S.buildings[p.buildings[0]];
+      return bpHit('project', bpMark(p.title || p.pr, terms), [p.pr, stageOf(p).short, b ? bpBuildingName(b) : ''].filter(Boolean).join(' · '),
+        isPlanned(p) ? (p.estimate ? fmtMoneyShort(p.estimate) + ' est.' : '') : fmtMoneyShort(p.committed),
+        function () { navigate('project', { project: p.pr, building: p.buildings[0] || '' }); });
+    }) }
+  ];
+}
+
+function bpHit(kind, title, sub, side, fn) {
+  return h('button', { type: 'button', class: 'bp-hit', onClick: fn }, bpGlyph(kind),
+    h('span', { class: 'bp-hit-text' }, h('span', { class: 'bp-hit-title' }, title), h('span', { class: 'bp-hit-sub' }, sub)),
+    side ? h('span', { class: 'bp-hit-side' }, side) : null, bpIcon('next', 'bp-chev'));
+}
+
+/** The text with the first search term found marked. */
+function bpMark(text, terms) {
+  text = String(text || '');
+  var low = text.toLowerCase(), at = -1, len = 0;
+  terms.forEach(function (t) { var i = low.indexOf(t); if (i !== -1 && (at === -1 || i < at)) { at = i; len = t.length; } });
+  if (at === -1) return text;
+  return [text.slice(0, at), h('mark', null, text.slice(at, at + len)), text.slice(at + len)];
+}
+
+/** One row of shortcuts for the signed-in person: their projects, their office, the buildings they look after. */
+function bpShortcuts(ix) {
+  var u = S.user;
+  if (!u || !u.email) return null;
+  var chips = [];
+  var mine = ix.people[u.email] || 0;
+  if (mine) chips.push(bpChip('person', 'Your projects', plural(mine, 'open project'), function () { navigate('person', { person: u.email }); }));
+  var officeName = (u.manages && u.manages[0]) || (S.scopeNote && S.scopeNote.office) || u.orgOffice || '';
+  var o = bpOffice(officeName);
+  if (o) chips.push(bpChip('office', bpOfficeShort(o), u.manages && u.manages.indexOf(o.name) !== -1 ? 'The office you manage' : 'Your field office', function () { navigate('office', { office: o.name }); }));
+  var mineB = Object.keys(S.buildings).map(function (k) { return S.buildings[k]; })
+    .filter(function (b) { return b.primary.indexOf(u.email) !== -1 || b.secondary.indexOf(u.email) !== -1; });
+  mineB.slice(0, 4).forEach(function (b) {
+    chips.push(bpChip('building', bpBuildingName(b), b.number + ' · you’re its building contact', function () { navigate('building', { building: b.number }); }));
+  });
+  if (!chips.length) return null;
+  return h('div', { class: 'bp-shortcuts' }, h('h3', { class: 'bp-shortcuts-head' }, 'Shortcuts for you'), h('div', { class: 'bp-chips' }, chips),
+    mineB.length > 4 ? h('p', { class: 'bp-hit-more' }, 'And ' + plural(mineB.length - 4, 'more building') + ' — search for them by number.') : null);
+}
+function bpChip(kind, title, sub, fn) {
+  return h('button', { type: 'button', class: 'bp-chip', onClick: fn }, bpGlyph(kind),
+    h('span', { class: 'bp-chip-text' }, h('span', { class: 'bp-chip-title' }, title), h('span', { class: 'bp-chip-sub' }, sub)));
+}
+
+/** Browse: every field office, by zone and service center. */
+function bpOfficeBrowse(ix) {
+  var offices = S.data.offices || [];
+  var mineName = S.user ? ((S.user.manages && S.user.manages[0]) || (S.scopeNote && S.scopeNote.office) || S.user.orgOffice || '') : '';
+  var zones = [];
+  offices.forEach(function (o) { if (zones.indexOf(o.zone) === -1) zones.push(o.zone); });
+  zones.sort(function (a, b) { return Number(a) - Number(b); });
+  return h('section', { class: 'bp-section', 'aria-labelledby': 'bp-browse-head' },
+    h('div', { class: 'bp-section-head' }, h('h2', { id: 'bp-browse-head', class: 'bp-section-title' }, 'Field offices'),
+      h('p', null, 'Open an office to see its buildings and every project in them.')),
+    zones.map(function (z) {
+      var inZone = offices.filter(function (o) { return o.zone === z; });
+      var scs = [];
+      inZone.forEach(function (o) { if (scs.indexOf(o.serviceCenter) === -1) scs.push(o.serviceCenter); });
+      return h('div', { class: 'bp-zone' }, h('h3', { class: 'bp-zone-head' }, 'Zone ' + z),
+        scs.map(function (sc) {
+          var list = sortRows(inZone.filter(function (o) { return o.serviceCenter === sc; }), [{ key: 'short', dir: 1 }]);
+          return h('div', { class: 'bp-sc' }, h('h4', { class: 'bp-sc-head' }, sc),
+            h('ul', { class: 'bp-cards' }, list.map(function (o) {
+              var t = bpTally(ix.offices[o.name] || []);
+              var nb = o.buildings || bpBuildingsOf(o.name).length;
+              return h('li', null, h('button', { type: 'button', class: 'bp-card', onClick: function () { navigate('office', { office: o.name }); } },
+                h('span', { class: 'bp-card-top' },
+                  h('span', { class: 'bp-card-name' }, bpOfficeShort(o), o.name === mineName ? h('span', { class: 'bp-you' }, 'Yours') : null),
+                  h('span', { class: 'bp-card-num' }, h('strong', null, fmtInt(t.open)), h('span', null, 'open'))),
+                h('span', { class: 'bp-card-sub' }, plural(nb, 'building') + (o.manager ? ' · ' + personName(o.manager) : '')),
+                bpStrip(t)));
+            })));
+        }));
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// A field office
+// ---------------------------------------------------------------------------
+function officeView(name) {
+  var o = bpOffice(name);
+  if (!o) return bpNotFound('office', 'We couldn’t find that field office', '“' + name + '” isn’t a field office in ' + S.data.scopeLabel + '.');
+  var ix = bpIndex();
+  var projects = S.data.prs.filter(function (p) { return p.offices.indexOf(o.name) !== -1; });
+  var t = bpTally(projects);
+  var buildings = bpBuildingsOf(o.name);
+  var active = sortRows(buildings.filter(function (b) { return b.projects.some(bpIsOpen); }), [{ key: 'n', dir: -1 }], { n: function (b) { return countOf(b.projects.filter(bpIsOpen)); } });
+  var idle = sortRows(buildings.filter(function (b) { return !b.projects.some(bpIsOpen); }), [{ key: 'number', dir: 1 }]);
+  return h('div', { class: 'bp-page' },
+    bpCrumbs([{ label: bpOfficeShort(o) }]),
+    bpPageHead('office', 'Field office', o.name, [o.serviceCenter, 'Zone ' + o.zone, o.code].filter(Boolean).join(' · '),
+      o.manager ? bpContact('Field Office Manager', o.manager) : null),
+    bpStageStats(t, [{ label: 'Buildings', value: fmtInt(buildings.length) }]),
+    h('div', { class: 'bp-toolbar' }, bpMoneyLine(t), bpTableButton(null, function (f) { f.office = o.name; f.sc = o.serviceCenter; f.zone = o.zone; })),
+    h('section', { class: 'bp-section', 'aria-labelledby': 'bp-office-b' },
+      h('div', { class: 'bp-section-head' }, h('h2', { id: 'bp-office-b', class: 'bp-section-title' }, 'Buildings'),
+        h('p', null, active.length ? plural(active.length, 'building') + ' with open projects, busiest first.' : 'None of this office’s buildings has an open project.')),
+      active.length ? h('ul', { class: 'bp-cards' }, active.map(function (b) { return h('li', null, bpBuildingCard(b)); })) : null,
+      idle.length ? h('details', { class: 'bp-idle' }, h('summary', null, plural(idle.length, 'other building') + ' with no open projects'),
+        h('ul', { class: 'bp-idle-list' }, idle.map(function (b) {
+          return h('li', null, h('button', { type: 'button', class: 'bp-idle-row', onClick: function () { navigate('building', { building: b.number }); } },
+            h('span', { class: 'bp-idle-name' }, bpBuildingName(b)), h('span', { class: 'bp-idle-sub' }, [b.number, bpPlace(b)].filter(Boolean).join(' · ')), bpIcon('next', 'bp-chev')));
+        }))) : null),
+    h('section', { class: 'bp-section', 'aria-labelledby': 'bp-office-p' },
+      h('div', { class: 'bp-section-head' }, h('h2', { id: 'bp-office-p', class: 'bp-section-title' }, 'All projects in this office')),
+      groupedProjectList(projects, { id: 'office:' + o.name })));
+}
+
+function bpBuildingCard(b) {
+  var open = b.projects.filter(bpIsOpen);
+  var t = bpTally(open);
+  return h('button', { type: 'button', class: 'bp-card', onClick: function () { navigate('building', { building: b.number }); } },
+    h('span', { class: 'bp-card-top' },
+      h('span', { class: 'bp-card-name' }, bpBuildingName(b)),
+      h('span', { class: 'bp-card-num' }, h('strong', null, fmtInt(t.open)), h('span', null, 'open'))),
+    h('span', { class: 'bp-card-sub' }, [b.number, bpPlace(b)].filter(Boolean).join(' · ')),
+    bpStrip(t));
+}
+
+/** "Field Office Manager · Sam Foothills [Email]" */
+function bpContact(role, key) {
+  return h('div', { class: 'bp-contact' },
+    h('span', { class: 'bp-contact-role' }, role),
+    h('span', { class: 'bp-contact-name' }, bpPersonLink(key), bpEmail(key)));
+}
+
+// ---------------------------------------------------------------------------
+// A person
+// ---------------------------------------------------------------------------
+function personView(key) {
+  var all = bpProjectsOf(key);
+  var known = !!(S.data.people || {})[key];
+  if (!all.length && !known) {
+    return bpNotFound('person', 'We couldn’t find that person', bpHasEmail(key) ? 'No project lists ' + key + ' in any role.' : 'No project names “' + String(key).replace(/^name:/, '') + '”.');
+  }
+  if (BP.personFor !== key) { BP.personFor = key; BP.personRole = 'any'; }
+  var counts = { any: countOf(all.filter(bpIsOpen)) };
+  BP_ROLES.forEach(function (r) { counts[r.key] = countOf(all.filter(function (p) { return bpIsOpen(p) && (p[r.key] || []).indexOf(key) !== -1; })); });
+  var roles = [{ key: 'any', label: 'Any role' }].concat(BP_ROLES.filter(function (r) { return counts[r.key] > 0 || all.some(function (p) { return (p[r.key] || []).indexOf(key) !== -1; }); }));
+  if (!roles.some(function (r) { return r.key === BP.personRole; })) BP.personRole = 'any';
+  var team = bpTeamLabel(key), org = orgOf(key);
+  var listBox = h('div', { class: 'bp-person-list' });
+  var tallyBox = h('div');
+  var fill = function () {
+    var list = BP.personRole === 'any' ? all : all.filter(function (p) { return (p[BP.personRole] || []).indexOf(key) !== -1; });
+    clear(tallyBox).appendChild(bpStageStats(bpTally(list)));
+    clear(listBox).appendChild(groupedProjectList(list, { id: 'person:' + key + ':' + BP.personRole, person: key }));
+  };
+  var seg = h('div', { class: 'bp-seg', role: 'group', 'aria-labelledby': 'bp-seg-label' }, roles.map(function (r) {
+    var b = h('button', { type: 'button', 'aria-pressed': String(BP.personRole === r.key), 'data-role': r.key },
+      r.label, h('span', { class: 'bp-seg-count' }, fmtInt(counts[r.key])));
+    b.addEventListener('click', function () {
+      BP.personRole = r.key;
+      [].forEach.call(seg.children, function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      fill();
+    });
+    return b;
+  }));
+  fill();
+  var name = personName(key);
+  return h('div', { class: 'bp-page' },
+    bpCrumbs([{ label: name }]),
+    bpPageHead('person', team || 'Person', name,
+      [bpHasEmail(key) ? key : 'Named in a plan, no email on file', org ? 'Org code ' + org : ''].filter(Boolean).join(' · '),
+      bpHasEmail(key) ? h('a', { class: 'bp-btn bp-btn-primary', href: 'mailto:' + key }, bpIcon('mail'), 'Email ' + name.split(' ')[0]) : null),
+    h('div', { class: 'bp-filter-row' },
+      h('p', { id: 'bp-seg-label', class: 'bp-seg-label' }, 'Show projects where they are'), seg),
+    tallyBox,
+    h('div', { class: 'bp-toolbar' }, h('p', { class: 'bp-money muted' }, 'Counts are open projects; finished ones are listed at the bottom.'),
+      bpHasEmail(key) ? bpTableButton(null, function (f) { f.person = { role: BP.personRole === 'any' ? 'lead' : BP.personRole, email: key }; }) : null),
+    listBox);
+}
+
+// ---------------------------------------------------------------------------
+// A building
+// ---------------------------------------------------------------------------
+function buildingView(num) {
+  var b = S.buildings[num];
+  if (!b) return bpNotFound('building', 'We couldn’t find building ' + num, 'It isn’t in the OFM Building Assignments sheet for ' + S.data.scopeLabel + ', and no project lists it.');
+  var o = bpOffice(b.office);
+  var t = bpTally(b.projects);
+  var managers = b.primary.length ? b.primary : uniqueKeys(b.projects.reduce(function (a, p) { return a.concat(p.buildingManager || []); }, []));
+  var crumbs = (o ? [{ label: bpOfficeShort(o), view: 'office', opts: { office: o.name } }] : []).concat([{ label: bpBuildingName(b) }]);
+  return h('div', { class: 'bp-page' },
+    bpCrumbs(crumbs),
+    bpPageHead('building', 'Building', bpBuildingName(b),
+      [b.number, bpPlace(b), o ? bpLink(o.name, 'office', { office: o.name }) : b.office].filter(Boolean).reduce(function (a, x, i) { return a.concat(i ? [' · ', x] : [x]); }, []),
+      managers.length || b.secondary.length ? h('div', { class: 'bp-contacts' },
+        managers.map(function (m) { return bpContact('Building manager', m); }),
+        b.secondary.filter(function (m) { return managers.indexOf(m) === -1; }).map(function (m) { return bpContact('Also a building contact', m); })) : null),
+    b.projects.length ? [
+      bpStageStats(t),
+      h('div', { class: 'bp-toolbar' }, bpMoneyLine(t), bpTableButton(null, function (f) { f.q = b.number.toLowerCase(); })),
+      h('section', { class: 'bp-section', 'aria-labelledby': 'bp-b-p' },
+        h('h2', { id: 'bp-b-p', class: 'sr-only' }, 'Projects in this building'),
+        groupedProjectList(b.projects, { id: 'building:' + b.number, building: b.number }))
+    ] : h('section', { class: 'bp-empty card' }, bpGlyph('building'), h('h3', null, 'No projects here yet'),
+      h('p', null, 'Nothing in EASi, the BA61 portal, the BA54 tracker or the RWA dashboard lists this building. When a project does, it shows up here the next morning.'),
+      S.data.laterCount ? h('p', { class: 'bp-loading' }, h('span', { class: 'spinner small' }), 'Still loading finished projects and service contracts…') : null));
+}
+function uniqueKeys(list) { return list.filter(function (x, i) { return x && list.indexOf(x) === i; }); }
+
+// ---------------------------------------------------------------------------
+// A project
+// ---------------------------------------------------------------------------
+function projectPage(pr) {
+  var p = S.data.prs.filter(function (x) { return x.pr === pr; })[0];
+  if (!p && S.data.laterCount) {
+    return h('div', { class: 'bp-page' }, bpCrumbs([{ label: pr }]),
+      h('section', { class: 'bp-empty card' }, h('span', { class: 'spinner' }), h('h2', null, 'Loading ' + pr + '…'), h('p', null, 'Finished projects and service contracts take a moment longer to arrive.')));
+  }
+  if (!p) return bpNotFound('project', 'We couldn’t find ' + pr, 'No project or PR in ' + S.data.scopeLabel + ' has that number. It may have been cancelled, or its number changed.');
+  var bnum = S.building && p.buildings.indexOf(S.building) !== -1 ? S.building : p.buildings[0];
+  var b = bnum ? S.buildings[bnum] : null;
+  var o = bpOffice(b ? b.office : p.offices[0]);
+  var crumbs = [];
+  if (o) crumbs.push({ label: bpOfficeShort(o), view: 'office', opts: { office: o.name } });
+  if (b) crumbs.push({ label: bpBuildingName(b), view: 'building', opts: { building: b.number } });
+  crumbs.push({ label: p.pr });
+
+  var detail = projectDetail(p);
+  var head = detail.querySelector('.drawer-head');
+  if (head) head.remove();
+  return h('div', { class: 'bp-page bp-project' },
+    bpCrumbs(crumbs),
+    head ? h('header', { class: 'bp-project-head' }, head) : null,
+    bpWhere(p),
+    bpWhoToContact(p),
+    h('section', { class: 'card bp-detail', 'aria-label': 'Everything about this project' }, detail));
+}
+
+/** "In Federal Building 6 (CO1085ZZ), Denver Federal Center Field Office" with links. */
+function bpWhere(p) {
+  if (!p.buildings.length && !p.offices.length) return null;
+  var bits = p.buildings.map(function (n, i) {
+    var b = S.buildings[n];
+    return [i ? ', ' : '', bpLink((b ? bpBuildingName(b) : p.buildingNames[i] || n) + ' (' + n + ')', 'building', { building: n })];
+  });
+  var offices = p.offices.map(function (name, i) { var o = bpOffice(name); return [i ? ', ' : '', o ? bpLink(o.name, 'office', { office: o.name }) : name]; });
+  return h('p', { class: 'bp-where-line' }, bpIcon('building'), h('span', null, bits.length ? ['In ', bits] : null, bits.length && offices.length ? ' · ' : '', offices));
+}
+
+/** Who to contact first: the person assigned, the COR, the building manager, contracting. */
+function bpWhoToContact(p) {
+  var planned = isPlanned(p);
+  var rows = [];
+  var seen = {};
+  var add = function (key, role, note) {
+    if (!key) return;
+    var id = key + '|' + role;
+    if (seen[id]) return;
+    seen[id] = true;
+    rows.push({ key: key, role: role, note: note });
+  };
+  p.lead.forEach(function (e) { add(e, 'Person assigned', planned ? 'Runs this project in ' + plannedName(p) : p.cor.indexOf(e) !== -1 ? 'The COR on the PR' : 'Submitted the PR; no COR named yet'); });
+  p.cor.forEach(function (e) { if (p.lead.indexOf(e) === -1) add(e, 'COR', 'Contracting officer’s representative'); });
+  (p.buildingManager || []).forEach(function (e) { add(e, 'Building manager', 'Looks after the building'); });
+  (p.co || []).forEach(function (e) { add(e, 'Contracting officer', 'Signs the contract'); });
+  (p.cs || []).forEach(function (e) { add(e, 'Contract specialist', 'Works the contract day to day'); });
+  // One card per person, with every role they have on it.
+  var people = [];
+  rows.forEach(function (r) {
+    var x = people.filter(function (y) { return y.key === r.key; })[0];
+    if (x) x.roles.push(r.role);
+    else people.push({ key: r.key, roles: [r.role], note: r.note });
+  });
+  return h('section', { class: 'card bp-who', 'aria-labelledby': 'bp-who-head' },
+    h('h3', { id: 'bp-who-head', class: 'bp-who-head' }, 'Who to contact'),
+    people.length ? h('ul', { class: 'bp-who-list' }, people.map(function (x) {
+      return h('li', { class: 'bp-who-item' },
+        h('span', { class: 'bp-avatar', 'aria-hidden': 'true' }, bpInitials(personName(x.key))),
+        h('span', { class: 'bp-who-text' },
+          h('span', { class: 'bp-who-role' }, x.roles.join(' · ')),
+          bpPersonLink(x.key, 'bp-who-name'),
+          h('span', { class: 'bp-who-note' }, bpHasEmail(x.key) ? x.note : 'Named in ' + plannedName(p) + ', no email on file')),
+        bpEmail(x.key));
+    })) : h('p', { class: 'bp-none' }, 'Nobody is named on this project yet.'));
+}
+function bpInitials(name) {
+  var w = String(name || '?').replace(/[^A-Za-z\s'-]/g, '').split(/\s+/).filter(String);
+  return ((w[0] || '?').charAt(0) + (w.length > 1 ? w[w.length - 1].charAt(0) : '')).toUpperCase();
+}
 </script>
