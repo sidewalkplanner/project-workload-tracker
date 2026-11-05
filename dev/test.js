@@ -113,7 +113,7 @@ test('GSA-Wide Roster: a supervisor\'s Needs attention covers everyone under the
   // Through a level: the branch chief is over both supervisors' people; their own director too.
   const chief = load(runtimeWith(src, 'branch.chief@gsa.gov')).user.portfolio;
   const everyone = src.roster.length - 4;
-  assert.strictEqual(chief.people.length >= everyone - 2 && chief.people.length <= everyone, true, 'the branch chief is over everyone below: ' + chief.people.length + ' of ' + everyone);
+  assert.strictEqual(chief.people.length, everyone, 'the branch chief is over everyone below, paid-in-full projects and service contracts included');
   const director = load(runtimeWith(src, 'lee.rockies@gsa.gov')).user.portfolio;
   assert.ok(director.serviceCenters.length === 1 && director.people.length === chief.people.length, 'a director keeps their service center and gets the people under them');
   // Someone with nobody under them is no leader.

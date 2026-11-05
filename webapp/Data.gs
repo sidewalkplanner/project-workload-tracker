@@ -150,7 +150,9 @@ function packDataset_(dataset) {
   Object.keys(parts).forEach(function (e) { gzParts[e] = gzipText_(JSON.stringify(parts[e])); });
   return {
     meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, enterprises: dataset.enterprises || [], scopeLabel: dataset.scopeLabel, prs: dataset.prs.length,
-      named: named, leads: leads, orgs: dataset.orgs || {}, reportsTo: dataset.reportsTo || {} },
+      named: named, leads: leads, orgs: dataset.orgs || {}, reportsTo: dataset.reportsTo || {},
+      // Everyone named on any project (paid in full and service contracts too), for supervisors' teams.
+      people: Object.keys(dataset.people || {}).reduce(function (o, e) { o[e] = 1; return o; }, {}) },
     gzBase: gzipText_(JSON.stringify(small)),
     gzParts: gzParts,
     gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
@@ -330,10 +332,11 @@ function refreshDataset_() {
  * this build instead of failing it.
  */
 /**
- * The GSA-Wide Roster's who-reports-to-whom, and nothing else: only its employee email, supervisor
- * email and supervisor level columns are read (it also holds pay and other personal details).
+ * The GSA-Wide Roster's who-reports-to-whom, and nothing else: only its employee email and
+ * supervisor email columns are read (it also holds pay and other personal details), plus the
+ * snapshot date of its first row.
  * @return {{ values: Array[], link: string, asOf: string, off?: boolean, error?: string }}
- *   values: [['email', 'supervisor', 'level'], ...].
+ *   values: [['email', 'supervisor'], ...].
  */
 function readRoster_() {
   var id = setting_('ROSTER_ID');
@@ -344,19 +347,19 @@ function readRoster_() {
     if (!tab) throw new Error('no "' + setting_('ROSTER_TAB') + '" tab');
     var header = tab.getRange(1, 1, 1, tab.getLastColumn()).getValues()[0].map(str_);
     var col = function (name) { var i = header.indexOf(name); if (i === -1) throw new Error('no "' + name + '" column'); return i + 1; };
-    [ROSTER_HEADERS.email, ROSTER_HEADERS.supervisor, ROSTER_HEADERS.level].forEach(col);
+    [ROSTER_HEADERS.email, ROSTER_HEADERS.supervisor].forEach(col);
     var n = tab.getLastRow() - 1;
-    if (n < 1) return { values: [['email', 'supervisor', 'level']], link: '', asOf: '' };
+    if (n < 1) return { values: [['email', 'supervisor']], link: '', asOf: '' };
     var read = function (name) { return tab.getRange(2, col(name), n, 1).getValues().map(function (r) { return r[0]; }); };
-    var emails = read(ROSTER_HEADERS.email), sups = read(ROSTER_HEADERS.supervisor), levels = read(ROSTER_HEADERS.level);
+    var emails = read(ROSTER_HEADERS.email), sups = read(ROSTER_HEADERS.supervisor);
     var asOf = '';
     if (header.indexOf(ROSTER_HEADERS.snapshot) !== -1) {
       var d = tab.getRange(2, col(ROSTER_HEADERS.snapshot), 1, 1).getValues()[0][0];
       if (isDateValue_(d)) { var noon = new Date(d.getTime() + 12 * 3600 * 1000); asOf = noon.getFullYear() + '-' + pad2_(noon.getMonth() + 1) + '-' + pad2_(noon.getDate()); }
       else asOf = str_(d).slice(0, 10);
     }
-    var values = [['email', 'supervisor', 'level']];
-    for (var i = 0; i < n; i++) values.push([emails[i], sups[i], levels[i]]);
+    var values = [['email', 'supervisor']];
+    for (var i = 0; i < n; i++) values.push([emails[i], sups[i]]);
     return { values: values, link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + (tab.getSheetId ? tab.getSheetId() : ''), asOf: asOf };
   } catch (e) {
     console.warn('GSA-Wide Roster not read: ' + e);
@@ -494,7 +497,7 @@ function portfolio_(user, dataset, leaders) {
 /** The people named on projects who report to this person in the GSA-Wide Roster, directly or through others. */
 function teamUnder_(email, dataset) {
   var up = (dataset && dataset.reportsTo) || {};
-  var named = (dataset && (dataset.named || dataset.people)) || {};
+  var named = (dataset && dataset.people) || {};
   return Object.keys(named).filter(function (e) {
     if (e === email) return false;
     for (var s = up[e], n = 0; s && n < 25; s = up[s], n++) if (s === email) return true;

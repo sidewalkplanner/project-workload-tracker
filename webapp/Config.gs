@@ -30,7 +30,7 @@ var SETTINGS_DEFAULTS = {
   RWA_ID: '1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0',
   RWA_TAB: 'Detailed Data',
   // The GSA-Wide Roster: who reports to whom, so a supervisor's Needs attention covers the people
-  // under them. Only the email, supervisor email and supervisor level columns are read. OFF skips it.
+  // under them. Only the employee email and supervisor email columns are read. OFF skips it.
   ROSTER_ID: '1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ',
   ROSTER_TAB: 'GSA-Wide Roster',
   // Names in the BA61 portal or BA54 tracker the tracker can't match to an email on its own: "Name = email; Name = email".

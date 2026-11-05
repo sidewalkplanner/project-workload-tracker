@@ -152,7 +152,7 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
       { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved in Northeast Heartland (the portal covers NEH only), before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: readOk('portal', options.portalValues), error: errors.portal || readErrors.portal || '', off: !!options.portalOff },
       { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: readOk('ba54', options.ba54Values), error: errors.ba54 || readErrors.ba54 || '', off: !!options.ba54Off },
       { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff },
-      { key: 'roster', name: 'GSA-Wide Roster', gives: 'Who reports to whom, so supervisors see Needs attention for the people under them (nothing else is read)', updated: str_(options.rosterUpdated), rows: roster.rows, link: str_(options.rosterLink), read: readOk('roster', options.rosterValues), error: errors.roster || readErrors.roster || '', off: !!options.rosterOff }
+      { key: 'roster', name: 'GSA-Wide Roster', gives: 'Who reports to whom (employee and supervisor emails only), so supervisors see Needs attention for the people under them', updated: str_(options.rosterUpdated), rows: roster.rows, link: str_(options.rosterLink), read: readOk('roster', options.rosterValues), error: errors.roster || readErrors.roster || '', off: !!options.rosterOff }
     ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
@@ -539,12 +539,12 @@ function shortOfficeName_(name) {
 }
 
 /** GSA-Wide Roster columns the tracker reads (and the only ones). */
-var ROSTER_HEADERS = { email: 'Employee E-Mail Address', supervisor: 'Supervisor E-Mail Address', level: 'Supervisor Level Description', snapshot: 'Snapshot Date' };
+var ROSTER_HEADERS = { email: 'Employee E-Mail Address', supervisor: 'Supervisor E-Mail Address', snapshot: 'Snapshot Date' };
 
 /**
  * Reporting lines from the roster: each person named on a project, and everyone above them, to
  * their supervisor. Nobody else is kept.
- * @param {Array[]} rosterValues  [['email', 'supervisor', 'level'], ...] (readRoster_), or [] when not read.
+ * @param {Array[]} rosterValues  [['email', 'supervisor'], ...] (readRoster_), or [] when not read.
  * @param {Object}  people        { email: name } of everyone named on projects.
  * @return {{ reportsTo: Object, rows: number }}
  */

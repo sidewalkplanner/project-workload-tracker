@@ -342,8 +342,10 @@ function inPortfolio(p) {
   if (any(p.offices, pf.offices) || any(p.serviceCenters, pf.serviceCenters) || any(p.zones, pf.zones)) return true;
   if (pf.enterprises.length && any(enterprisesOf(p), pf.enterprises)) return true;
   // A supervisor's project managers: by email, or by org code (PMCGCA covers PMCGCA1 too).
+  // (A lookup table: an executive's team runs to thousands, and this runs for every project.)
+  if (!pf.peopleSet) { pf.peopleSet = {}; pf.people.forEach(function (e) { pf.peopleSet[e] = true; }); }
   return (p.lead || []).some(function (e) {
-    if (pf.people.indexOf(e) !== -1) return true;
+    if (pf.peopleSet[e]) return true;
     var org = orgOf(e).toUpperCase();
     return !!org && pf.orgCodes.some(function (c) { return org.indexOf(c) === 0; });
   });

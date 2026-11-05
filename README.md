@@ -7,7 +7,7 @@ The National Project Overview Dashboard (formerly OFM Projects, NEH Projects and
 - the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet (the portal covers NEH only, so other enterprises have no portal projects), and
 - the **BA54 National Tracker** (its Current Program tab), for BA54 projects in the current program that have no PR in EASi yet, and
 - the **All Open RWAs and WRs Dashboard** (its Detailed Data tab), for RWAs and RETA work requests: the ones with no PR yet, and the customer and authorized amount behind the PRs that have one, and
-- the **GSA-Wide Roster**, for who reports to whom (only its employee email, supervisor email and supervisor level columns are read; nothing else in it, such as pay, is read or kept).
+- the **GSA-Wide Roster**, for who reports to whom (only its employee email and supervisor email columns are read; nothing else in it, such as names or pay, is read or kept).
 
 > **Setting it up?** Follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It takes about 15 minutes in the browser, with nothing to install.
 

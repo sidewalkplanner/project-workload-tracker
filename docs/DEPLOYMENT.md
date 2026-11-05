@@ -4,7 +4,7 @@ About 15 minutes, all in the browser. Do this signed in with the GSA account tha
 
 - **WLT - BA61 Pipeline**: https://docs.google.com/spreadsheets/d/1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU
 - **OFM Building Assignments**: https://docs.google.com/spreadsheets/d/1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw
-- **GSA-Wide Roster** (who reports to whom, for supervisors' Needs attention; only the email, supervisor email and supervisor level columns are read): https://docs.google.com/spreadsheets/d/1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ
+- **GSA-Wide Roster** (who reports to whom, for supervisors' Needs attention; only the employee email and supervisor email columns are read): https://docs.google.com/spreadsheets/d/1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ
 - **NEH BA61 Portal – Data** (the BA61 Project Portal's own sheet, for projects not in EASi yet): https://docs.google.com/spreadsheets/d/1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y
 
 - **BA54 National Tracker** (for BA54 projects not in EASi yet): https://docs.google.com/spreadsheets/d/1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8

@@ -22,13 +22,13 @@ def rows(ws):
     return out
 
 
-ROSTER_COLUMNS = ['Snapshot Date', 'Employee E-Mail Address', 'Supervisor E-Mail Address', 'Supervisor Level Description']
+ROSTER_COLUMNS = ['Snapshot Date', 'Employee E-Mail Address', 'Supervisor E-Mail Address']
 
 
 def roster_rows(ws):
     it = ws.iter_rows(values_only=True)
     header = list(next(it))
-    keep = [header.index(c) for c in ROSTER_COLUMNS]
+    keep = [header.index(c) for c in ROSTER_COLUMNS]  # a missing column stops the export with its name
     out = [ROSTER_COLUMNS]
     for row in it:
         if row and row[keep[1]]:
