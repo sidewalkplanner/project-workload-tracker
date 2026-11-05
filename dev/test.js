@@ -72,6 +72,47 @@ test('the signed-in Field Office Manager and Service Center Director are recogni
   assert.strictEqual(u.isAdmin, true);
 });
 
+test('leaders: what each one is over, from the sheet and from LEADERS', () => {
+  const src = demoSources();
+  let u = load(runtimeWith(src, 'sam.foothills@gsa.gov')).user;
+  assert.deepStrictEqual(u.portfolio.offices, ['Denver Federal Center Field Office'], 'a Field Office Manager is over their office');
+  assert.strictEqual(u.portfolio.all, false);
+  assert.strictEqual(u.leader, true);
+  u = load(runtimeWith(src, 'lee.rockies@gsa.gov')).user;
+  assert.deepStrictEqual(u.portfolio.serviceCenters, ['Rocky Mountain Service Center'], 'a Service Center Director is over their service center');
+  assert.strictEqual(load(runtimeWith(src, 'owner@gsa.gov')).user.portfolio.all, true, 'an admin is over everything');
+  u = load(runtimeWith(src, 'someone@gsa.gov')).user;
+  assert.strictEqual(u.portfolio, null, 'anyone else leads nothing');
+  assert.strictEqual(u.leader, false);
+
+  const rt = runtimeWith(src, 'zone.head@gsa.gov');
+  rt.props.LEADERS = 'Zone.Head@gsa.gov = Zone 5, NEH; boss@gsa.gov = Pat.PM@gsa.gov, pmcgca; nat@gsa.gov = All; bad line; x@gsa.gov = Nowhere Land';
+  u = load(rt).user;
+  assert.deepStrictEqual(u.portfolio.zones, ['5']);
+  assert.deepStrictEqual(u.portfolio.enterprises, ['Northeast Heartland']);
+  assert.strictEqual(u.portfolio.label, 'NEH and Zone 5');
+  assert.strictEqual(u.portfolio.team, false);
+  rt.setUser('boss@gsa.gov');
+  u = JSON.parse(rt.ctx.apiLoad()).user;
+  assert.deepStrictEqual(u.portfolio.people, ['pat.pm@gsa.gov'], 'a supervisor\'s project managers by email');
+  assert.deepStrictEqual(u.portfolio.orgCodes, ['PMCGCA'], 'or by org code');
+  assert.strictEqual(u.portfolio.team, true);
+  rt.setUser('nat@gsa.gov');
+  assert.strictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio.all, true, 'All is everything');
+  rt.setUser('x@gsa.gov');
+  assert.strictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio, null, 'a place that does not exist gives nothing');
+});
+
+test('a zone leader\'s page opens with their enterprise\'s projects first', () => {
+  const src = demoSources();
+  const rt = runtimeWith(src, 'zone.head@gsa.gov');
+  rt.props.ENTERPRISE = 'ALL';
+  rt.props.LEADERS = 'zone.head@gsa.gov = Zone 5';
+  const packed = rt.ctx.loadPacked_();
+  const user = rt.ctx.currentUser_(packed.meta);
+  assert.strictEqual(rt.ctx.homeEnterprise_(user, packed.meta), 'Northeast Heartland');
+});
+
 test('the org code in the GSA display name picks the starting office', () => {
   const src = demoSources();
   const names = { 'pat.viewer@gsa.gov': 'Pat Viewer - PMCFB', 'robin.center@gsa.gov': 'Robin Center (PMCG)', 'jo.budget@gsa.gov': 'Jo Budget - BCB', 'al.out@gsa.gov': 'Al Out - PMBEA' };

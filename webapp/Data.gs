@@ -13,7 +13,7 @@
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 12;
+var DATASET_VERSION = 13;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -140,7 +140,7 @@ function packDataset_(dataset) {
   var gzParts = {};
   Object.keys(parts).forEach(function (e) { gzParts[e] = gzipText_(JSON.stringify(parts[e])); });
   return {
-    meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
+    meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, enterprises: dataset.enterprises || [], scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
     gzBase: gzipText_(JSON.stringify(small)),
     gzParts: gzParts,
     gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
@@ -186,6 +186,13 @@ function homeEnterprise_(user, meta) {
   var sc = (user.directs && user.directs[0]) || user.orgSc;
   var o = office && (meta.offices || []).filter(function (x) { return x.name === office; })[0];
   if (o && o.enterprise) return o.enterprise;
+  // A zone or enterprise leader: the enterprise they are over, when it is just one.
+  var pf = user.portfolio;
+  if (pf && !pf.all && !sc) {
+    var ents = pf.enterprises.slice();
+    pf.zones.forEach(function (z) { (meta.enterprises || []).forEach(function (e) { if (e.zones.indexOf(z) !== -1 && ents.indexOf(e.name) === -1) ents.push(e.name); }); });
+    if (ents.length === 1) return ents[0];
+  }
   var s = sc && (meta.serviceCenters || []).filter(function (x) { return x.name === sc; })[0];
   return s && s.enterprise ? s.enterprise : '';
 }
@@ -371,5 +378,77 @@ function currentUser_(dataset) {
     user.orgOffice = place.office;
     user.orgSc = place.sc;
   }
+  user.portfolio = portfolio_(user, dataset, setting_('LEADERS'));
+  user.leader = !!user.portfolio;
   return user;
+}
+
+/**
+ * What a leader is over, for Needs attention: the offices they manage, the service centers they
+ * direct, and the places, people and org codes listed for them in LEADERS (a supervisor's project
+ * managers). Admins are over every place.
+ * @return {Object|null} { all, offices, serviceCenters, zones, enterprises, people, orgCodes, label, team },
+ *   null for anyone else. label names the places; team is true when people or org codes are listed.
+ */
+function portfolio_(user, dataset, leaders) {
+  var out = { all: !!user.isAdmin, offices: (user.manages || []).slice(), serviceCenters: (user.directs || []).slice(), zones: [], enterprises: [], people: [], orgCodes: [] };
+  if (user.email) leaderPlaces_(leaders, dataset).forEach(function (e) {
+    if (e.email !== user.email) return;
+    e.places.forEach(function (pl) {
+      if (pl.all) out.all = true;
+      else if (out[pl.kind].indexOf(pl.name) === -1) out[pl.kind].push(pl.name);
+    });
+  });
+  var names = [].concat(out.enterprises.map(function (n) {
+    var e = ((dataset && dataset.enterprises) || []).filter(function (x) { return x.name === n; })[0];
+    return e && e.short ? e.short : n;
+  }), out.zones.map(function (z) { return 'Zone ' + z; }), out.serviceCenters.map(function (n) { return n.replace(/ Service Center$/, ''); }),
+    out.offices.map(function (n) {
+      var o = ((dataset && dataset.offices) || []).filter(function (x) { return x.name === n; })[0];
+      return o && o.short ? o.short : n.replace(/ Field Office$/, '');
+    }));
+  out.team = out.people.length > 0 || out.orgCodes.length > 0;
+  if (!out.all && !names.length && !out.team) return null;
+  out.label = out.all ? '' : names.length > 2 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join(' and ');
+  return out;
+}
+
+/**
+ * LEADERS ("email = Zone 5, NEH; email = pm@gsa.gov, PMCGCA; email = All") as
+ * [{ email, places: [{ kind, name } | { all }] }]: kind is enterprises, zones, serviceCenters,
+ * offices, people (an email) or orgCodes (a team's org code, and every code under it). Unknown
+ * places are skipped.
+ */
+function leaderPlaces_(text, dataset) {
+  var out = [];
+  var norm = function (s) { return String(s || '').toLowerCase().replace(/\s+(service center|field office)$/, '').replace(/[^a-z0-9]+/g, ' ').trim(); };
+  var lists = {
+    enterprises: ((dataset && dataset.enterprises) || []).map(function (e) { return { name: e.name, keys: [norm(e.name), norm(e.short)] }; }),
+    serviceCenters: ((dataset && dataset.serviceCenters) || []).map(function (s) { return { name: s.name, keys: [norm(s.name), norm(s.short)] }; }),
+    offices: ((dataset && dataset.offices) || []).map(function (o) { return { name: o.name, keys: [norm(o.name), norm(o.short)] }; })
+  };
+  String(text || '').split(/[;\n]+/).forEach(function (entry) {
+    var m = entry.match(/^\s*([^=\s]+@[^=\s]+)\s*=\s*(.+)$/);
+    if (!m) { if (entry.trim()) console.warn('LEADERS: could not read "' + entry.trim() + '"'); return; }
+    var places = [];
+    m[2].split(',').forEach(function (raw) {
+      var key = norm(raw);
+      if (!key) return;
+      if (raw.indexOf('@') !== -1) { places.push({ kind: 'people', name: raw.trim().toLowerCase() }); return; }
+      if (/^(all|national|nationwide|the whole country)$/.test(key)) { places.push({ all: true }); return; }
+      var zone = key.match(/^zone (\d+)$/);
+      if (zone) { places.push({ kind: 'zones', name: zone[1] }); return; }
+      var found = null;
+      ['enterprises', 'serviceCenters', 'offices'].some(function (kind) {
+        var hit = lists[kind].filter(function (x) { return x.keys.indexOf(key) !== -1; })[0];
+        if (hit) found = { kind: kind, name: hit.name };
+        return !!hit;
+      });
+      // Not a place: one word of letters and digits is an org code (PMCGCA).
+      if (!found && /^[a-z][a-z0-9]{2,11}$/.test(key)) found = { kind: 'orgCodes', name: key.toUpperCase() };
+      if (found) places.push(found); else console.warn('LEADERS: no place called "' + raw.trim() + '"');
+    });
+    out.push({ email: m[1].toLowerCase(), places: places });
+  });
+  return out;
 }

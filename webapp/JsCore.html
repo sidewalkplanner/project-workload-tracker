@@ -113,7 +113,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '' },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '', own: '' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false, limit: 300 },
   officesAll: false,
@@ -318,6 +318,38 @@ function matchesStatus(p, status) {
   return true;
 }
 
+/** True when the signed-in person is named on the project in any role. */
+function isMine(p) {
+  var me = S.user && S.user.email;
+  if (!me) return false;
+  return (S.data.roles || []).some(function (r) { return (p[r.key] || []).indexOf(me) !== -1; });
+}
+
+/** Leaders: Field Office Managers, Service Center Directors, people in LEADERS, admins. */
+function isLeader() { return !!(S.user && S.user.portfolio); }
+
+/** An admin (or a LEADERS "All"): Needs attention follows the page's filters, like every other view. */
+function leadsEverything() { return isLeader() && !!S.user.portfolio.all; }
+
+/** True when the project is in what the signed-in leader is over: their places, or their team's projects. */
+function inPortfolio(p) {
+  var pf = S.user && S.user.portfolio;
+  if (!pf) return false;
+  if (pf.all) return true;
+  var any = function (have, want) { return (have || []).some(function (x) { return want.indexOf(x) !== -1; }); };
+  if (any(p.offices, pf.offices) || any(p.serviceCenters, pf.serviceCenters) || any(p.zones, pf.zones)) return true;
+  if (pf.enterprises.length && any(enterprisesOf(p), pf.enterprises)) return true;
+  // A supervisor's project managers: by email, or by org code (PMCGCA covers PMCGCA1 too).
+  return (p.lead || []).some(function (e) {
+    if (pf.people.indexOf(e) !== -1) return true;
+    var org = orgOf(e).toUpperCase();
+    return !!org && pf.orgCodes.some(function (c) { return org.indexOf(c) === 0; });
+  });
+}
+
+/** "mine": projects the viewer is named on. "portfolio": what a leader is over, and theirs. */
+function inOwnScope(p, own) { return isMine(p) || (own === 'portfolio' && inPortfolio(p)); }
+
 /** The PRs that pass the filters. skip: { status, person, place, check: true } leaves that filter out. */
 function filtered(skip) {
   skip = skip || {};
@@ -325,11 +357,14 @@ function filtered(skip) {
   var q = f.q.trim().toLowerCase();
   var terms = q ? q.split(/\s+/) : [];
   var progs = f.programs;
+  // "Your projects" and "your portfolio" are wherever they are, so they don't narrow by place.
+  if (f.own) skip = { place: true, status: skip.status, person: skip.person, check: skip.check };
   return S.data.prs.filter(function (p) {
     if (!f.planned && isPlanned(p)) return false;
     if (!skip.check && f.check && !attentionDetail(f.check, p)) return false;
     if (f.type === 'projects' && p.service) return false;
     if (f.type === 'service' && !p.service) return false;
+    if (f.own && !inOwnScope(p, f.own)) return false;
     if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
     if (!skip.place && !f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
     if (!skip.place && !f.office && !f.sc && f.zone && (p.zones || []).indexOf(f.zone) === -1) return false;

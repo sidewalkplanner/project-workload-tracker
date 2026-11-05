@@ -46,6 +46,12 @@ var SETTINGS_DEFAULTS = {
   PROJECT_MANAGER_EMAILS: '',
   // Comma-separated emails that see the Admin tools (refresh status). The deployer always does.
   ADMIN_EMAILS: '',
+  // Leaders and what they are over, for Needs attention. Places, a supervisor's project managers
+  // (by email), or an org code for a whole team:
+  // "a@gsa.gov = Zone 5; b@gsa.gov = Northeast Heartland; c@gsa.gov = pm1@gsa.gov, pm2@gsa.gov;
+  //  d@gsa.gov = PMCGCA; e@gsa.gov = All". Field Office Managers and Service Center Directors are
+  // known from the OFM Building Assignments sheet; admins see every place.
+  LEADERS: '',
   // How long a built snapshot is reused before the sources are read again (minutes, max 360).
   CACHE_MINUTES: '360'
 };
