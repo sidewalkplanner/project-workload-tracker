@@ -33,6 +33,8 @@ var SETTINGS_DEFAULTS = {
   NAME_EMAILS: '',
   // The site's name, in the header and the browser tab.
   APP_NAME: 'National Project Overview Dashboard',
+  // The browser-tab icon (OFF for none).
+  FAVICON_URL: 'https://insite.gsa.gov/sites/insite.gsa.gov/themes/custom/insite/Seal_final_082726.png',
   // Which part of the OFM Building Assignments sheet to cover: ALL (every enterprise: the whole
   // country), or one enterprise ("Northeast Heartland"), optionally one zone of it (ZONE).
   ENTERPRISE: 'ALL',

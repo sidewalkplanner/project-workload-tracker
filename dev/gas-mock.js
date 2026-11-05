@@ -154,7 +154,7 @@ function createRuntime(opts) {
     let html = fs.readFileSync(path.join(WEBAPP, name + '.html'), 'utf8');
     html = html.replace(/<\?!=\s*include\('([A-Za-z]+)'\);?\s*\?>/g, (_, n) => ctx.include(n));
     html = html.replace(/<\?!=\s*([A-Za-z]+)\s*\?>/g, (_, v) => vars[v]);
-    const out = { content: html, setTitle() { return out; }, addMetaTag() { return out; }, getContent() { return html; } };
+    const out = { content: html, setTitle() { return out; }, addMetaTag() { return out; }, setFaviconUrl(url) { out.favicon = url; return out; }, getContent() { return html; } };
     return out;
   }
 

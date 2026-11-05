@@ -102,6 +102,7 @@ The server reads the sheets, keeps OFM's buildings (or one enterprise's, when `E
 | `RWA_ID` / `RWA_TAB` | `1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0` (All Open RWAs and WRs Dashboard) / `Detailed Data`; `OFF` leaves RWAs out |
 | `NAME_EMAILS` | blank; names in the BA61 portal or BA54 tracker the tracker can't match on its own, as `Name = email; Name = email` (for example someone whose name changed but whose email didn't) |
 | `APP_NAME` | `National Project Overview Dashboard` (the page title and heading, next to the GSA seal) |
+| `FAVICON_URL` | the GSA seal on InSite (the browser-tab icon); `OFF` for none |
 | `ENTERPRISE` / `ENTERPRISE_SHORT` | `ALL` = every enterprise / blank. `Northeast Heartland` / `NEH` (or any enterprise in the sheet) narrows the app to that enterprise; set `APP_NAME` to `NEH Projects` to match |
 | `ZONE` | blank = every zone; `5` = only Zone 5 |
 | `BUILDING_MANAGER_EMAILS` / `PROJECT_MANAGER_EMAILS` | blank; comma-separated emails that correct the building manager / project manager split for individual people |
