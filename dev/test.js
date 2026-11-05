@@ -103,6 +103,45 @@ test('leaders: what each one is over, from the sheet and from LEADERS', () => {
   assert.strictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio, null, 'a place that does not exist gives nothing');
 });
 
+test('LEADERS: spaces, Windows line breaks, zone numbers, typos and org codes', () => {
+  const src = demoSources();
+  const rt = runtimeWith(src, 'a@gsa.gov');
+  const warned = [];
+  const con = rt.ctx.console; const warn = con.warn; con.warn = (m) => warned.push(String(m));
+  try {
+    rt.props.LEADERS = 'a@gsa.gov = Denver Federal Center Field Office , Rocky Mountain Service Center ; b@gsa.gov = Zone 05\r\nc@gsa.gov = Zone 9, Denvr\r\nd@gsa.gov = PMCGCA';
+    let u = load(rt).user;
+    assert.deepStrictEqual(u.portfolio.offices, ['Denver Federal Center Field Office'], 'a space before the comma still finds the office');
+    assert.deepStrictEqual(u.portfolio.serviceCenters, ['Rocky Mountain Service Center']);
+    rt.setUser('b@gsa.gov');
+    assert.deepStrictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio.zones, ['5'], 'Zone 05 is Zone 5, across a Windows line break');
+    rt.setUser('c@gsa.gov');
+    assert.strictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio, null, 'a zone that is not here and a typo give nothing');
+    assert.ok(warned.some((m) => /no Zone 9/.test(m)) && warned.some((m) => /Denvr/.test(m)), 'and the log says so: ' + warned.join(' | '));
+    rt.setUser('d@gsa.gov');
+    assert.deepStrictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio.orgCodes, ['PMCGCA'], 'a P… word is an org code');
+  } finally { con.warn = warn; }
+});
+
+test('a supervisor\'s first load carries the enterprises their team and own projects are in', () => {
+  const src = demoSources();
+  const rt = runtimeWith(src, 'boss@gsa.gov');
+  rt.props.ENTERPRISE = 'ALL';
+  const packed = rt.ctx.loadPacked_();
+  const ents = Object.keys(packed.gzParts).filter(Boolean);
+  if (ents.length < 2) return;
+  // Someone named on open projects in an enterprise other than the supervisor's home one.
+  const named = packed.meta.named;
+  const pm = Object.keys(named).find((e) => e.indexOf('@') > 0 && named[e].length === 1 && named[e][0] !== 'Northeast Heartland');
+  assert.ok(pm, 'the demo has someone outside NEH');
+  const boss = { email: 'boss@gsa.gov', manages: ['Denver Federal Center Field Office'], directs: [], orgOffice: '', orgSc: '',
+    portfolio: { all: false, offices: ['Denver Federal Center Field Office'], serviceCenters: [], zones: [], enterprises: [], people: [pm], orgCodes: [], team: true } };
+  const got = Object.keys(rt.ctx.firstLoad_(packed, boss).parts).sort();
+  assert.ok(got.indexOf('Northeast Heartland') !== -1 && got.indexOf(named[pm][0]) !== -1, 'home and the team member\'s enterprise: ' + got.join(', '));
+  const plain = Object.assign({}, boss, { portfolio: Object.assign({}, boss.portfolio, { people: [] }) });
+  assert.ok(Object.keys(rt.ctx.firstLoad_(packed, plain).parts).indexOf(named[pm][0]) === -1 || named['boss@gsa.gov'], 'without that team member, just home');
+});
+
 test('a zone leader\'s page opens with their enterprise\'s projects first', () => {
   const src = demoSources();
   const rt = runtimeWith(src, 'zone.head@gsa.gov');

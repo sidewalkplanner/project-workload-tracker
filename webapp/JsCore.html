@@ -259,6 +259,8 @@ function enterpriseShort(name) {
  */
 function setPlace(level, value) {
   var f = S.filters, d = S.data;
+  // Choosing a place leaves "your projects" / "your portfolio", which ignore the place.
+  f.own = '';
   if (level === 'office') {
     var o = d.offices.filter(function (x) { return x.name === value; })[0];
     f.office = o ? o.name : ''; if (o) { f.sc = o.serviceCenter; f.zone = o.zone; f.enterprise = o.enterprise || enterpriseOfZone(o.zone); }

@@ -126,13 +126,20 @@ function packDataset_(dataset) {
   var small = compactDataset_(dataset);
   var zoneEnt = {};
   (dataset.enterprises || []).forEach(function (e) { e.zones.forEach(function (z) { zoneEnt[z] = e.name; }); });
-  var parts = {}, later = [];
+  var parts = {}, later = [], named = {};
   dataset.prs.forEach(function (p, i) {
     var c = small.prs[i];
     if (!shownFirst_(p)) { later.push(c); return; }
     var ents = uniqueList_((p.zones || []).map(function (z) { return zoneEnt[z] || ''; }));
     if (!ents.length) ents = [''];
     ents.forEach(function (e) { (parts[e] = parts[e] || []).push(c); });
+    // Where each person's open projects are, so their first load carries what Needs attention needs.
+    ROLES.forEach(function (r) {
+      (p[r.key] || []).forEach(function (email) {
+        var list = named[email] = named[email] || [];
+        ents.forEach(function (e) { if (list.indexOf(e) === -1) list.push(e); });
+      });
+    });
   });
   delete small.prs;
   small.parts = Object.keys(parts);
@@ -140,7 +147,8 @@ function packDataset_(dataset) {
   var gzParts = {};
   Object.keys(parts).forEach(function (e) { gzParts[e] = gzipText_(JSON.stringify(parts[e])); });
   return {
-    meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, enterprises: dataset.enterprises || [], scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
+    meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, enterprises: dataset.enterprises || [], scopeLabel: dataset.scopeLabel, prs: dataset.prs.length,
+      named: named, orgs: dataset.orgs || {} },
     gzBase: gzipText_(JSON.stringify(small)),
     gzParts: gzParts,
     gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
@@ -160,7 +168,10 @@ function projectKey_(p) {
 function firstLoad_(packed, user) {
   var all = Object.keys(packed.gzParts || {});
   var home = homeEnterprise_(user, packed.meta);
-  var want = home && all.indexOf(home) !== -1 ? all.filter(function (e) { return e === home || e === ''; }) : all;
+  // Also every enterprise Needs attention reaches for them: their own projects, and a leader's
+  // places and team, wherever those are.
+  var extra = attentionEnterprises_(user, packed.meta);
+  var want = home && all.indexOf(home) !== -1 ? all.filter(function (e) { return e === home || e === '' || extra.indexOf(e) !== -1; }) : all;
   var parts = {};
   want.forEach(function (e) { parts[e] = packed.gzParts[e]; });
   return { user: user, gz: packed.gzBase, parts: parts };
@@ -177,6 +188,31 @@ function restLoad_(packed, have, want, later) {
     if ((have || []).indexOf(e) === -1 && (want === 'all' || (want || []).indexOf(e) !== -1)) parts[e] = packed.gzParts[e];
   });
   return { parts: parts, later: later ? packed.gzLater || '' : '' };
+}
+
+/**
+ * The enterprises holding the open projects a viewer's Needs attention covers (see JsAttention):
+ * the ones they are named on, and a leader's places and team. An admin's follows the page instead.
+ */
+function attentionEnterprises_(user, meta) {
+  if (!user || !user.email || !meta || !meta.named) return [];
+  var pf = user.portfolio;
+  if (pf && pf.all) return [];
+  var out = (meta.named[user.email] || []).slice();
+  var add = function (e) { if (e && out.indexOf(e) === -1) out.push(e); };
+  if (pf) {
+    pf.enterprises.forEach(add);
+    pf.zones.forEach(function (z) { (meta.enterprises || []).forEach(function (e) { if (e.zones.indexOf(z) !== -1) add(e.name); }); });
+    (meta.offices || []).forEach(function (o) { if (pf.offices.indexOf(o.name) !== -1) add(o.enterprise); });
+    (meta.serviceCenters || []).forEach(function (s) { if (pf.serviceCenters.indexOf(s.name) !== -1) add(s.enterprise); });
+    var team = pf.people.slice();
+    if (pf.orgCodes.length) Object.keys(meta.orgs || {}).forEach(function (email) {
+      var org = String(meta.orgs[email] || '').toUpperCase();
+      if (pf.orgCodes.some(function (c) { return org.indexOf(c) === 0; })) team.push(email);
+    });
+    team.forEach(function (email) { (meta.named[email] || []).forEach(add); });
+  }
+  return out;
 }
 
 /** The enterprise a viewer belongs to ('' when the tracker can't tell). */
@@ -421,13 +457,14 @@ function portfolio_(user, dataset, leaders) {
  */
 function leaderPlaces_(text, dataset) {
   var out = [];
-  var norm = function (s) { return String(s || '').toLowerCase().replace(/\s+(service center|field office)$/, '').replace(/[^a-z0-9]+/g, ' ').trim(); };
+  var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/ (service center|field office)$/, ''); };
+  var zones = (dataset && dataset.zones) || null;
   var lists = {
     enterprises: ((dataset && dataset.enterprises) || []).map(function (e) { return { name: e.name, keys: [norm(e.name), norm(e.short)] }; }),
     serviceCenters: ((dataset && dataset.serviceCenters) || []).map(function (s) { return { name: s.name, keys: [norm(s.name), norm(s.short)] }; }),
     offices: ((dataset && dataset.offices) || []).map(function (o) { return { name: o.name, keys: [norm(o.name), norm(o.short)] }; })
   };
-  String(text || '').split(/[;\n]+/).forEach(function (entry) {
+  String(text || '').split(/[;\r\n]+/).forEach(function (entry) {
     var m = entry.match(/^\s*([^=\s]+@[^=\s]+)\s*=\s*(.+)$/);
     if (!m) { if (entry.trim()) console.warn('LEADERS: could not read "' + entry.trim() + '"'); return; }
     var places = [];
@@ -436,16 +473,24 @@ function leaderPlaces_(text, dataset) {
       if (!key) return;
       if (raw.indexOf('@') !== -1) { places.push({ kind: 'people', name: raw.trim().toLowerCase() }); return; }
       if (/^(all|national|nationwide|the whole country)$/.test(key)) { places.push({ all: true }); return; }
-      var zone = key.match(/^zone (\d+)$/);
-      if (zone) { places.push({ kind: 'zones', name: zone[1] }); return; }
+      var zone = key.match(/^zone ?(\d+)$/);
+      if (zone) {
+        var z = String(parseInt(zone[1], 10));
+        if (zones && zones.indexOf(z) === -1) console.warn('LEADERS: there is no Zone ' + z + ' here');
+        else places.push({ kind: 'zones', name: z });
+        return;
+      }
       var found = null;
       ['enterprises', 'serviceCenters', 'offices'].some(function (kind) {
         var hit = lists[kind].filter(function (x) { return x.keys.indexOf(key) !== -1; })[0];
         if (hit) found = { kind: kind, name: hit.name };
         return !!hit;
       });
-      // Not a place: one word of letters and digits is an org code (PMCGCA).
-      if (!found && /^[a-z][a-z0-9]{2,11}$/.test(key)) found = { kind: 'orgCodes', name: key.toUpperCase() };
+      // Not a place: one word starting with P (PBS: PMCGCA) is a team's org code.
+      if (!found && /^p[a-z0-9]{1,11}$/.test(key)) {
+        found = { kind: 'orgCodes', name: key.toUpperCase() };
+        console.log('LEADERS: ' + m[1] + ' leads org code ' + found.name + ' (and every code under it)');
+      }
       if (found) places.push(found); else console.warn('LEADERS: no place called "' + raw.trim() + '"');
     });
     out.push({ email: m[1].toLowerCase(), places: places });

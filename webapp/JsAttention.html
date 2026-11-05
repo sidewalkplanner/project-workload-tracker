@@ -145,7 +145,7 @@ function attentionResults() {
 /** What a leader is over, for headings: "Denver Federal Center", "Zone 5", "your team". */
 function portfolioName() {
   var pf = S.user && S.user.portfolio;
-  if (!pf || pf.all) return scopeName();
+  if (!pf || pf.all) return 'your projects';
   return pf.label ? pf.label + (pf.team ? ' and your team' : '') : 'your team';
 }
 
@@ -160,6 +160,13 @@ function attentionWhere() {
   if (pf.team) parts.push('on your team’s projects');
   parts.push('on projects you are named on');
   return parts.length > 2 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts.join(' and ');
+}
+
+/** " in these filters" when a filter other than the place narrows the checks (search, program, year…). */
+function attentionFiltersNote() {
+  var f = S.filters;
+  var on = f.q || f.fy || f.programs.length < PROGRAM_LABELS.length || !f.planned || f.type !== 'projects' || f.team !== 'all' || (f.person && !attentionScope());
+  return on ? ' in these filters' : '';
 }
 
 /** True when the Needs attention tab has something for this viewer. */
@@ -190,11 +197,11 @@ function attentionCard() {
   var results = attentionResults().filter(function (r) { return r.count; });
   var own = attentionScope();
   // Someone who leads nothing gets the card only when one of their own projects needs something.
-  if (own === 'mine' && !results.length) return null;
+  if (own === 'mine' && !results.length && !attentionShown()) return null;
   var title = own === 'mine' ? 'Your projects that need attention' : 'Needs attention' + (own ? ' · ' + portfolioName() : '');
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, title),
-      h('p', null, results.length ? 'Things the data says to look at ' + attentionWhere() + '. Click one to see the projects.' : 'Nothing stands out ' + attentionWhere() + '.')),
+      h('p', null, results.length ? 'Things the data says to look at ' + attentionWhere() + attentionFiltersNote() + '. Click one to see the projects.' : 'Nothing stands out ' + attentionWhere() + attentionFiltersNote() + '.')),
       results.length ? h('button', { class: 'btn', type: 'button', onClick: function () { go('attention'); } }, 'See details', icon('arrow')) : null),
     results.length ? h('div', { class: 'attention-grid' }, ATTENTION_GROUPS.map(function (g) {
       var rows = results.filter(function (r) { return r.check.group === g.key; });
@@ -214,7 +221,7 @@ function attentionView() {
   wrap.appendChild(h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('div', null,
     h('h2', null, attentionScope() === 'mine' ? 'Your projects that need attention' : 'Needs attention · ' + portfolioName()),
     h('p', null, found.length ? plural(found.length, 'check') + ' found something ' + attentionWhere() + '. Each lists the most pressing first; open one to see them all in Projects.'
-      : 'None of the checks found anything ' + attentionWhere() + '.')))));
+      : 'None of the checks found anything ' + attentionWhere() + attentionFiltersNote() + '.')))));
   ATTENTION_GROUPS.forEach(function (g) {
     var rows = results.filter(function (r) { return r.check.group === g.key && r.count; });
     if (!rows.length) return;

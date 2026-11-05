@@ -239,7 +239,14 @@ function applyRoute(r) {
 }
 
 /** Field Office Managers open on their office, Service Center Directors on their service center. */
+/** The defaults below, keeping a linked "own" scope only when it is this viewer's own (see attentionScope). */
 function applyDefaultsForUser() {
+  var own = S.filters.own;
+  placeDefaultsForUser();
+  S.filters.own = own && own === attentionScope() ? own : '';
+}
+
+function placeDefaultsForUser() {
   var f = S.filters;
   if (f.office && !S.data.offices.some(function (o) { return o.name === f.office; })) f.office = '';
   if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
@@ -257,7 +264,7 @@ function applyDefaultsForUser() {
   // GSA profile (as the NEH BA61 Project Portal does), then where they lead the most projects.
   if (u.manages.length === 1) S.scopeNote = { kind: 'manager', office: u.manages[0] };
   else if (u.directs.length === 1) S.scopeNote = { kind: 'director', sc: u.directs[0] };
-  else if (leadsOnePlace(u.portfolio)) S.scopeNote = { kind: 'leader', zone: u.portfolio.zones[0] || '', enterprise: u.portfolio.enterprises[0] || '' };
+  else if (leadsOnePlace(u.portfolio)) S.scopeNote = Object.assign({ kind: 'leader' }, leadsOnePlace(u.portfolio));
   else if (u.orgOffice && officeOf(u.orgOffice)) S.scopeNote = { kind: 'org', office: u.orgOffice };
   else if (u.orgSc) S.scopeNote = { kind: 'org', sc: u.orgSc };
   else if (lead && officeOf(lead)) S.scopeNote = { kind: 'lead', office: lead };
@@ -268,12 +275,13 @@ function applyDefaultsForUser() {
   else setPlace('enterprise', S.scopeNote.enterprise);
 }
 
-/** A LEADERS entry for just one zone or one enterprise (and no office or service center): open there. */
+/** A LEADERS entry for just one zone or one enterprise (and no office or service center): { zone } or { enterprise } to open on, else null. */
 function leadsOnePlace(pf) {
-  if (!pf || pf.all || pf.offices.length || pf.serviceCenters.length) return false;
+  if (!pf || pf.all || pf.offices.length || pf.serviceCenters.length) return null;
   var zones = pf.zones.filter(function (z) { return S.data.zones.indexOf(z) !== -1; });
   var ents = pf.enterprises.filter(function (e) { return (S.data.enterprises || []).some(function (x) { return x.name === e; }); });
-  return zones.length + ents.length === 1;
+  if (zones.length + ents.length !== 1) return null;
+  return zones.length ? { zone: zones[0], enterprise: '' } : { zone: '', enterprise: ents[0] };
 }
 
 function syncUrl() {
@@ -389,7 +397,7 @@ function topBar() {
 
 function scopeBanner() {
   var n = S.scopeNote;
-  if (!n || !S.user) return null;
+  if (!n || !S.user || S.filters.own) return null;
   var f = S.filters;
   if (n.office ? f.office !== n.office : n.sc ? (f.sc !== n.sc || f.office) : n.zone ? (f.zone !== n.zone || f.sc || f.office) : (f.enterprise !== n.enterprise || f.zone || f.sc || f.office)) return null;
   var why = n.kind === 'manager' ? ', the field office you manage.'
@@ -529,6 +537,7 @@ function resetFilters() {
 
 function scopeName() {
   var f = S.filters;
+  if (f.own) return f.own === 'portfolio' ? portfolioName() : 'Your projects';
   if (f.office) return officeShort(f.office);
   if (f.sc) return f.sc.replace(/ Service Center$/, '');
   if (f.zone) return 'Zone ' + f.zone;
@@ -539,6 +548,7 @@ function scopeName() {
 /** scopeName() for the middle of a sentence: "in Zone 5", "in the whole country". */
 function scopePhrase() {
   var f = S.filters, d = S.data;
+  if (f.own) return f.own === 'portfolio' ? portfolioName() : 'your projects';
   return !f.office && !f.sc && !f.zone && !f.enterprise && !d.enterprise && !d.zone ? 'the whole country' : scopeName();
 }
 
