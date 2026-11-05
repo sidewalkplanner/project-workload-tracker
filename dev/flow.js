@@ -10,9 +10,12 @@ const assert = require('assert');
   const base = process.argv[2] || 'http://localhost:8080';
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+  // The page draws once with the viewer's part of the data, then again when the rest has arrived.
+  const settled = () => page.waitForFunction(() => window.S && S.data && !restPending(S.data), null, { timeout: 60000 });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(base + '/');
+  await settled();
   await page.waitForSelector('.stat');
   const count = async () => Number((await page.textContent('.stat .value')).replace(/,/g, ''));
   const all = await count();
@@ -80,6 +83,7 @@ const assert = require('assert');
 
   // Needs attention: the tab lists checks; opening one filters Projects to it, and the count matches.
   await page.goto(base + '/?view=attention');
+  await settled();
   await page.waitForSelector('.card-head h2');
   const checks = await page.$$('.attention-check');
   if (checks.length) {

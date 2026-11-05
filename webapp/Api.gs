@@ -4,16 +4,19 @@
  */
 
 /**
- * The page's data: the snapshot plus who is signed in, as a JSON string (faster to send).
- * opts.packed: send the snapshot compacted and gzipped (gz, base64) for the page to unpack: the
- * open projects; opts.part = 'later' sends the rest (paid in full, service contracts) on its own.
+ * The page's data, as a JSON string (faster to send).
+ * opts.packed: compacted and gzipped (base64) for the page to unpack: who is signed in, the
+ * shared part (gz) and their enterprise's open projects (parts; Data.gs firstLoad_).
+ * opts.part = 'rest' with opts.have (the parts the page has), opts.want (enterprise names, or
+ * 'all') and opts.later: those enterprises' open projects, and the paid-in-full projects and
+ * service contracts.
  * Otherwise the whole snapshot as data.
  */
 function apiLoad(opts) {
   var packed = loadPacked_();
-  if (opts && opts.part === 'later') return JSON.stringify({ gz: packed.gzLater || '' });
+  if (opts && opts.part === 'rest') return JSON.stringify(restLoad_(packed, opts.have, opts.want || 'all', opts.later !== false));
   var user = currentUser_(packed.meta);
-  if (opts && opts.packed) return JSON.stringify({ user: user, gz: packed.gz });
+  if (opts && opts.packed) return JSON.stringify(firstLoad_(packed, user));
   return JSON.stringify({ user: user, data: unpackDataset_(packed) });
 }
 

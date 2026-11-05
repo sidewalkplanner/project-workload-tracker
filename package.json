@@ -1,7 +1,7 @@
 {
-  "name": "neh-project-workload-tracker",
+  "name": "ofm-projects",
   "private": true,
-  "description": "NEH Project Workload Tracker (Google Apps Script web app) with local tests and preview",
+  "description": "OFM Projects, a national OFM project and workload dashboard (Google Apps Script web app) with local tests and preview",
   "scripts": {
     "test": "node dev/test.js",
     "preview": "node dev/server.js --port 8080"

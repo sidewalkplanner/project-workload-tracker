@@ -74,28 +74,52 @@ function start() {
 }
 
 function load(refresh) {
+  var name = (BOOT.app && BOOT.app.name) || 'the tracker';
   // The first time, the data usually came with the page (BOOT.preload).
   if (!refresh && !S.data && BOOT.preload && typeof DecompressionStream === 'function') {
     var pre = BOOT.preload;
     BOOT.preload = null;
-    renderState('Loading NEH Projects…', '', true);
-    gunzipJson(pre.gz).then(function (data) { show(data, pre.user, false); }).catch(function () { load(false); });
+    renderState('Loading ' + name + '…', '', true);
+    assemble(pre).then(function (data) { show(data, pre.user, false); }).catch(function () { load(false); });
     return;
   }
   var fn = refresh ? 'apiRefresh' : 'apiLoad';
-  if (!S.data) renderState('Loading NEH Projects…', 'This can take up to a minute the first time each morning, while the source sheets are read.', true);
+  if (!S.data) renderState('Loading ' + name + '…', 'This can take up to a minute the first time each morning, while the source sheets are read.', true);
   var fail = function (err) {
     if (S.data) { toast('Could not refresh: ' + (err && err.message || err)); render(); return; }
     renderState('The tracker could not load', 'Please reload the page in a minute. If it keeps happening, tell the person who sent you the link. (' + ((err && err.message) || String(err)) + ')', false);
   };
-  // The snapshot comes gzipped when the browser can unpack it (a tenth of the size).
+  // The snapshot comes compacted and gzipped when the browser can unpack it.
   var packed = typeof DecompressionStream === 'function';
   google.script.run
     .withSuccessHandler(function (json) {
       var res = JSON.parse(json);
-      (res.gz ? gunzipJson(res.gz) : Promise.resolve(res.data)).then(function (data) { show(data, res.user, refresh ? res.refresh || 'done' : ''); }).catch(fail);
+      (res.gz ? assemble(res) : Promise.resolve(res.data)).then(function (data) { show(data, res.user, refresh ? res.refresh || 'done' : ''); }).catch(fail);
     })
     .withFailureHandler(fail)[fn]({ packed: packed });
+}
+
+/** The shared part plus the enterprises' open projects that came with it, as one dataset. */
+function assemble(res) {
+  var names = Object.keys(res.parts || {});
+  return Promise.all([gunzipJson(res.gz)].concat(names.map(function (e) { return gunzipJson(res.parts[e]); }))).then(function (all) {
+    var data = all[0];
+    data.prs = [];
+    data.have = names;
+    data._keys = {};
+    all.slice(1).forEach(function (list) { addProjects(data, list); });
+    return data;
+  });
+}
+
+/** Adds projects to the dataset, skipping ones it already has (a project in two enterprises comes twice). */
+function addProjects(data, list) {
+  list.forEach(function (c) {
+    var k = (c.source || '') + ':' + c.pr;
+    if (data._keys[k]) return;
+    data._keys[k] = true;
+    data.prs.push(c);
+  });
 }
 
 function show(data, user, refreshed) {
@@ -105,38 +129,77 @@ function show(data, user, refreshed) {
   prepareData(S.data);
   if (first) applyDefaultsForUser();
   render();
-  if (data.laterCount) loadLater();
+  fetchForView();
   if (refreshed === 'done') toast('Read all the sources again. Everything is up to date.');
   else if (refreshed === 'recent') toast('The sources were read less than 10 minutes ago, so this is that copy.');
   else if (refreshed === 'busy') toast('Someone else is refreshing right now. This is the latest copy.');
 }
 
+/** True while some of the data is still on its way (other enterprises, paid in full, service contracts). */
+function restPending(data) {
+  return !!data && !!data.parts && (data.laterCount > 0 || data.parts.some(function (e) { return data.have.indexOf(e) === -1; }));
+}
+
+/** The enterprises the current filters reach that the page doesn't have yet. */
+function missingForView() {
+  var f = S.filters, d = S.data;
+  if (!d || !d.parts) return [];
+  var ent = f.enterprise || (f.zone ? enterpriseOfZone(f.zone) : '');
+  return d.parts.filter(function (e) { return d.have.indexOf(e) === -1 && (!ent || e === ent || e === ''); });
+}
+
 /**
- * The page opens with the open projects; paid-in-full projects and service contracts (hidden at
- * first) come right after, so the first view arrives sooner.
+ * The page opens with its viewer's enterprise's open projects. The paid-in-full projects and
+ * service contracts come right after; other enterprises only when the filters reach them (the
+ * whole country, or another enterprise), so most people never download the rest of the country.
  */
-function loadLater() {
+function loadRest(want, later) {
   var data = S.data;
+  data.fetching = data.fetching || {};
+  want = want.filter(function (e) { return !data.fetching[e]; });
+  later = later && !data.fetching.__later;
+  if (!want.length && !later) return;
+  want.forEach(function (e) { data.fetching[e] = true; });
+  if (later) data.fetching.__later = true;
+  var failed = function () {
+    want.forEach(function (e) { delete data.fetching[e]; });
+    if (later) { delete data.fetching.__later; data.laterFailed = true; }
+    toast('Some projects could not be loaded. Reload the page to try again.');
+    if (later && S.data === data) rerender();
+  };
   google.script.run
     .withSuccessHandler(function (json) {
       var res = JSON.parse(json);
-      if (!res.gz || S.data !== data) return;
-      gunzipJson(res.gz).then(function (list) {
+      if (S.data !== data) return;
+      var names = Object.keys(res.parts || {});
+      Promise.all(names.map(function (e) { return gunzipJson(res.parts[e]); }).concat(res.later ? [gunzipJson(res.later)] : [])).then(function (lists) {
         if (S.data !== data) return;
-        data.prs = data.prs.concat(list);
-        data.laterCount = 0;
+        lists.forEach(function (list) { addProjects(data, list); });
+        data.have = data.have.concat(names);
+        want.forEach(function (e) { delete data.fetching[e]; });
+        if (later) { data.laterCount = 0; delete data.fetching.__later; delete data.laterFailed; }
         prepareData(data);
         rerender();
-      }).catch(function () { toast('Paid-in-full projects and service contracts could not be loaded. Reload the page to try again.'); });
+      }).catch(failed);
     })
-    .withFailureHandler(function () { toast('Paid-in-full projects and service contracts could not be loaded. Reload the page to try again.'); })
-    .apiLoad({ packed: true, part: 'later' });
+    .withFailureHandler(failed)
+    .apiLoad({ packed: true, part: 'rest', have: data.have, want: want, later: later });
 }
 
-/** True while the second part is on its way and the filters would show some of it. */
-function waitingForLater() {
-  var f = S.filters;
-  return !!(S.data && S.data.laterCount) && (f.type !== 'projects' || f.status === 'expended' || f.status === 'all' || f.stage === 'expended');
+/** Fetches what the current view needs and the page doesn't have yet. */
+function fetchForView() {
+  var d = S.data;
+  if (!d || !d.parts) return;
+  var missing = missingForView();
+  if (missing.length || d.laterCount) loadRest(missing, d.laterCount > 0);
+}
+
+/** True while the rest is on its way and the filters would show some of it. */
+function waitingForRest() {
+  var f = S.filters, d = S.data;
+  if (!restPending(d)) return false;
+  var hidden = d.laterCount > 0 && !d.laterFailed && (f.type !== 'projects' || f.status === 'expended' || f.status === 'all' || f.stage === 'expended');
+  return hidden || missingForView().length > 0;
 }
 
 /** base64 gzip -> parsed JSON, with the browser's own decompressor. */
@@ -154,6 +217,7 @@ function applyRoute(r) {
   if (r.office) f.office = r.office;
   if (r.sc) f.sc = r.sc;
   if (r.zone && /^\d+$/.test(r.zone)) f.zone = r.zone;
+  if (r.enterprise) f.enterprise = r.enterprise;
   if (r.program) {
     var list = r.program.toUpperCase().split(/[ ,]+/).map(function (p) { return p === 'OTHER' ? 'Other' : p; })
       .filter(function (p) { return PROGRAM_LABELS.indexOf(p) !== -1; });
@@ -169,7 +233,8 @@ function applyRoute(r) {
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
   if (r.group) S.projects.group = r.group;
   if (r.check && ATTENTION_INDEX[r.check]) f.check = r.check;
-  S.routeHadScope = !!(r.office || r.sc);
+  // A link that names any place (down to an enterprise) opens there, not on the viewer's own office.
+  S.routeHadScope = !!(r.office || r.sc || r.zone || r.enterprise);
 }
 
 /** Field Office Managers open on their office, Service Center Directors on their service center. */
@@ -178,6 +243,9 @@ function applyDefaultsForUser() {
   if (f.office && !S.data.offices.some(function (o) { return o.name === f.office; })) f.office = '';
   if (f.sc && !S.data.serviceCenters.some(function (s) { return s.name === f.sc; })) f.sc = '';
   if (f.zone && S.data.zones.indexOf(f.zone) === -1) f.zone = '';
+  if (f.enterprise && !(S.data.enterprises || []).some(function (e) { return e.name === f.enterprise; })) f.enterprise = '';
+  // A link that names a place below the enterprise sets the enterprise too.
+  if (f.office) setPlace('office', f.office); else if (f.sc) setPlace('sc', f.sc); else if (f.zone) setPlace('zone', f.zone);
   if (!S.data.roles.some(function (r) { return r.key === S.workload.role && r.menu !== false; })) S.workload.role = 'lead';
   if (!statusOptions().some(function (s) { return s.key === f.status; })) f.status = 'open';
   if (S.routeHadScope || !S.user) return;
@@ -185,19 +253,15 @@ function applyDefaultsForUser() {
   var lead = u.email && S.homeOffice.lead ? S.homeOffice.lead[u.email] : '';
   var officeOf = function (name) { return S.data.offices.filter(function (o) { return o.name === name; })[0]; };
   // Field Office Managers, then Service Center Directors, then the org code in the person's
-  // GSA profile (as in the NEH BA61 Project Portal), then where they lead the most projects.
+  // GSA profile (as the NEH BA61 Project Portal does), then where they lead the most projects.
   if (u.manages.length === 1) S.scopeNote = { kind: 'manager', office: u.manages[0] };
   else if (u.directs.length === 1) S.scopeNote = { kind: 'director', sc: u.directs[0] };
   else if (u.orgOffice && officeOf(u.orgOffice)) S.scopeNote = { kind: 'org', office: u.orgOffice };
   else if (u.orgSc) S.scopeNote = { kind: 'org', sc: u.orgSc };
   else if (lead && officeOf(lead)) S.scopeNote = { kind: 'lead', office: lead };
   else return;
-  if (S.scopeNote.office) { f.office = S.scopeNote.office; f.sc = officeOf(f.office).serviceCenter; f.zone = officeOf(f.office).zone; }
-  else {
-    f.sc = S.scopeNote.sc;
-    var sc = S.data.serviceCenters.filter(function (x) { return x.name === f.sc; })[0];
-    if (sc) f.zone = sc.zone;
-  }
+  if (S.scopeNote.office) setPlace('office', S.scopeNote.office);
+  else setPlace('sc', S.scopeNote.sc);
 }
 
 function syncUrl() {
@@ -207,6 +271,7 @@ function syncUrl() {
     if (f.office) p.office = f.office;
     else if (f.sc) p.sc = f.sc;
     else if (f.zone) p.zone = f.zone;
+    else if (f.enterprise) p.enterprise = f.enterprise;
     if (f.programs.length < PROGRAM_LABELS.length) p.program = f.programs.join(',');
     if (f.status !== 'open') p.status = f.status;
     if (f.fy) p.fy = f.fy;
@@ -244,13 +309,45 @@ function render() {
   else main.appendChild(workloadView());
   main.appendChild(footnote());
   app.appendChild(main);
+  // A view that reaches another enterprise (or the whole country) fetches its projects.
+  if (S.data && S.data.parts && missingForView().length) fetchForView();
   syncUrl();
 }
 
 function rerender() {
   var y = window.scrollY;
+  // Keep keyboard focus on the same control across the redraw (a filter button, a row, a tab).
+  var app = document.getElementById('app');
+  var el = document.activeElement;
+  var key = el && el !== document.body && app.contains(el) ? focusKey(el) : '';
+  // Two controls can share a key (the "All" button of Program and of Status are told apart by
+  // their group, but rows can repeat): remember which of them it was.
+  var nth = key ? sameKey(app, el.tagName, key).indexOf(el) : -1;
   render();
   window.scrollTo(0, y);
+  if (key) {
+    var matches = sameKey(document.getElementById('app'), el.tagName, key);
+    var match = matches[nth] || matches[0];
+    if (match) match.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * What identifies a control across redraws: its tag, the group or field it is in, and its own
+ * label. A select or a text box is known by its label alone (its options and value change); a
+ * button or row also by its text.
+ */
+function focusKey(el) {
+  // A control whose text changes when used ("Show all" / "Show the first 25") names itself.
+  if (el.getAttribute('data-focus')) return el.tagName + '|focus|' + el.getAttribute('data-focus');
+  var group = el.closest('[role="group"], label, nav, tr');
+  var groupName = group ? (group.getAttribute('aria-label') || (group.tagName === 'LABEL' ? (group.querySelector('span') || {}).textContent : '') || group.tagName) : '';
+  if (/^(SELECT|INPUT|TEXTAREA)$/.test(el.tagName)) return el.tagName + '|' + groupName + '|' + (el.getAttribute('aria-label') || '');
+  return el.tagName + '|' + groupName + '|' + (el.getAttribute('aria-label') || '') + '|' + (el.textContent || '').trim().slice(0, 80);
+}
+
+function sameKey(root, tag, key) {
+  return [].slice.call(root.querySelectorAll(tag)).filter(function (x) { return focusKey(x) === key; });
 }
 
 function go(view) {
@@ -269,8 +366,9 @@ function topBar() {
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
-      h('h1', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
-      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
+      h('h1', { class: 'brand-title' }, (BOOT.app && BOOT.app.name) || d.scopeLabel + ' Projects'),
+      h('span', { class: 'brand-sub' }, ((d.enterprises || []).length > 1 ? andList(d.enterprises.map(function (e) { return e.short; }))
+        : d.zones.length > 1 ? 'Zones ' + andList(d.zones) : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
     h('div', { class: 'freshness' },
       h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
@@ -289,35 +387,34 @@ function scopeBanner() {
   return h('div', { class: 'banner', role: 'note' }, icon('info'),
     h('div', { class: 'banner-text' },
       h('span', null, 'Showing ', h('strong', null, n.office ? officeShort(n.office) : n.sc.replace(/ Service Center$/, '')), why),
-      h('button', { class: 'link-btn', type: 'button', onClick: function () { f.office = ''; f.sc = ''; f.zone = ''; S.scopeNote = ''; rerender(); } }, 'Show all of ' + S.data.scopeLabel)));
+      // Wider views one step at a time: the enterprise, then (from there) the whole area.
+      (S.data.enterprises || []).length > 1 && f.enterprise
+        ? h('button', { class: 'link-btn', type: 'button', onClick: function () { setPlace('enterprise', f.enterprise); S.scopeNote = ''; rerender(); } }, 'Show all of ' + enterpriseShort(f.enterprise))
+        : null,
+      h('button', { class: 'link-btn', type: 'button', onClick: function () { setPlace('enterprise', ''); S.scopeNote = ''; rerender(); } }, !S.data.enterprise && !S.data.zone ? 'Show the whole country' : 'Show all of ' + S.data.scopeLabel)));
 }
 
 function filterBar() {
   var f = S.filters, d = S.data;
-  // Zone, then (under More filters) service center, then field office; each narrows the next.
+  // Enterprise, zone, then (under More filters) service center, then field office; each narrows the next.
+  var ents = d.enterprises || [];
+  var entSel = ents.length > 1 ? h('select', { 'aria-label': 'Enterprise' }, h('option', { value: '' }, 'All enterprises'),
+    ents.map(function (e) { return h('option', { value: e.name, selected: f.enterprise === e.name }, e.name); })) : null;
+  if (entSel) entSel.addEventListener('change', function () { setPlace('enterprise', entSel.value); rerender(); });
+  var inEnt = function (zone) { return !f.enterprise || enterpriseOfZone(zone) === f.enterprise; };
   var zoneSel = h('select', { 'aria-label': 'Zone' }, h('option', { value: '' }, 'All zones'),
-    d.zones.map(function (z) { return h('option', { value: z, selected: f.zone === z }, 'Zone ' + z); }));
-  zoneSel.addEventListener('change', function () { f.zone = zoneSel.value; f.sc = ''; f.office = ''; rerender(); });
+    d.zones.filter(inEnt).map(function (z) { return h('option', { value: z, selected: f.zone === z }, 'Zone ' + z); }));
+  zoneSel.addEventListener('change', function () { setPlace('zone', zoneSel.value); rerender(); });
   var scSel = h('select', { 'aria-label': 'Service center' }, h('option', { value: '' }, 'All service centers'),
-    d.serviceCenters.filter(function (s) { return !f.zone || s.zone === f.zone; })
+    d.serviceCenters.filter(function (s) { return f.zone ? s.zone === f.zone : inEnt(s.zone); })
       .map(function (s) { return h('option', { value: s.name, selected: f.sc === s.name && !f.office }, s.short); }));
-  scSel.addEventListener('change', function () {
-    f.sc = scSel.value; f.office = '';
-    var sc = d.serviceCenters.filter(function (x) { return x.name === f.sc; })[0];
-    if (sc) f.zone = sc.zone;
-    rerender();
-  });
+  scSel.addEventListener('change', function () { if (scSel.value) setPlace('sc', scSel.value); else setPlace('zone', f.zone); rerender(); });
   var foSel = h('select', { 'aria-label': 'Field office' }, h('option', { value: '' }, 'All field offices'),
-    d.serviceCenters.filter(function (s) { return !f.zone || s.zone === f.zone; }).map(function (sc) {
+    d.serviceCenters.filter(function (s) { return f.zone ? s.zone === f.zone : inEnt(s.zone); }).map(function (sc) {
       return h('optgroup', { label: (d.zones.length > 1 ? 'Zone ' + sc.zone + ' · ' : '') + sc.short }, d.offices.filter(function (o) { return o.serviceCenter === sc.name && (!f.sc || f.sc === sc.name || f.office === o.name); })
         .map(function (o) { return h('option', { value: o.name, selected: f.office === o.name }, o.short); }));
     }));
-  foSel.addEventListener('change', function () {
-    f.office = foSel.value;
-    var o = d.offices.filter(function (x) { return x.name === f.office; })[0];
-    if (o) { f.sc = o.serviceCenter; f.zone = o.zone; }
-    rerender();
-  });
+  foSel.addEventListener('change', function () { if (foSel.value) setPlace('office', foSel.value); else if (f.sc) setPlace('sc', f.sc); else setPlace('zone', f.zone); rerender(); });
   // One choice at a time: All, or a single program. (Clicking a program shows only it.)
   var allPrograms = f.programs.length === PROGRAM_LABELS.length;
   var programs = h('div', { class: 'seg', role: 'group', 'aria-label': 'Program' },
@@ -371,7 +468,7 @@ function filterBar() {
     });
     if (myRole) mineBtn = h('button', { class: 'link-btn', type: 'button', onClick: function () { f.person = { role: myRole, email: S.user.email }; rerender(); } }, 'My projects');
   }
-  var any = f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned || !!f.check;
+  var any = f.enterprise || f.zone || f.sc || f.office || f.programs.length < PROGRAM_LABELS.length || f.status !== 'open' || f.stage || f.fy || f.q || f.person || f.type !== 'projects' || f.team !== 'all' || !f.planned || !!f.check;
   var reset = any ? h('button', { class: 'link-btn', type: 'button', onClick: resetFilters }, 'Reset filters') : null;
 
   // Service center, fiscal year and service contracts sit behind "More filters" unless one is in use.
@@ -389,6 +486,7 @@ function filterBar() {
   return h('section', { class: 'filters' + (S.filtersOpen ? ' open' : ''), 'aria-label': 'Filters' },
     toggle,
     h('div', { class: 'filter-row', id: 'filter-row' },
+      entSel ? h('label', { class: 'field' }, h('span', null, 'Enterprise'), entSel) : null,
       d.zones.length > 1 ? h('label', { class: 'field' }, h('span', null, 'Zone'), zoneSel) : null,
       h('label', { class: 'field' }, h('span', null, 'Field office'), foSel),
       h('div', { class: 'field' }, h('span', null, 'Program'), programs),
@@ -401,7 +499,8 @@ function filterBar() {
       h('label', { class: 'check', title: 'Custodial, O&M, snow removal, utilities, option years and other recurring contracts. They are not projects, so they are left out unless you tick this.' }, serviceBox, h('span', null, 'Include service contracts')),
       hasPlanned() ? h('label', { class: 'check', title: 'Projects planned or approved in ' + andList(plannedSources()) + ' that have no PR in EASi yet. Untick to count only what is in EASi.' }, plannedBox, h('span', null, 'Include planned projects not in EASi yet')) : null) : null,
     (active.length || mineBtn || reset) ? h('div', { class: 'active-filters' }, active, mineBtn, reset) : null,
-    waitingForLater() ? h('p', { class: 'loading-note', role: 'status' }, h('span', { class: 'spinner small' }), 'Loading ' + plural(S.data.laterCount, 'paid-in-full project or service contract', 'paid-in-full projects and service contracts') + '…') : null);
+    waitingForRest() ? h('p', { class: 'loading-note', role: 'status' }, h('span', { class: 'spinner small' }), 'Loading the rest of the projects…')
+      : d.laterFailed && d.laterCount > 0 ? h('p', { class: 'loading-note', role: 'status' }, 'Paid-in-full projects and service contracts could not be loaded. Reload the page to try again.') : null);
 }
 
 function pill(text, onRemove) {
@@ -409,7 +508,7 @@ function pill(text, onRemove) {
 }
 
 function resetFilters() {
-  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' };
+  S.filters = { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '' };
   S.scopeNote = '';
   rerender();
 }
@@ -419,7 +518,14 @@ function scopeName() {
   if (f.office) return officeShort(f.office);
   if (f.sc) return f.sc.replace(/ Service Center$/, '');
   if (f.zone) return 'Zone ' + f.zone;
+  if (f.enterprise) return enterpriseShort(f.enterprise);
   return S.data.scopeLabel;
+}
+
+/** scopeName() for the middle of a sentence: "in Zone 5", "in the whole country". */
+function scopePhrase() {
+  var f = S.filters, d = S.data;
+  return !f.office && !f.sc && !f.zone && !f.enterprise && !d.enterprise && !d.zone ? 'the whole country' : scopeName();
 }
 
 // ---------------------------------------------------------------------------
@@ -503,7 +609,7 @@ function topPeopleCard(leads, avg) {
   var all = h('button', { class: 'btn', type: 'button', onClick: function () { S.workload.role = 'lead'; go('workload'); } }, 'See everyone', icon('arrow'));
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Who has the most projects'),
-      h('p', null, 'Open projects assigned to each ' + (S.filters.team === 'all' ? 'person' : teamLabel(S.filters.team).toLowerCase().replace(/s$/, '')) + ' in ' + scopeName() + '. Click a name to see their projects.')), all),
+      h('p', null, 'Open projects assigned to each ' + (S.filters.team === 'all' ? 'person' : teamLabel(S.filters.team).toLowerCase().replace(/s$/, '')) + ' in ' + scopePhrase() + '. Click a name to see their projects.')), all),
     h('div', { class: 'toolbar' }, teamSwitch()),
     top.length ? [
       h('div', { class: 'chart-legend' }, groupLegend('Dashed line = average (' + avg.toFixed(1) + ')')),
@@ -520,7 +626,7 @@ function topPeopleCard(leads, avg) {
             r.expended ? { label: 'Paid in full', value: fmtInt(r.expended), color: GROUP_COLORS.closed } : null, { label: 'Left to spend', value: fmtMoney(r.remaining) }].filter(Boolean);
         });
       })),
-      leads.length > top.length ? h('p', { class: 'card-foot' }, (leads.length - top.length) + ' more ' + (leads.length - top.length === 1 ? 'person' : 'people') + ' on the People tab.') : null
+      leads.length > top.length ? h('p', { class: 'card-foot' }, fmtInt(leads.length - top.length) + ' more ' + (leads.length - top.length === 1 ? 'person' : 'people') + ' on the People tab.') : null
     ] : emptyState());
 }
 
@@ -615,8 +721,10 @@ function officeCard() {
   var offices = comparing ? S.data.offices.filter(function (o) { return !mine || o.zone === mine.zone; }) : officesInScope();
   var showSc = !f.sc || comparing;
   var manyZones = !comparing && !f.zone && !f.sc && S.data.zones.length > 1;
+  var byOfficeName = {};
+  list.forEach(function (p) { p.offices.forEach(function (n) { (byOfficeName[n] = byOfficeName[n] || []).push(p); }); });
   var rows = offices.map(function (o) {
-    var subset = list.filter(function (p) { return p.offices.indexOf(o.name) !== -1; });
+    var subset = byOfficeName[o.name] || [];
     var t = totalsOf(subset);
     var people = workloadRows(subset, 'lead', false).filter(function (r) { return r.email; });
     people.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
@@ -634,8 +742,11 @@ function officeCard() {
   });
   var sorted = sortRows(rows, S.officesSort, { manager: function (r) { return r.managerName; } });
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
-  var zone = totalsOf(list.filter(function (p) { return offices.some(function (o) { return p.offices.indexOf(o.name) !== -1; }); }));
-  var zonePeople = workloadRows(list.filter(function (p) { return p.offices.length; }), 'lead', false).filter(function (r) { return r.email; });
+  var inList = {};
+  offices.forEach(function (o) { inList[o.name] = true; });
+  var zoneList = list.filter(function (p) { return p.offices.some(function (n) { return inList[n]; }); });
+  var zone = totalsOf(zoneList);
+  var zonePeople = workloadRows(zoneList, 'lead', false).filter(function (r) { return r.email; });
   var zoneLeads = zonePeople.length;
   var zoneAvg = zoneLeads ? zonePeople.reduce(function (s, r) { return s + r.count; }, 0) / zoneLeads : 0;
   var cols = [
@@ -647,7 +758,10 @@ function officeCard() {
     { key: 'leads', label: 'People', num: true }, { key: 'perLead', label: 'Projects each', num: true }, { key: 'topCount', label: 'Busiest', num: true }
   ].filter(Boolean);
   var onSort = function (key, multi, dir) { if (key === 'mix') key = 'count'; S.officesSort = toggleSort(S.officesSort, key, multi, dir); rerender(); };
-  var tbody = h('tbody', null, sorted.map(function (r) {
+  // Nationally there are dozens of offices: the first OFFICE_ROWS by the current sort, then a button.
+  var cut = !comparing && !S.officesAll && sorted.length > OFFICE_ROWS + 5;
+  var drawn = cut ? sorted.slice(0, OFFICE_ROWS) : sorted;
+  var tbody = h('tbody', null, drawn.map(function (r) {
     var current = r.office.name === f.office;
     var tr = h('tr', { class: 'clickable' + (current ? ' current' : ''), title: current ? null : 'Show ' + r.name, 'aria-current': current ? 'true' : null },
       h('td', { class: 'nowrap' }, h('strong', null, r.name), S.user && r.office.manager === S.user.email ? h('span', { class: 'you' }, 'You') : null,
@@ -662,7 +776,7 @@ function officeCard() {
       h('td', { class: 'num' }, fmtInt(r.leads)),
       h('td', { class: 'num' }, r.perLead ? r.perLead.toFixed(1) : '–'),
       h('td', { class: 'nowrap' }, r.top ? [h('button', { class: 'person-btn', type: 'button', onClick: function (e) { e.stopPropagation(); showPerson('lead', r.top.email); } }, r.top.name), h('span', { class: 'muted' }, ' ' + r.top.count)] : '–'));
-    if (!current) activateRow(tr, function () { f.office = r.office.name; f.sc = r.office.serviceCenter; f.zone = r.office.zone; rerender(); });
+    if (!current) activateRow(tr, function () { setPlace('office', r.office.name); rerender(); });
     return tr;
   }));
   var place = comparing && mine ? 'Zone ' + mine.zone : scopeName();
@@ -678,8 +792,15 @@ function officeCard() {
       h('h2', null, comparing ? 'How ' + officeShort(f.office) + ' compares' : 'Field offices'),
       h('p', null, (comparing ? 'Your office next to the other Zone ' + (mine ? mine.zone : '') + ' offices. ' : '') + 'Click an office to see its projects.')),
       groupLegend()),
-    h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody, foot)));
+    h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody, foot)),
+    cut || S.officesAll && !comparing && sorted.length > OFFICE_ROWS + 5 ? h('div', { class: 'table-foot' },
+      h('span', null, cut ? 'Showing the first ' + OFFICE_ROWS + ' of ' + sorted.length + ' offices, by the column you sorted on' : 'Showing all ' + sorted.length + ' offices'),
+      h('button', { class: 'btn', type: 'button', 'data-focus': 'office-rows', 'aria-expanded': String(!cut), onClick: function () { S.officesAll = !S.officesAll; rerender(); } },
+        cut ? 'Show all ' + sorted.length + ' offices' : 'Show the first ' + OFFICE_ROWS)) : null);
 }
+
+/** Offices the office table shows before its "Show all" button. */
+var OFFICE_ROWS = 25;
 
 /** "No projects match" with the way out. */
 function emptyState() {
@@ -865,9 +986,9 @@ function workloadView() {
   rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
   var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
   var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.filter(function (r) { return r.menu !== false; }).map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
-  roleSel.addEventListener('change', function () { w.role = roleSel.value; S.filters.person = null; rerender(); });
+  roleSel.addEventListener('change', function () { w.role = roleSel.value; w.limit = 300; S.filters.person = null; rerender(); });
   var byOffice = h('input', { type: 'checkbox', checked: w.byOffice });
-  byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; rerender(); });
+  byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; w.limit = 300; rerender(); });
   var people = rows.filter(function (r) { return r.email; });
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
   var total = countOf(list);
@@ -887,10 +1008,13 @@ function workloadView() {
   var onSort = function (key, multi, dir) {
     if (key === 'rank' || key === 'bar') key = 'count';
     w.sort = toggleSort(w.sort, key, multi, dir);
+    w.limit = 300;
     rerender();
   };
   var thead = h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, w.sort, onSort); })));
-  var tbody = h('tbody', null, rows.map(function (r, i) {
+  // A national list runs to thousands of people: draw the first rows, with a button for more.
+  var drawn = rows.slice(0, w.limit);
+  var tbody = h('tbody', null, drawn.map(function (r, i) {
     var mine = S.user && r.email && r.email === S.user.email;
     var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'Named in a plan, with no email found. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
@@ -931,7 +1055,18 @@ function workloadView() {
       h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
       h('label', { class: 'check' }, byOffice, h('span', null, 'Show each office separately')),
       h('div', { class: 'spacer' }), exportBtn),
-    rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState());
+    rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState(),
+    rows.length > drawn.length ? h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(drawn.length) + ' of ' + fmtInt(rows.length) + ' rows'),
+      h('button', { class: 'btn', type: 'button', 'data-focus': 'people-more', onClick: function () {
+        var at = w.limit;
+        w.limit += 300;
+        rerender();
+        // The last press removes the button: carry on from the first new row.
+        if (!document.querySelector('[data-focus="people-more"]')) {
+          var row = document.querySelectorAll('#app .table-wrap tbody tr')[at];
+          if (row) row.focus();
+        }
+      } }, 'Show more')) : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,9 +1144,11 @@ function openDrawer(p) {
       item('Program codes', p.programs.join(', ') + (p.programFromTitle ? ' (from the PR title; EASi has no program code yet)' : '')),
       item('RWA', p.rwas.join(', ')),
       item('Project codes', p.projectCodes.join(', ')),
-      item('BA61 portal number', p.portalNumbers.length && S.data.portal && S.data.portal.url ? p.portalNumbers.map(function (n, i) {
-        return [i ? ', ' : '', h('a', { href: S.data.portal.url + '?view=project&id=' + encodeURIComponent(n), target: '_blank', rel: 'noopener' }, n)];
-      }) : p.portalNumbers.join(', ')),
+      // Only numbers the NEH BA61 portal has are links; other regions write numbers that look alike.
+      item('BA61 portal number', p.portalNumbers.length ? p.portalNumbers.map(function (n, i) {
+        var inPortal = S.data.portal && S.data.portal.url && (p.plans || []).some(function (x) { return x.source === 'portal' && x.id === n; });
+        return [i ? ', ' : '', inPortal ? h('a', { href: S.data.portal.url + '?view=project&id=' + encodeURIComponent(n), target: '_blank', rel: 'noopener' }, n) : n];
+      }) : ''),
       item('Contracting office', p.officeCode),
       p.comments ? item('Comments', p.comments) : null));
   drawer.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
@@ -1120,7 +1257,15 @@ function plannedName(p) { return planSource(p).name; }
 /** "Where this comes from": every source, what it adds and how fresh it is, then how the numbers work. */
 function footnote() {
   var d = S.data;
-  var service = d.prs.filter(function (p) { return p.service; }).length;
+  // Service contracts in the place being looked at (they all come with the later part).
+  var f = S.filters;
+  var service = d.prs.filter(function (p) {
+    if (!p.service) return false;
+    if (f.office) return p.offices.indexOf(f.office) !== -1;
+    if (f.sc) return p.serviceCenters.indexOf(f.sc) !== -1;
+    if (f.zone) return (p.zones || []).indexOf(f.zone) !== -1;
+    return !f.enterprise || enterprisesOf(p).indexOf(f.enterprise) !== -1;
+  }).length;
   var when = function (s) {
     if (!s.updated) return 'Read at the last refresh';
     if (/T/.test(s.updated)) return fmtDateTime(s.updated);
@@ -1128,11 +1273,13 @@ function footnote() {
   };
   var sources = (d.sources || []).filter(function (s) { return !s.off; });
   var rules = [
-    'A project is here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.',
+    (d.enterprise || d.zone
+      ? 'A project is here when one of its buildings is in ' + d.scopeLabel + ' (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.'
+      : 'A project is here when one of its buildings is in the OFM Building Assignments sheet (every enterprise: ' + andList((d.enterprises || []).map(function (e) { return e.name; })) + ').'),
     '“Not in EASi yet” projects are planned or approved in ' + andList(plannedSources()) + ', with no PR yet. One moves to its EASi status the morning a PR carries it: a BA61 portal number in the PR title or as its EQ number, a BA54 PCN or ASID in its project codes, an RWA number on the PR or in its title (RWAs are BA80).',
     'Their amounts are estimates (budget, total cost or RWA authorized) and are never added to what EASi has committed or obligated.',
     'RWAs and work requests count only while nothing is committed or obligated on them; one with money but no PR is funded another way, such as a lease or a purchase card.',
-    fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities, severable RWAs) are left out unless you include them under More filters.',
+    (d.laterCount > 0 ? 'Service contracts' : fmtInt(service) + ' service contracts in ' + scopePhrase()) + ' (custodial, O&M, snow removal, utilities, severable RWAs) are left out unless you include them under More filters.',
     '“Paid in full” means Pegasys shows all the obligated money spent.'
   ];
   if (!hasPlanned()) rules.splice(1, 3);

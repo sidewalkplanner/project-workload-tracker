@@ -146,7 +146,7 @@ function attentionCard() {
   var results = attentionResults().filter(function (r) { return r.count; });
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Needs attention'),
-      h('p', null, results.length ? 'Things the data says to look at in ' + scopeName() + '. Click one to see the projects.' : 'Nothing stands out in ' + scopeName() + '.')),
+      h('p', null, results.length ? 'Things the data says to look at in ' + scopePhrase() + '. Click one to see the projects.' : 'Nothing stands out in ' + scopePhrase() + '.')),
       results.length ? h('button', { class: 'btn', type: 'button', onClick: function () { go('attention'); } }, 'See details', icon('arrow')) : null),
     results.length ? h('div', { class: 'attention-grid' }, ATTENTION_GROUPS.map(function (g) {
       var rows = results.filter(function (r) { return r.check.group === g.key; });

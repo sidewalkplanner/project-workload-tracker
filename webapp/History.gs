@@ -40,10 +40,25 @@ function stageSeedDate_(p) {
  */
 function updateHistory_(dataset, history, today) {
   var hist = history && history.v === HISTORY_VERSION && history.items ? history : { v: HISTORY_VERSION, started: today, items: {} };
-  var fresh = hist.started === today;
+  // Which enterprises the history has watched, and since when: a project first seen on the day
+  // its enterprise came into scope (a deployment widened to national) only reached its stage
+  // "by today", like everything on the first day. Histories from before this was kept watched NEH.
+  if (!hist.enterprises) hist.enterprises = history && history.items ? { 'Northeast Heartland': hist.started } : {};
+  var zoneEnt = {};
+  (dataset.enterprises || []).forEach(function (e) {
+    e.zones.forEach(function (z) { zoneEnt[z] = e.name; });
+    if (!hist.enterprises[e.name]) hist.enterprises[e.name] = today;
+  });
+  var watchedBefore = function (p) {
+    var ents = (p.zones || []).map(function (z) { return zoneEnt[z]; }).filter(Boolean);
+    if (!ents.length) return hist.started < today;
+    return ents.some(function (e) { return hist.enterprises[e] < today; });
+  };
   dataset.prs.forEach(function (p) {
     var key = historyKey_(p);
     var item = hist.items[key];
+    var fresh = !watchedBefore(p);
+    delete p.sinceKnown; delete p.spentKnown;
     if (!item) {
       var seed = stageSeedDate_(p);
       // New since tracking began: it reached this stage today. On the first day, only "by today".

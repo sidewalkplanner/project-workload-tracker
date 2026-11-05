@@ -18,19 +18,19 @@ function doGet(e) {
   var preload = null;
   try {
     var packed = cachedOrSavedPacked_();
-    if (packed) preload = { user: currentUser_(packed.meta), gz: packed.gz };
+    if (packed) preload = firstLoad_(packed, currentUser_(packed.meta));
   } catch (err) {
     console.warn('Page opened without its data: ' + err);
   }
-  template.bootJson = safeJsonForHtml_({ app: APP, route: routeFromParams_(params), preload: preload });
+  template.bootJson = safeJsonForHtml_({ app: { name: appName_() }, route: routeFromParams_(params), preload: preload });
   return template.evaluate()
-    .setTitle(APP.name)
+    .setTitle(appName_())
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function routeFromParams_(params) {
   var route = {};
-  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check'].forEach(function (key) {
+  ['view', 'office', 'sc', 'zone', 'program', 'status', 'fy', 'type', 'team', 'role', 'person', 'q', 'sort', 'group', 'planned', 'check', 'enterprise'].forEach(function (key) {
     var value = str_(params[key]).slice(0, 160);
     if (value && !/[\u0000-\u001f\u007f<>]/.test(value)) route[key] = value;
   });

@@ -5,7 +5,13 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
-const { createRuntime, sheetsFrom } = require('./gas-mock');
+const mock = require('./gas-mock');
+const { sheetsFrom } = mock;
+// Most tests check behavior inside one enterprise (the demo data is NEH plus one Seattle building
+// outside it); national tests pass ENTERPRISE: 'ALL' themselves.
+function createRuntime(opts) {
+  return mock.createRuntime(Object.assign({}, opts, { properties: Object.assign({ ENTERPRISE: 'Northeast Heartland' }, (opts && opts.properties) || {}) }));
+}
 const { demoSources, demoDirectory } = require('./demo-data');
 
 const tests = [];
@@ -463,36 +469,100 @@ test('stage history: days in stage, changes between refreshes, plans before thei
   assert.strictEqual(Object.keys(gone.items).length, 0);
 });
 
-test('the snapshot travels compact and in two parts, and comes back whole', () => {
+test('the snapshot travels compact and in parts, and comes back whole', () => {
   const vm = require('vm');
   const rt = runtimeWith(demoSources());
   const full = JSON.parse(rt.ctx.refreshDataset_());
   const packed = rt.ctx.loadPacked_();
-  const first = JSON.parse(rt.ctx.gunzipText_(packed.gz));
+  const base = JSON.parse(rt.ctx.gunzipText_(packed.gzBase));
+  const parts = Object.keys(packed.gzParts).map((e) => JSON.parse(rt.ctx.gunzipText_(packed.gzParts[e])));
   const later = JSON.parse(rt.ctx.gunzipText_(packed.gzLater));
-  assert.strictEqual(first.prs.length + later.length, full.prs.length);
-  assert.strictEqual(first.laterCount, later.length);
-  assert.ok(first.prs.every((p) => !p.service && p.stage !== 'expended'), 'open projects come first');
+  const first = [].concat(...parts);
+  assert.strictEqual(first.length + later.length, full.prs.length);
+  assert.strictEqual(base.laterCount, later.length);
+  assert.ok(first.every((p) => !p.service && p.stage !== 'expended'), 'open projects come first');
   assert.ok(later.length && later.every((p) => p.service || p.stage === 'expended'));
   // Every field comes back as it was (except the two the page never shows).
+  // (Planned projects never carried the EASi fields they lack; the page always filled those in.)
   const strip = (p) => { const c = Object.assign({}, p); delete c.assigned; delete c.reserved; return c; };
   const byPr = {};
-  // (Planned projects never carried the EASi fields they lack; the page always filled those in.)
-  full.prs.forEach((p) => { byPr[(p.source || '') + p.pr] = rt.ctx.expandProject_(strip(p), first); });
+  full.prs.forEach((p) => { byPr[(p.source || '') + p.pr] = rt.ctx.expandProject_(strip(p), base); });
   const back = rt.ctx.unpackDataset_(packed);
+  assert.strictEqual(back.prs.length, full.prs.length);
   back.prs.forEach((p) => assert.deepStrictEqual(JSON.parse(JSON.stringify(p)), JSON.parse(JSON.stringify(byPr[(p.source || '') + p.pr])), p.pr));
   // The page's expandProject (JsCore) rebuilds exactly what the server's does.
   const core = fs.readFileSync(__dirname + '/../webapp/JsCore.html', 'utf8');
   const pick = (name) => core.slice(core.indexOf('function ' + name + '('), core.indexOf('\n}\n', core.indexOf('function ' + name + '(')) + 2);
   const page = vm.createContext({});
   vm.runInContext(pick('expandProject') + pick('buildingFacts'), page);
-  first.prs.concat(later).forEach((c) => {
-    const a = JSON.parse(JSON.stringify(page.expandProject(c, first))); delete a._x;
-    assert.deepStrictEqual(a, JSON.parse(JSON.stringify(rt.ctx.expandProject_(c, first))));
+  first.concat(later).forEach((c) => {
+    const a = JSON.parse(JSON.stringify(page.expandProject(c, base))); delete a._x;
+    assert.deepStrictEqual(a, JSON.parse(JSON.stringify(rt.ctx.expandProject_(c, base))));
   });
   // Smaller than sending it all.
   const whole = rt.ctx.gzipText_(JSON.stringify(full)).length;
-  assert.ok(packed.gz.length < whole * 0.75, packed.gz.length + ' vs ' + whole);
+  const firstSize = packed.gzBase.length + Object.keys(packed.gzParts).reduce((t, e) => t + packed.gzParts[e].length, 0);
+  assert.ok(firstSize < whole * 0.75, firstSize + ' vs ' + whole);
+});
+
+test('national: every enterprise, an Enterprise filter, and each viewer loads their own first', () => {
+  const src = demoSources();
+  // One PR on buildings in two enterprises (NEH and the Seattle building in Pacific Gulf).
+  const h = src.pipeline[0];
+  const two = src.pipeline[1].slice();
+  two[h.indexOf('PR_Number')] = 'EQTWO-27-0001';
+  two[h.indexOf('FE_Building_Code_List')] = two[h.indexOf('FE_Building_Code_List')] + ', WA0001ZZ';
+  two[h.indexOf('Acquisition_Status')] = 'PR Approved, Pending Assignment';
+  src.pipeline.push(two);
+  const rt = mock.createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { ENTERPRISE: 'ALL' } });
+  const d = JSON.parse(rt.ctx.apiLoad()).data;
+  assert.strictEqual(d.scopeLabel, 'National');
+  assert.deepStrictEqual(d.enterprises.map((e) => e.name), ['Northeast Heartland', 'Pacific Gulf']);
+  assert.deepStrictEqual(d.enterprises[0].zones.slice(), ['2', '4', '5']);
+  assert.ok(d.offices.some((o) => o.name === 'Seattle Field Office' && o.enterprise === 'Pacific Gulf'));
+  assert.ok(d.prs.some((p) => p.pr === 'EQ10P-26-0001'), 'the Seattle PR is in national scope');
+  assert.strictEqual(d.prs.filter((p) => p.pr === 'EQTWO-27-0001').length, 1, 'a two-enterprise PR is listed once');
+  // A Denver FC manager's page carries NEH only; the rest comes after.
+  const packed = rt.ctx.loadPacked_();
+  const someone = { manages: ['Denver Federal Center Field Office'], directs: [], orgOffice: '', orgSc: '' };
+  const first = rt.ctx.firstLoad_(packed, someone);
+  assert.deepStrictEqual(Object.keys(first.parts), ['Northeast Heartland']);
+  const rest = rt.ctx.restLoad_(packed, Object.keys(first.parts), 'all', true);
+  assert.deepStrictEqual(Object.keys(rest.parts), ['Pacific Gulf']);
+  assert.ok(rest.later.length > 0);
+  // The page asks for other enterprises only when its view reaches them: later alone carries none.
+  const laterOnly = rt.ctx.restLoad_(packed, Object.keys(first.parts), [], true);
+  assert.deepStrictEqual(Object.keys(laterOnly.parts), []);
+  assert.ok(laterOnly.later.length > 0);
+  assert.deepStrictEqual(Object.keys(rt.ctx.restLoad_(packed, [], ['Pacific Gulf'], false).parts), ['Pacific Gulf']);
+  // Someone the tracker can't place gets every enterprise at once.
+  assert.deepStrictEqual(Object.keys(rt.ctx.firstLoad_(packed, { manages: [], directs: [] }).parts).sort(), ['Northeast Heartland', 'Pacific Gulf']);
+  // The two-enterprise PR is in both parts (so each enterprise's view has it at once).
+  const inPart = (e) => JSON.parse(rt.ctx.gunzipText_(packed.gzParts[e])).some((p) => p.pr === 'EQTWO-27-0001');
+  assert.ok(inPart('Northeast Heartland') && inPart('Pacific Gulf'));
+  // Org codes place PRs with no building under any service center (PMB… is Pacific Gulf).
+  assert.strictEqual(rt.ctx.OFM_ORG_RE.exec('P00MBE00')[1], 'BE');
+});
+
+test('widening to national: newly covered enterprises start "by today", not as known changes', () => {
+  const rt = mock.createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { ENTERPRISE: 'ALL' } });
+  const d = JSON.parse(rt.ctx.refreshDataset_());
+  const seattle = d.prs.filter((p) => p.zones.indexOf('7') !== -1);
+  const neh = d.prs.filter((p) => p.zones.indexOf('5') !== -1 && !p.source && p.stage === 'review');
+  assert.ok(seattle.length && neh.length);
+  // An old (NEH-only) history from before: it knows the NEH projects, not Seattle's.
+  const old = { v: 1, started: '2099-01-01', items: {} };
+  neh.forEach((p) => { old.items[p.pr] = { s: '2099-01-01', h: [[p.stage, '2099-01-01', 0]] }; });
+  const copy = JSON.parse(JSON.stringify(d));
+  const hist = rt.ctx.updateHistory_(copy, old, '2099-02-01');
+  assert.strictEqual(hist.enterprises['Northeast Heartland'], '2099-01-01');
+  assert.strictEqual(hist.enterprises['Pacific Gulf'], '2099-02-01');
+  const s = copy.prs.filter((p) => p.zones.indexOf('7') !== -1);
+  assert.ok(s.every((p) => !p.sinceKnown || (p.since !== '2099-02-01')), 'Seattle projects are not dated the switch day as known');
+  // A project new in NEH after tracking began did reach its stage that day.
+  copy.prs.push({ pr: 'EQNEW-99-0002', stage: 'draft', zones: ['5'], plans: [] });
+  rt.ctx.updateHistory_(copy, hist, '2099-02-02');
+  assert.strictEqual(copy.prs[copy.prs.length - 1].sinceKnown, true);
 });
 
 test('helpers: dates, money, names, emails', () => {
@@ -519,10 +589,112 @@ test('doGet renders the page with every include', () => {
 });
 
 test('setup schedules the refresh once', () => {
-  const rt = runtimeWith(demoSources(3));
+  const rt = runtimeWith(demoSources(3), 'owner@gsa.gov');
   rt.ctx.setup();
   rt.ctx.setup();
   assert.strictEqual(rt.triggers.filter((t) => t.getHandlerFunction() === 'dailyRefresh').length, 2);
+});
+
+test('editor functions (setup, dailyRefresh, checkDirectoryLookup) refuse viewers', () => {
+  const rt = runtimeWith(demoSources(3), 'viewer@gsa.gov');
+  // Every top-level function without a trailing underscore can be called with google.script.run.
+  const vm = require('vm');
+  const publicFns = Object.keys(vm.runInContext('this', rt.ctx))
+    .filter((k) => typeof rt.ctx[k] === 'function' && !/_$/.test(k) && /^[a-z]/.test(k)).sort();
+  assert.deepStrictEqual(publicFns, ['apiLoad', 'apiRefresh', 'checkDirectoryLookup', 'dailyRefresh', 'doGet', 'include', 'setup']);
+  const reads = () => rt.state.reads;
+  const before = reads();
+  assert.throws(() => rt.ctx.setup(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh(), /is for admins/);
+  assert.throws(() => rt.ctx.dailyRefresh({ triggerUid: 'made-up' }), /is for admins/);
+  assert.throws(() => rt.ctx.checkDirectoryLookup('someone@gsa.gov'), /is for admins/);
+  assert.strictEqual(reads(), before, 'a refused call reads no sheets');
+  assert.strictEqual(rt.triggers.length, 0, 'a refused setup schedules nothing');
+  // A listed admin may run them, and a real trigger may run dailyRefresh with nobody signed in.
+  rt.props.ADMIN_EMAILS = 'viewer@gsa.gov';
+  rt.ctx.setup();
+  rt.props.ADMIN_EMAILS = '';
+  rt.setUser('');
+  const t = rt.triggers.filter((x) => x.getHandlerFunction() === 'dailyRefresh')[0];
+  rt.ctx.dailyRefresh({ triggerUid: t.getUniqueId() });
+  assert.ok(reads() > before);
+});
+
+test('lint: no function name is defined twice (Apps Script files share one namespace)', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  // Server files all load into one global scope, and so do the page's script files: a second
+  // definition silently replaces the first, depending on file order.
+  const groups = {
+    server: fs.readdirSync(dir).filter((f) => f.endsWith('.gs')),
+    page: fs.readdirSync(dir).filter((f) => /^Js.*\.html$/.test(f))
+  };
+  Object.keys(groups).forEach((g) => {
+    const seen = {};
+    const dupes = [];
+    groups[g].forEach((f) => {
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      const re = /^\s{0,2}function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      while ((m = re.exec(text))) {
+        if (seen[m[1]]) dupes.push(m[1] + ' in ' + seen[m[1]] + ' and ' + f);
+        else seen[m[1]] = f;
+      }
+    });
+    assert.deepStrictEqual(dupes, [], g + ' functions defined twice');
+  });
+});
+
+test('the shared files (Rules.gs and the readers Cornerstone copies) only call functions defined in them', () => {
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'webapp');
+  const shared = ['Rules.gs', 'Pipeline.gs', 'Planned.gs', 'Portal.gs', 'Ba54.gs', 'Rwa.gs'];
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith('.gs'));
+  const defined = (files) => {
+    const out = {};
+    files.forEach((f) => {
+      const re = /^function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+      let m;
+      const text = fs.readFileSync(path.join(dir, f), 'utf8');
+      while ((m = re.exec(text))) out[m[1]] = f;
+    });
+    return out;
+  };
+  const inShared = defined(shared);
+  const elsewhere = defined(all.filter((f) => shared.indexOf(f) === -1));
+  const leaks = [];
+  shared.forEach((f) => {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    Object.keys(elsewhere).forEach((fn) => {
+      if (!inShared[fn] && new RegExp('\\b' + fn.replace(/\$/g, '\\$') + '\\(').test(text)) leaks.push(f + ' calls ' + fn + ' (' + elsewhere[fn] + ')');
+    });
+  });
+  assert.deepStrictEqual(leaks, []);
+});
+
+test('national: a blank enterprise reads every enterprise, and OFM org codes place PRs in any of them', () => {
+  const rt = runtimeWith(demoSources(3));
+  const header = ['Building Number', 'Building Name', 'City', 'State', 'Enterprise', 'Zone', 'Service Center', 'Field Office', 'OFM Dept ID', 'ServiceNow Primary POC(s)'];
+  const buildings = [['Sheet Last Updated: 10/20/2026'], [], header,
+    ['CO0026ZZ', 'BYRON G ROGERS FED BLDG', 'DENVER', 'CO', 'Northeast Heartland', '5', 'Rocky Mountain Service Center', 'Colorado Field Office', 'PMCGA', 'quinn.peak@gsa.gov'],
+    ['NY0001AB', 'DEMO FEDERAL BUILDING', 'NEW YORK', 'NY', 'Demo Atlantic', '1', 'Demo Harbor Service Center', 'Demo Harbor Field Office', 'PMBAA', 'No ServiceNow POC'],
+    ['TX0005ZZ', 'DEMO COURTHOUSE', 'AUSTIN', 'TX', 'Demo Southwest', '7', 'Demo Plains Service Center', 'Demo Plains Field Office', 'PMEKB', 'lee.plains@gsa.gov, kim.plains@gsa.gov']];
+  const national = rt.ctx.readDirectory_(buildings, [], { enterprise: '', zone: '' });
+  assert.deepStrictEqual(Object.keys(national.buildings).sort(), ['CO0026ZZ', 'NY0001AB', 'TX0005ZZ']);
+  assert.deepStrictEqual(Array.from(national.zones), ['1', '5', '7']);
+  assert.deepStrictEqual(Array.from(national.buildings.NY0001AB.manager), [], '"No ServiceNow POC" is not an email');
+  assert.deepStrictEqual(Array.from(national.buildings.TX0005ZZ.manager), ['lee.plains@gsa.gov', 'kim.plains@gsa.gov']);
+  assert.ok(national.scByCode.PMBA && national.scByCode.PMEK && national.scByCode.PMCG);
+  const neh = rt.ctx.readDirectory_(buildings, [], { enterprise: 'Northeast Heartland', zone: '' });
+  assert.deepStrictEqual(Object.keys(neh.buildings), ['CO0026ZZ']);
+  // A PR with no building but an OFM org code lands on that code's service center, NEH or not.
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MBA00', national).serviceCenters), ['Demo Harbor Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MEK00', national).serviceCenters), ['Demo Plains Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MCG00', national).serviceCenters), ['Rocky Mountain Service Center']);
+  assert.deepStrictEqual(Array.from(rt.ctx.placeOf_('', 'Roof study', 'P00MZZ00', national).serviceCenters), [], 'an unknown service center places nothing');
+  // Org codes in directory names are read the same way in every enterprise.
+  assert.strictEqual(rt.ctx.parseOrgCode_('Lee Plains - PMEKB'), 'PMEKB');
+  assert.strictEqual(rt.ctx.cleanDisplayName_('Lee Plains - PMEKB'), 'Lee Plains');
 });
 
 if (process.env.SOURCES_JSON) {
