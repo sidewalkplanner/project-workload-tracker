@@ -110,6 +110,43 @@ const assert = require('assert');
   if (orgBanner) console.log('  org banner: ' + (await orgBanner.textContent()).trim());
   assert.strictEqual(await page.$eval('select[aria-label="Field office"]', (s) => s.value), 'Iowa Field Office');
 
+  // Home, the portal: search finds a building, its page lists its projects, a project has its
+  // own page, and Back walks back through them.
+  await page.goto(base + '/?as=sam.foothills%40gsa.gov');
+  await page.waitForSelector('.bp-search-input');
+  assert.strictEqual(await page.$('.tab:has-text("Needs attention")'), null, 'Needs attention is not a tab');
+  await page.fill('.bp-search-input', 'CO1085');
+  await page.waitForSelector('.bp-hit');
+  await page.press('.bp-search-input', 'Enter');
+  await page.waitForSelector('.bp-row');
+  assert.ok(/view=building/.test(page.url()) && /CO1085ZZ/.test(page.url()), 'building link: ' + page.url());
+  const buildingTitle = await page.textContent('main h2');
+  const inBuilding = await page.$$eval('.bp-row', (r) => r.length);
+  assert.ok(inBuilding > 0, 'projects in the building');
+  await page.click('.bp-row-main >> nth=0');
+  await page.waitForSelector('.bp-detail');
+  assert.ok(/view=project/.test(page.url()), 'project link: ' + page.url());
+  assert.ok((await page.textContent('main')).includes('Who to contact'));
+  await page.goBack();
+  await page.waitForSelector('.bp-row');
+  assert.strictEqual(await page.textContent('main h2'), buildingTitle, 'Back returns to the building');
+  await page.goBack();
+  await page.waitForSelector('.bp-search-input');
+
+  // A person, found by name, with their projects switchable by role; a field office page.
+  await page.fill('.bp-search-input', 'Kai Ortiz');
+  await page.click('.bp-hit:has-text("Kai Ortiz")');
+  await page.waitForSelector('.bp-row');
+  assert.ok(/view=person/.test(page.url()), 'person link: ' + page.url());
+  await page.goto(base + '/?view=office&fo=' + encodeURIComponent('Denver Federal Center Field Office'));
+  await page.waitForSelector('.bp-card');
+  assert.ok((await page.textContent('main h2')).includes('Denver Federal Center'));
+  // Building numbers in the projects table open the building's page.
+  await page.goto(base + '/?view=projects');
+  await page.click('.bldg-link >> nth=0');
+  await page.waitForSelector('.bp-row, .bp-empty');
+  assert.ok(/view=building/.test(page.url()));
+
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
   console.log('Flow OK: ' + all + ' open PRs, ' + ba61 + ' BA61, top person ' + top + ' projects.');

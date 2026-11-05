@@ -5,7 +5,8 @@
 var VIEWS = [
   { key: 'home', label: 'Home' },
   { key: 'projects', label: 'All projects' },
-  { key: 'attention', label: 'Needs attention' },
+  // Kept for old links (?view=attention), but not a tab: the tracker is a project overview, not an alert list.
+  { key: 'attention', label: 'Needs attention', hidden: true },
   { key: 'workload', label: 'People' },
   { key: 'overview', label: 'Summary' }
 ];
@@ -333,7 +334,7 @@ function topBar() {
   var refreshBtn = h('button', { class: 'btn-on-dark', type: 'button', title: 'Read EASi and the other source sheets again (takes about a minute)' }, 'Refresh');
   refreshBtn.addEventListener('click', function () { refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; load(true); });
   // The views are pages of one site, so they are navigation (aria-current), not an ARIA tab widget.
-  var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.map(function (v) {
+  var tabs = h('nav', { class: 'tabs', 'aria-label': 'Views' }, VIEWS.filter(function (v) { return !v.hidden || S.view === v.key; }).map(function (v) {
     return h('button', { class: 'tab', type: 'button', 'aria-current': (PAGES[S.view] || S.view) === v.key ? 'page' : null, onClick: function () { go(v.key); } }, v.label);
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
@@ -516,7 +517,6 @@ function overviewView() {
     stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
     stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none', function () { S.workload.role = 'lead'; go('workload'); })));
 
-  wrap.appendChild(attentionCard());
   wrap.appendChild(h('div', { class: 'grid grid-main' },
     topPeopleCard(leads, avg),
     h('div', { class: 'stack' }, pipelineCard(), programCard(list))));
