@@ -775,9 +775,14 @@ function projectsView() {
   card.appendChild(h('div', { class: 'card-head' },
     h('div', null, h('h2', null, projectsPhrase(t.count) + ' · ' + scopeName()),
       h('p', null, [t.count > t.planned ? fmtMoneyShort(t.committed) + ' committed, ' + fmtMoneyShort(t.obligated) + ' obligated, ' + fmtMoneyShort(t.remaining) + ' left to spend' : '',
-        t.planned ? fmtMoneyShort(t.estimate) + ' estimated' + (t.count > t.planned ? ' on the ' + plural(t.planned, 'project') + ' not in EASi yet' : '') : '']
+        t.planned ? fmtMoneyShort(t.estimate) + ' estimated' + (t.count > t.planned ? ' on the ' + plural(t.planned, 'planned project') : '') : '']
         .filter(Boolean).join('; ') + '. Click a project for details.'))));
-  card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel), h('div', { class: 'spacer' }), exportBtn));
+  // On a phone the table becomes a list of cards with no headings to click, so sorting gets a menu.
+  var sortKey = (S.projects.sort[0] || {}).key + ':' + (S.projects.sort[0] || {}).dir;
+  var sortSel = h('select', { 'aria-label': 'Sort by' }, PHONE_SORTS.map(function (o) { return h('option', { value: o[0], selected: o[0] === sortKey }, o[1]); }));
+  sortSel.addEventListener('change', function () { var x = sortSel.value.split(':'); S.projects.sort = [{ key: x[0], dir: Number(x[1]) }]; S.projects.limit = 400; rerender(); });
+  card.appendChild(h('div', { class: 'toolbar' }, h('label', { class: 'field' }, h('span', null, 'Group by'), groupSel),
+    h('label', { class: 'field phone-only' }, h('span', null, 'Sort by'), sortSel), h('div', { class: 'spacer' }), exportBtn));
   if (!list.length) { card.appendChild(emptyState()); return card; }
 
   var cols = projectColumns();
@@ -812,7 +817,7 @@ function projectsView() {
       tbody.appendChild(moreRow);
     }
   });
-  card.appendChild(h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)));
+  card.appendChild(h('div', { class: 'table-wrap' }, h('table', { class: 'projects-table' }, thead, tbody)));
   var foot = h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(Math.min(shown, list.length)) + ' of ' + plural(list.length, 'PR') + (t.count !== list.length ? ' (' + plural(t.count, 'project') + ')' : '') + '. Click a column heading to sort.'));
   if (!S.projects.group && shown >= limit && limit < list.length) {
     foot.appendChild(h('button', { class: 'btn', type: 'button', onClick: function () { S.projects.limit += 400; rerender(); } }, 'Show more'));
@@ -820,6 +825,9 @@ function projectsView() {
   card.appendChild(foot);
   return card;
 }
+
+/** The phone's sort menu: [key:dir, label]. */
+var PHONE_SORTS = [['stageOrder:1', 'Status'], ['committed:-1', 'Largest first'], ['remaining:-1', 'Most left to spend'], ['title:1', 'Project name'], ['executed:-1', 'Newest award']];
 
 /** Rows each group shows before its "Show more" row. */
 var GROUP_ROWS = 50;
@@ -912,7 +920,7 @@ function projectRow(p, cols) {
     }
   };
   // data-label: on a phone each row stacks into a card, labelled cell by cell.
-  var tr = h('tr', { class: 'clickable' }, (cols || projectColumns()).map(function (c) { var td = cells[c.key](); td.setAttribute('data-label', c.label); return td; }));
+  var tr = h('tr', { class: 'clickable' }, (cols || projectColumns()).map(function (c) { var td = cells[c.key](); td.setAttribute('data-label', c.label); if (td.textContent === '–') td.classList.add('blank'); return td; }));
   activateRow(tr, function () { openDrawer(p); });
   return tr;
 }

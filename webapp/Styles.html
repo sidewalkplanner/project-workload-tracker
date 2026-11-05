@@ -391,8 +391,11 @@ tr.group-more td { padding: 6px var(--space-3) var(--space-3); }
   .brand { padding-bottom: var(--space-2); }
   .hide-sm { display: none; }
   /* Five tabs share the width and may wrap to two lines; they never push the page sideways. */
-  .tabs { width: 100%; gap: 2px; }
-  .tab { flex: 1 1 auto; padding: 6px var(--space-1); font-size: var(--fs-secondary); line-height: 1.2; text-align: center; }
+  .brand-sub { display: none; }
+  /* One row of tabs that scrolls sideways on its own, rather than wrapping words. */
+  .tabs { width: calc(100% + 2 * var(--space-4)); margin: 0 calc(-1 * var(--space-4)); padding: 0 var(--space-4); gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; padding: 6px var(--space-3); font-size: var(--fs-table); line-height: 1.2; white-space: nowrap; }
   .freshness { width: 100%; justify-content: space-between; padding-bottom: var(--space-2); }
   .filters { position: static; padding: var(--space-2) 0 var(--space-3); }
   .filters-toggle { display: flex; }
@@ -427,7 +430,25 @@ tr.group-more td { padding: 6px var(--space-3) var(--space-3); }
   .table-wrap td:first-child { max-width: 136px; overflow-wrap: break-word; }
   .table-wrap td.rank-cell:first-child { max-width: none; }
   .sources-table td:nth-child(2) { min-width: 220px; }
+  /* The projects table as a list of cards: title first, then each other cell with its label. */
+  .table-wrap:has(> .projects-table) { overflow: visible; }
+  .projects-table, .projects-table tbody { display: block; width: 100%; }
+  .projects-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .projects-table tr.clickable { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2) var(--space-4); padding: var(--space-4); border-bottom: 1px solid var(--line); }
+  .projects-table tr.clickable td { display: block; position: static; padding: 0; border: 0; max-width: none; min-width: 0; background: none; box-shadow: none; text-align: left; white-space: normal; }
+  .projects-table tr.clickable td::before { content: attr(data-label); display: block; font-size: var(--fs-label); font-weight: 600; color: var(--ink-3); margin-bottom: 2px; }
+  .projects-table tr.clickable td.title-cell { grid-column: 1 / -1; order: -1; min-width: 0; max-width: none; }
+  .projects-table tr.clickable td.title-cell::before { display: none; }
+  .projects-table tr.clickable td.title-cell .t { font-size: var(--fs-card-title); font-weight: 600; white-space: normal; }
+  .projects-table tr.clickable td.muted:empty, .projects-table tr.clickable td.tags-cell:empty { display: none; }
+  .projects-table tr.clickable td.blank { display: none; }
+  .projects-table tr.clickable .stage { white-space: normal; align-items: baseline; }
+  .projects-table tr.group-row, .projects-table tr.group-more { display: flex; flex-wrap: wrap; }
+  .projects-table tr.group-row td, .projects-table tr.group-more td { display: block; padding: var(--space-3) var(--space-4); }
+  .projects-table tr.group-row td:empty { display: none; }
 }
+.phone-only { display: none; }
+@media (max-width: 640px) { .phone-only { display: flex; } }
 @media print {
   .filters, .tabs, .freshness button, .toolbar { display: none; }
   .table-wrap { overflow: visible; }
