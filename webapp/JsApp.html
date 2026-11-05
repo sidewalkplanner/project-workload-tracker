@@ -327,9 +327,9 @@ function topBar() {
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
       h('h1', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
-      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
+      h('span', { class: 'brand-sub' }, 'Every project in ' + (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ', building by building')),
     h('div', { class: 'freshness' },
-      h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
+      h('span', { title: 'When EASi last generated its report; the other sources are listed at the bottom of every page' }, 'Updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
     tabs));
 }
@@ -498,9 +498,9 @@ function overviewView() {
   var showPlanned = hasPlanned() && S.filters.planned;
   wrap.appendChild(h('section', { class: 'card summary' + (showPlanned ? ' six' : ''), 'aria-label': 'Summary' },
     stat(S.filters.status === 'all' && !S.filters.stage ? 'Projects' : statusLabel() + ' projects', fmtInt(t.count), scopeName(), function () { showProjects(''); }),
-    showPlanned ? stat('Not in EASi yet', fmtInt(t.planned), t.planned ? fmtInt(approvedNoPr) + ' approved, ' + fmtMoneyShort(t.estimate) + ' estimated' : 'none planned without a PR', function () { showProjects('planned'); }) : null,
-    stat('Not awarded yet', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting', function () { showProjects('preaward'); }),
-    stat('Awarded', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend', function () { showProjects('awarded'); }),
+    showPlanned ? stat('Planned', fmtInt(t.planned), t.planned ? fmtInt(approvedNoPr) + ' approved, ' + fmtMoneyShort(t.estimate) + ' estimated' : 'none planned without a PR', function () { showProjects('planned'); }) : null,
+    stat('In contracting', fmtInt(t.preaward), t.preaward ? fmtMoneyShort(preawardDollars) + ' committed, ' + fmtInt(withContracting) + ' with contracting' : 'none waiting', function () { showProjects('preaward'); }),
+    stat('Under way', fmtInt(t.awarded), fmtMoneyShort(t.remaining) + ' left to spend', function () { showProjects('awarded'); }),
     stat('Obligated', fmtMoneyShort(t.obligated), fmtMoneyShort(t.expendedAmt) + ' spent so far', function () { showProjects('awarded'); }),
     stat('People assigned', fmtInt(leads.length), leads.length ? 'about ' + avg.toFixed(1) + ' projects each; most is ' + top.name + ' with ' + top.count : 'none', function () { S.workload.role = 'lead'; go('workload'); })));
 
@@ -512,16 +512,16 @@ function overviewView() {
   return wrap;
 }
 
-/** "114 open projects", "13 projects not awarded yet", "40 projects paid in full", "8 projects with contracting". */
+/** "114 open projects", "13 projects in contracting", "40 finished projects", "8 projects: with contracting". */
 function projectsPhrase(n) {
   var f = S.filters;
   var p = plural(n, 'project');
   if (f.stage) return p + ': ' + S.stageIndex[f.stage].short.toLowerCase();
   if (f.status === 'open') return fmtInt(n) + ' open ' + (n === 1 ? 'project' : 'projects');
-  if (f.status === 'awarded') return fmtInt(n) + ' awarded ' + (n === 1 ? 'project' : 'projects');
-  if (f.status === 'preaward') return p + ' not awarded yet';
-  if (f.status === 'planned') return p + ' not in EASi yet';
-  if (f.status === 'expended') return p + ' paid in full';
+  if (f.status === 'awarded') return p + ' under way';
+  if (f.status === 'preaward') return p + ' in contracting';
+  if (f.status === 'planned') return p + ' planned, no PR yet';
+  if (f.status === 'expended') return fmtInt(n) + ' finished ' + (n === 1 ? 'project' : 'projects');
   return p;
 }
 
@@ -572,9 +572,9 @@ function topPeopleCard(leads, avg) {
           h('span', { class: 'hbar-value' }, fmtInt(r.count)));
         b.addEventListener('click', function () { showPerson('lead', r.email); });
         return withTooltip(b, r.name, function () {
-          return [r.planned ? { label: 'Not in EASi yet', value: fmtInt(r.planned), color: GROUP_COLORS.planned } : null,
-            { label: 'Not awarded yet', value: fmtInt(r.preaward), color: GROUP_COLORS.preaward }, { label: 'Awarded', value: fmtInt(r.awarded), color: GROUP_COLORS.awarded },
-            r.expended ? { label: 'Paid in full', value: fmtInt(r.expended), color: GROUP_COLORS.closed } : null, { label: 'Left to spend', value: fmtMoney(r.remaining) }].filter(Boolean);
+          return [r.planned ? { label: GROUP_LABELS.planned, value: fmtInt(r.planned), color: GROUP_COLORS.planned } : null,
+            { label: GROUP_LABELS.preaward, value: fmtInt(r.preaward), color: GROUP_COLORS.preaward }, { label: GROUP_LABELS.awarded, value: fmtInt(r.awarded), color: GROUP_COLORS.awarded },
+            r.expended ? { label: GROUP_LABELS.closed, value: fmtInt(r.expended), color: GROUP_COLORS.closed } : null, { label: 'Left to spend', value: fmtMoney(r.remaining) }].filter(Boolean);
         });
       })),
       leads.length > top.length ? h('p', { class: 'card-foot' }, (leads.length - top.length) + ' more ' + (leads.length - top.length === 1 ? 'person' : 'people') + ' on the People tab.') : null
@@ -644,7 +644,7 @@ function programCard(list) {
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'By program'), h('p', null, 'Click a program to see only its projects.'))),
     h('div', { class: 'table-wrap' }, h('table', null,
-      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), showPlanned ? h('th', { class: 'num', scope: 'col' }, 'Not in EASi') : null, h('th', { class: 'num', scope: 'col' }, 'Not awarded'), h('th', { class: 'num', scope: 'col' }, 'Left to spend'))),
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Program'), h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Projects, as a bar')), h('th', { class: 'num', scope: 'col' }, 'Projects'), showPlanned ? h('th', { class: 'num', scope: 'col' }, 'Planned') : null, h('th', { class: 'num', scope: 'col' }, 'In contracting'), h('th', { class: 'num', scope: 'col' }, 'Left to spend'))),
       h('tbody', null, rows.map(function (r) {
         var tr = h('tr', { class: 'clickable', title: names[r.label] + '. Show only ' + r.label + '.' },
           h('td', { class: 'nowrap' }, h('span', { class: 'stage' }, h('span', { class: 'swatch', style: { background: PROGRAM_COLORS[r.label] } }), h('strong', null, r.label))),
@@ -698,8 +698,8 @@ function officeCard() {
   var cols = [
     { key: 'name', label: 'Field office' }, { key: 'manager', label: 'Manager', hideSm: true },
     { key: 'count', label: 'Projects', num: true }, { key: 'mix', label: 'Progress' },
-    showPlanned ? { key: 'planned', label: 'Not in EASi', num: true } : null,
-    { key: 'preaward', label: 'Not awarded', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    showPlanned ? { key: 'planned', label: 'Planned', num: true } : null,
+    { key: 'preaward', label: 'In contracting', num: true }, { key: 'awarded', label: 'Under way', num: true },
     { key: 'remaining', label: 'Left to spend', num: true },
     { key: 'leads', label: 'People', num: true }, { key: 'perLead', label: 'Projects each', num: true }, { key: 'topCount', label: 'Busiest', num: true }
   ].filter(Boolean);
@@ -781,7 +781,7 @@ function projectsView() {
       var collapsed = !!S.projects.collapsed[g.key];
       var gt = totalsOf(g.items);
       var row = h('tr', { class: 'group-row' + (collapsed ? ' collapsed' : ''), tabindex: '0', 'aria-expanded': String(!collapsed) },
-        h('td', { colspan: String(moneyAt) }, h('span', { class: 'caret' }, icon('chevron')), g.label, h('span', { class: 'muted small' }, '  ' + plural(gt.count, 'project') + ', ' + (gt.planned ? gt.planned + ' not in EASi yet, ' : '') + gt.preaward + ' not awarded yet, ' + gt.awarded + ' awarded')),
+        h('td', { colspan: String(moneyAt) }, h('span', { class: 'caret' }, icon('chevron')), g.label, h('span', { class: 'muted small' }, '  ' + plural(gt.count, 'project') + ', ' + (gt.planned ? gt.planned + ' planned, ' : '') + gt.preaward + ' in contracting, ' + gt.awarded + ' under way')),
         h('td', { class: 'num' }, fmtMoneyShort(gt.committed)), h('td', { class: 'num' }, fmtMoneyShort(gt.remaining)), h('td', { colspan: String(cols.length - moneyAt - 2) }));
       var toggle = function () { S.projects.collapsed[g.key] = !collapsed; rerender(); };
       row.addEventListener('click', toggle);
@@ -936,8 +936,8 @@ function workloadView() {
     { key: 'name', label: 'Name' }, { key: 'teamOrg', label: 'Role', hideSm: true }, { key: 'office', label: w.byOffice ? 'Field office' : 'Main office', hideSm: true },
     { key: 'count', label: 'Projects', num: true },
     { key: 'bar', label: 'Progress' },
-    showPlanned ? { key: 'planned', label: 'Not in EASi', num: true } : null,
-    { key: 'preaward', label: 'Not awarded', num: true }, { key: 'awarded', label: 'Awarded', num: true },
+    showPlanned ? { key: 'planned', label: 'Planned', num: true } : null,
+    { key: 'preaward', label: 'In contracting', num: true }, { key: 'awarded', label: 'Under way', num: true },
     { key: 'BA61', label: 'BA61', num: true }, { key: 'BA80', label: 'BA80', num: true }, { key: 'BA54', label: 'BA54', num: true },
     { key: 'committed', label: 'Committed', num: true }, { key: 'remaining', label: 'Left to spend', num: true }, { key: 'oldestFy', label: 'Oldest', num: true, dir: 1 }
   ].filter(Boolean);
@@ -973,7 +973,7 @@ function workloadView() {
     return tr;
   }));
   var exportBtn = h('button', { class: 'btn', type: 'button', onClick: function () {
-    var header = ['Rank', role.short, 'Email', 'Role', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Not in EASi yet', 'Not awarded yet', 'Awarded', 'Paid in full', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Left to spend', 'Oldest open FY'];
+    var header = ['Rank', role.short, 'Email', 'Role', 'Org code', w.byOffice ? 'Field office' : 'Main field office', 'Projects', 'Planned', 'In contracting', 'Under way', 'Finished (paid in full)', 'BA61', 'BA80', 'BA54', 'Other', 'Committed', 'Obligated', 'Left to spend', 'Oldest open FY'];
     var data = rows.map(function (r, i) { return [i + 1, r.name, r.email.indexOf('@') !== -1 ? r.email : '', teamLabel(r.team), r.org, r.office ? officeShort(r.office) : '', r.count, r.planned, r.preaward, r.awarded, r.expended, r.BA61, r.BA80, r.BA54, r.Other, r.committed, r.obligated, r.remaining, r.oldestFy || '']; });
     downloadFile(d.scopeLabel + ' workload by ' + role.short + ' - ' + scopeName() + ' - ' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([header].concat(data)), 'text/csv;charset=utf-8');
   } }, 'Download for Excel');
@@ -1196,11 +1196,11 @@ function footnote() {
   var sources = (d.sources || []).filter(function (s) { return !s.off; });
   var rules = [
     'A project is here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.',
-    '“Not in EASi yet” projects are planned or approved in ' + andList(plannedSources()) + ', with no PR yet. One moves to its EASi status the morning a PR carries it: a BA61 portal number in the PR title or as its EQ number, a BA54 PCN or ASID in its project codes, an RWA number on the PR or in its title (RWAs are BA80).',
+    '“Planned” projects are planned or approved in ' + andList(plannedSources()) + ', with no PR yet. One moves to its EASi status the morning a PR carries it: a BA61 portal number in the PR title or as its EQ number, a BA54 PCN or ASID in its project codes, an RWA number on the PR or in its title (RWAs are BA80).',
     'Their amounts are estimates (budget, total cost or RWA authorized) and are never added to what EASi has committed or obligated.',
     'RWAs and work requests count only while nothing is committed or obligated on them; one with money but no PR is funded another way, such as a lease or a purchase card.',
     fmtInt(service) + ' service contracts (custodial, O&M, snow removal, utilities, severable RWAs) are left out unless you include them under More filters.',
-    '“Paid in full” means Pegasys shows all the obligated money spent.'
+    '“Finished” means paid in full: Pegasys shows all the obligated money spent.'
   ];
   if (!hasPlanned()) rules.splice(1, 3);
   return h('section', { class: 'sources', 'aria-label': 'Where this comes from' },
