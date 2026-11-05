@@ -126,7 +126,7 @@ function packDataset_(dataset) {
   var small = compactDataset_(dataset);
   var zoneEnt = {};
   (dataset.enterprises || []).forEach(function (e) { e.zones.forEach(function (z) { zoneEnt[z] = e.name; }); });
-  var parts = {}, later = [], named = {};
+  var parts = {}, later = [], named = {}, leads = {};
   dataset.prs.forEach(function (p, i) {
     var c = small.prs[i];
     if (!shownFirst_(p)) { later.push(c); return; }
@@ -134,21 +134,23 @@ function packDataset_(dataset) {
     if (!ents.length) ents = [''];
     ents.forEach(function (e) { (parts[e] = parts[e] || []).push(c); });
     // Where each person's open projects are, so their first load carries what Needs attention needs.
-    ROLES.forEach(function (r) {
-      (p[r.key] || []).forEach(function (email) {
-        var list = named[email] = named[email] || [];
-        ents.forEach(function (e) { if (list.indexOf(e) === -1) list.push(e); });
-      });
-    });
+    var note = function (map, email) {
+      var list = map[email] = map[email] || [];
+      ents.forEach(function (e) { if (list.indexOf(e) === -1) list.push(e); });
+    };
+    ROLES.forEach(function (r) { (p[r.key] || []).forEach(function (email) { note(named, email); }); });
+    (p.lead || []).forEach(function (email) { note(leads, email); });
   });
   delete small.prs;
+  // Who reports to whom stays on the server (it picks each supervisor's team).
+  delete small.reportsTo;
   small.parts = Object.keys(parts);
   small.laterCount = later.length;
   var gzParts = {};
   Object.keys(parts).forEach(function (e) { gzParts[e] = gzipText_(JSON.stringify(parts[e])); });
   return {
     meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, enterprises: dataset.enterprises || [], scopeLabel: dataset.scopeLabel, prs: dataset.prs.length,
-      named: named, orgs: dataset.orgs || {} },
+      named: named, leads: leads, orgs: dataset.orgs || {}, reportsTo: dataset.reportsTo || {} },
     gzBase: gzipText_(JSON.stringify(small)),
     gzParts: gzParts,
     gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
@@ -210,7 +212,8 @@ function attentionEnterprises_(user, meta) {
       var org = String(meta.orgs[email] || '').toUpperCase();
       if (pf.orgCodes.some(function (c) { return org.indexOf(c) === 0; })) team.push(email);
     });
-    team.forEach(function (email) { (meta.named[email] || []).forEach(add); });
+    // A team member's projects count where they are the person assigned (see inPortfolio).
+    team.forEach(function (email) { ((meta.leads || meta.named)[email] || []).forEach(add); });
   }
   return out;
 }
@@ -278,6 +281,7 @@ function refreshDataset_() {
   var portal = readPlanTab_('PORTAL_ID', 'PORTAL_TAB', 'BA61 portal projects');
   var ba54 = readPlanTab_('BA54_ID', 'BA54_TAB', 'BA54 tracker projects', 'Dashboard');
   var rwa = readPlanTab_('RWA_ID', 'RWA_TAB', 'RWA dashboard projects');
+  var roster = readRoster_();
   var dataset = buildDataset_(
     pipelineValues,
     buildingsTab.getDataRange().getValues(),
@@ -286,8 +290,9 @@ function refreshDataset_() {
       buildingManagers: setting_('BUILDING_MANAGER_EMAILS'), projectManagers: setting_('PROJECT_MANAGER_EMAILS'),
       portalValues: portal.values, portalUrl: setting_('PORTAL_URL'), ba54Values: ba54.values, ba54Link: ba54.link, ba54Updated: ba54.asOf,
       rwaValues: rwa.values, rwaLink: rwa.link,
-      portalOff: !!portal.off, ba54Off: !!ba54.off, rwaOff: !!rwa.off,
-      readErrors: { portal: portal.error || '', ba54: ba54.error || '', rwa: rwa.error || '' },
+      rosterValues: roster.values, rosterLink: roster.link, rosterUpdated: roster.asOf,
+      portalOff: !!portal.off, ba54Off: !!ba54.off, rwaOff: !!rwa.off, rosterOff: !!roster.off,
+      readErrors: { portal: portal.error || '', ba54: ba54.error || '', rwa: rwa.error || '', roster: roster.error || '' },
       pipelineLink: 'https://docs.google.com/spreadsheets/d/' + setting_('PIPELINE_ID') + '/edit', directoryLink: 'https://docs.google.com/spreadsheets/d/' + setting_('DIRECTORY_ID') + '/edit',
       nameEmails: setting_('NAME_EMAILS') }
   );
@@ -324,6 +329,41 @@ function refreshDataset_() {
  * no values when its ID setting is OFF. A sheet that can't be read leaves its projects out for
  * this build instead of failing it.
  */
+/**
+ * The GSA-Wide Roster's who-reports-to-whom, and nothing else: only its employee email, supervisor
+ * email and supervisor level columns are read (it also holds pay and other personal details).
+ * @return {{ values: Array[], link: string, asOf: string, off?: boolean, error?: string }}
+ *   values: [['email', 'supervisor', 'level'], ...].
+ */
+function readRoster_() {
+  var id = setting_('ROSTER_ID');
+  if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '', asOf: '', off: true };
+  try {
+    var ss = SpreadsheetApp.openById(id);
+    var tab = ss.getSheetByName(setting_('ROSTER_TAB'));
+    if (!tab) throw new Error('no "' + setting_('ROSTER_TAB') + '" tab');
+    var header = tab.getRange(1, 1, 1, tab.getLastColumn()).getValues()[0].map(str_);
+    var col = function (name) { var i = header.indexOf(name); if (i === -1) throw new Error('no "' + name + '" column'); return i + 1; };
+    [ROSTER_HEADERS.email, ROSTER_HEADERS.supervisor, ROSTER_HEADERS.level].forEach(col);
+    var n = tab.getLastRow() - 1;
+    if (n < 1) return { values: [['email', 'supervisor', 'level']], link: '', asOf: '' };
+    var read = function (name) { return tab.getRange(2, col(name), n, 1).getValues().map(function (r) { return r[0]; }); };
+    var emails = read(ROSTER_HEADERS.email), sups = read(ROSTER_HEADERS.supervisor), levels = read(ROSTER_HEADERS.level);
+    var asOf = '';
+    if (header.indexOf(ROSTER_HEADERS.snapshot) !== -1) {
+      var d = tab.getRange(2, col(ROSTER_HEADERS.snapshot), 1, 1).getValues()[0][0];
+      if (isDateValue_(d)) { var noon = new Date(d.getTime() + 12 * 3600 * 1000); asOf = noon.getFullYear() + '-' + pad2_(noon.getMonth() + 1) + '-' + pad2_(noon.getDate()); }
+      else asOf = str_(d).slice(0, 10);
+    }
+    var values = [['email', 'supervisor', 'level']];
+    for (var i = 0; i < n; i++) values.push([emails[i], sups[i], levels[i]]);
+    return { values: values, link: 'https://docs.google.com/spreadsheets/d/' + id + '/edit#gid=' + (tab.getSheetId ? tab.getSheetId() : ''), asOf: asOf };
+  } catch (e) {
+    console.warn('GSA-Wide Roster not read: ' + e);
+    return { values: [], link: '', asOf: '', error: String(e && e.message || e) };
+  }
+}
+
 function readPlanTab_(idKey, tabKey, what, asOfTab) {
   var id = setting_(idKey);
   if (!id || /^(off|none|no)$/i.test(id)) return { values: [], link: '', asOf: '', off: true };
@@ -427,7 +467,9 @@ function currentUser_(dataset) {
  *   null for anyone else. label names the places; team is true when people or org codes are listed.
  */
 function portfolio_(user, dataset, leaders) {
-  var out = { all: !!user.isAdmin, offices: (user.manages || []).slice(), serviceCenters: (user.directs || []).slice(), zones: [], enterprises: [], people: [], orgCodes: [] };
+  var out = { all: !!user.isAdmin, offices: (user.manages || []).slice(), serviceCenters: (user.directs || []).slice(), zones: [], enterprises: [], people: [], orgCodes: [], reports: 0 };
+  // Everyone under them in the GSA-Wide Roster (at any depth) who is named on a project.
+  if (user.email) teamUnder_(user.email, dataset).forEach(function (e) { out.people.push(e); out.reports++; });
   if (user.email) leaderPlaces_(leaders, dataset).forEach(function (e) {
     if (e.email !== user.email) return;
     e.places.forEach(function (pl) {
@@ -447,6 +489,17 @@ function portfolio_(user, dataset, leaders) {
   if (!out.all && !names.length && !out.team) return null;
   out.label = out.all ? '' : names.length > 2 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join(' and ');
   return out;
+}
+
+/** The people named on projects who report to this person in the GSA-Wide Roster, directly or through others. */
+function teamUnder_(email, dataset) {
+  var up = (dataset && dataset.reportsTo) || {};
+  var named = (dataset && (dataset.named || dataset.people)) || {};
+  return Object.keys(named).filter(function (e) {
+    if (e === email) return false;
+    for (var s = up[e], n = 0; s && n < 25; s = up[s], n++) if (s === email) return true;
+    return false;
+  });
 }
 
 /**

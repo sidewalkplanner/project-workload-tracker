@@ -112,6 +112,9 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   });
 
   var orgs = options.orgCodes || {};
+  var roster = safely('roster', function () { return reportingLines_(options.rosterValues, people); });
+  roster.reportsTo = roster.reportsTo || {};
+  roster.rows = roster.rows || 0;
   var teams = {};
   var overrides = { bm: parseEmailList_(options.buildingManagers), pm: parseEmailList_(options.projectManagers) };
   Object.keys(people).forEach(function (email) { teams[email] = teamFor_(email, !!directory.contacts[email], overrides); });
@@ -135,6 +138,8 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     people: people,
     orgs: Object.keys(people).reduce(function (o, e) { if (orgs[e]) o[e] = orgs[e]; return o; }, {}),
     teams: teams,
+    // Who reports to whom (GSA-Wide Roster), for the people named on projects and everyone above them.
+    reportsTo: roster.reportsTo,
     teamNames: TEAMS,
     prs: prs,
     portal: { read: readOk('portal', options.portalValues), url: str_(options.portalUrl), counts: portal.counts },
@@ -146,7 +151,8 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
       { key: 'directory', name: 'OFM Building Assignments', gives: 'Which zone, service center and field office each building is in, and its building managers', updated: directory.updated, rows: Object.keys(directory.buildings).length, link: str_(options.directoryLink) },
       { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved in Northeast Heartland (the portal covers NEH only), before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: readOk('portal', options.portalValues), error: errors.portal || readErrors.portal || '', off: !!options.portalOff },
       { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: readOk('ba54', options.ba54Values), error: errors.ba54 || readErrors.ba54 || '', off: !!options.ba54Off },
-      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff }
+      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff },
+      { key: 'roster', name: 'GSA-Wide Roster', gives: 'Who reports to whom, so supervisors see Needs attention for the people under them (nothing else is read)', updated: str_(options.rosterUpdated), rows: roster.rows, link: str_(options.rosterLink), read: readOk('roster', options.rosterValues), error: errors.roster || readErrors.roster || '', off: !!options.rosterOff }
     ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
@@ -530,4 +536,30 @@ var US_STATE_RE = /^(A[KLRZ]|C[AOT]|D[CE]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|
 
 function shortOfficeName_(name) {
   return str_(name).replace(/ Field Office$/, '');
+}
+
+/** GSA-Wide Roster columns the tracker reads (and the only ones). */
+var ROSTER_HEADERS = { email: 'Employee E-Mail Address', supervisor: 'Supervisor E-Mail Address', level: 'Supervisor Level Description', snapshot: 'Snapshot Date' };
+
+/**
+ * Reporting lines from the roster: each person named on a project, and everyone above them, to
+ * their supervisor. Nobody else is kept.
+ * @param {Array[]} rosterValues  [['email', 'supervisor', 'level'], ...] (readRoster_), or [] when not read.
+ * @param {Object}  people        { email: name } of everyone named on projects.
+ * @return {{ reportsTo: Object, rows: number }}
+ */
+function reportingLines_(rosterValues, people) {
+  var all = {}, rows = 0;
+  (rosterValues || []).forEach(function (r, i) {
+    if (i === 0) return;
+    var e = str_(r[0]).toLowerCase(), s = str_(r[1]).toLowerCase();
+    if (!e) return;
+    rows++;
+    if (s && s !== e) all[e] = s;
+  });
+  var out = {};
+  Object.keys(people || {}).forEach(function (e) {
+    for (var n = 0; all[e] && !out[e] && n < 25; e = all[e], n++) out[e] = all[e];
+  });
+  return { reportsTo: out, rows: rows };
 }

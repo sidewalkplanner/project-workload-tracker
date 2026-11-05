@@ -103,6 +103,43 @@ test('leaders: what each one is over, from the sheet and from LEADERS', () => {
   assert.strictEqual(JSON.parse(rt.ctx.apiLoad()).user.portfolio, null, 'a place that does not exist gives nothing');
 });
 
+test('GSA-Wide Roster: a supervisor\'s Needs attention covers everyone under them, and nothing but reporting lines is read', () => {
+  const src = demoSources();
+  const res = load(runtimeWith(src, 'pm.supervisor@gsa.gov'));
+  const pf = res.user.portfolio;
+  assert.ok(pf && pf.team && pf.people.length === 6, 'six project managers report to the demo supervisor: ' + JSON.stringify(pf));
+  assert.strictEqual(pf.reports, 6);
+  assert.strictEqual(res.user.leader, true);
+  // Through a level: the branch chief is over both supervisors' people; their own director too.
+  const chief = load(runtimeWith(src, 'branch.chief@gsa.gov')).user.portfolio;
+  const everyone = src.roster.length - 4;
+  assert.strictEqual(chief.people.length >= everyone - 2 && chief.people.length <= everyone, true, 'the branch chief is over everyone below: ' + chief.people.length + ' of ' + everyone);
+  const director = load(runtimeWith(src, 'lee.rockies@gsa.gov')).user.portfolio;
+  assert.ok(director.serviceCenters.length === 1 && director.people.length === chief.people.length, 'a director keeps their service center and gets the people under them');
+  // Someone with nobody under them is no leader.
+  const pm = src.roster[src.roster.length - 1][3];
+  assert.strictEqual(load(runtimeWith(src, pm)).user.portfolio, null);
+  // The page never gets the roster: no reporting lines, no pay.
+  const rt = runtimeWith(src, 'someone@gsa.gov');
+  const page = JSON.parse(rt.ctx.apiLoad({ packed: true }));
+  const base = JSON.parse(require('zlib').gunzipSync(Buffer.from(page.gz, 'base64')).toString());
+  assert.strictEqual(base.reportsTo, undefined, 'reporting lines stay on the server');
+  assert.ok(!/99999/.test(JSON.stringify(rt.ctx.loadPacked_().meta)), 'no pay anywhere in the snapshot');
+  const source = base.sources.find((s) => s.key === 'roster');
+  assert.ok(source.read && source.rows === src.roster.length - 1 && source.updated === '2026-11-04', JSON.stringify(source));
+});
+
+test('the roster can be turned off, and an unreadable roster leaves everything else working', () => {
+  const src = demoSources();
+  let rt = runtimeWith(src, 'pm.supervisor@gsa.gov');
+  rt.props.ROSTER_ID = 'OFF';
+  assert.strictEqual(load(rt).user.portfolio, null);
+  rt = runtimeWith(Object.assign({}, src, { roster: [['Something', 'Else'], ['a', 'b']] }), 'pm.supervisor@gsa.gov');
+  const res = load(rt);
+  assert.strictEqual(res.user.portfolio, null);
+  assert.ok(res.data.prs.length > 100 && /no "Employee E-Mail Address" column/.test(res.data.sources.find((s) => s.key === 'roster').error));
+});
+
 test('LEADERS: spaces, Windows line breaks, zone numbers, typos and org codes', () => {
   const src = demoSources();
   const rt = runtimeWith(src, 'a@gsa.gov');
@@ -423,7 +460,7 @@ test('BA54 tracker: current-program projects with no recent PR are added', () =>
   assert.strictEqual(carrier.length, 1, 'and that PR shows the BA54 plan');
   assert.ok(d.prs.every((p) => !p.plans.some((x) => x.id === 'RCO90002')), 'an old PR on the code does not');
   // Where this comes from: every source, with how fresh it is.
-  assert.deepStrictEqual(d.sources.map((s) => s.key), ['easi', 'directory', 'portal', 'ba54', 'rwa']);
+  assert.deepStrictEqual(d.sources.map((s) => s.key), ['easi', 'directory', 'portal', 'ba54', 'rwa', 'roster']);
   assert.strictEqual(d.sources[3].updated, '2026-10-30');
   assert.ok(d.sources.filter((s) => s.read !== false).every((s) => s.rows > 0 && s.name && s.gives));
   assert.ok(numbers.indexOf('RCO90002') !== -1, 'a PR from years before the plan does not count');

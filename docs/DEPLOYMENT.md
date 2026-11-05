@@ -4,6 +4,7 @@ About 15 minutes, all in the browser. Do this signed in with the GSA account tha
 
 - **WLT - BA61 Pipeline**: https://docs.google.com/spreadsheets/d/1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU
 - **OFM Building Assignments**: https://docs.google.com/spreadsheets/d/1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw
+- **GSA-Wide Roster** (who reports to whom, for supervisors' Needs attention; only the email, supervisor email and supervisor level columns are read): https://docs.google.com/spreadsheets/d/1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ
 - **NEH BA61 Portal – Data** (the BA61 Project Portal's own sheet, for projects not in EASi yet): https://docs.google.com/spreadsheets/d/1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y
 
 - **BA54 National Tracker** (for BA54 projects not in EASi yet): https://docs.google.com/spreadsheets/d/1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8
@@ -89,7 +90,7 @@ After the first refresh, a Google Sheet named **National Project Overview Dashbo
 All optional, in **Project Settings** › **Script properties**:
 
 - `ADMIN_EMAILS`: comma-separated emails that may press **Refresh** any time (everyone else: once every 10 minutes).
-- `LEADERS`: zone heads, enterprise heads and project management supervisors, and what each is over, so their Needs attention covers it. For example: `zone.head@gsa.gov = Zone 5; ent.head@gsa.gov = NEH; pm.supervisor@gsa.gov = pat.pm@gsa.gov, sam.pm@gsa.gov; branch.chief@gsa.gov = PMCGCA`. Field Office Managers and Service Center Directors need no entry. The editor's log warns about a place it doesn't recognize.
+- `LEADERS`: usually not needed: supervisors come from the GSA-Wide Roster. Use it to add what the sheets don't say, such as a zone or enterprise head's place, so they also open on it. For example: `zone.head@gsa.gov = Zone 5; ent.head@gsa.gov = NEH; pm.supervisor@gsa.gov = pat.pm@gsa.gov, sam.pm@gsa.gov; branch.chief@gsa.gov = PMCGCA`. Field Office Managers and Service Center Directors need no entry. The editor's log warns about a place it doesn't recognize.
 - `ENTERPRISE`: `ALL` (the default) covers every enterprise; `Northeast Heartland` (or another enterprise's name in the OFM Building Assignments sheet) narrows the app to one, as before. `APP_NAME` sets the page title and heading (default `National Project Overview Dashboard`).
 - `ZONE`: track only one zone (for example `5`); blank covers every zone.
 - `BUILDING_MANAGER_EMAILS`, `PROJECT_MANAGER_EMAILS`: comma-separated emails that correct someone's role in the building manager / project manager split.

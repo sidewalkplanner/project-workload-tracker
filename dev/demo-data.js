@@ -226,7 +226,18 @@ function demoSources(count) {
     rwa.push(row);
   });
 
-  return { pipeline, reportInfo, buildings, org, portal, ba54, ba54Dashboard, rwa };
+  // A made-up GSA-Wide Roster: everyone named on a PR reports to a project management supervisor,
+  // who reports to a branch chief. Pay and other columns are there (as in the real one) but never read.
+  const rosterHeader = ['Snapshot Date', 'GSA SSO', 'Full Name', 'Employee E-Mail Address', 'Total Pay', 'Supervisor Level', 'Supervisor Level Description', 'Supervisor Display Name', 'Supervisor E-Mail Address'];
+  const everyone = [...new Set(pipeline.slice(1).flatMap((r) => [r[HEADER.indexOf('Contracting_Officer_Representative')], r[HEADER.indexOf('Contact_Requestor')]].join(',').split(/[\s,]+/)).filter((e) => /@/.test(e)))].sort();
+  const rosterRow = (email, boss, level) => ['2026-11-04T05:00:00.000Z', 'PBS', email.split('@')[0], email, 99999, level === 'Non-Supervisory' ? '8' : '2', level, (boss || '').split('@')[0], boss || ''];
+  const roster = [rosterHeader,
+    rosterRow('branch.chief@gsa.gov', 'lee.rockies@gsa.gov', 'Supervisor or Manager'),
+    rosterRow('pm.supervisor@gsa.gov', 'branch.chief@gsa.gov', 'Supervisor or Manager'),
+    rosterRow('other.supervisor@gsa.gov', 'branch.chief@gsa.gov', 'Supervisor or Manager')]
+    .concat(everyone.map((e, i) => rosterRow(e, i < 6 ? 'pm.supervisor@gsa.gov' : 'other.supervisor@gsa.gov', 'Non-Supervisory')));
+
+  return { pipeline, reportInfo, buildings, org, portal, ba54, ba54Dashboard, rwa, roster };
 }
 
 /**

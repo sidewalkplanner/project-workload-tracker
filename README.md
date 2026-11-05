@@ -1,12 +1,13 @@
 # National Project Overview Dashboard
 
-The National Project Overview Dashboard (formerly OFM Projects, NEH Projects and the NEH Project Workload Tracker) is a Google Apps Script web app for seeing everything about OFM's projects across the country in one place: all three enterprises (Capital, Northeast & Heartland, Pacific Gulf), seven zones, 19 service centers and 84 field offices. It puts what is planned (the BA61 portal, the BA54 tracker, RWAs and work requests) next to what EASi shows, from draft PR to paid in full, and who is carrying each project, so workload stays one of its main views. Each person still opens on their own office, service center or enterprise. One setting (`ENTERPRISE`) narrows the whole app back to a single enterprise. It reads five Google Sheets and never changes them:
+The National Project Overview Dashboard (formerly OFM Projects, NEH Projects and the NEH Project Workload Tracker) is a Google Apps Script web app for seeing everything about OFM's projects across the country in one place: all three enterprises (Capital, Northeast & Heartland, Pacific Gulf), seven zones, 19 service centers and 84 field offices. It puts what is planned (the BA61 portal, the BA54 tracker, RWAs and work requests) next to what EASi shows, from draft PR to paid in full, and who is carrying each project, so workload stays one of its main views. Each person still opens on their own office, service center or enterprise. One setting (`ENTERPRISE`) narrows the whole app back to a single enterprise. It reads six Google Sheets and never changes them:
 
 - the APS Workload Tracker **BA61 Pipeline** report (every purchase request in EASi, refreshed each morning),
 - the **OFM Building Assignments** sheet (which zone, service center and field office each building belongs to, and its Field Office Manager),
 - the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet (the portal covers NEH only, so other enterprises have no portal projects), and
 - the **BA54 National Tracker** (its Current Program tab), for BA54 projects in the current program that have no PR in EASi yet, and
-- the **All Open RWAs and WRs Dashboard** (its Detailed Data tab), for RWAs and RETA work requests: the ones with no PR yet, and the customer and authorized amount behind the PRs that have one.
+- the **All Open RWAs and WRs Dashboard** (its Detailed Data tab), for RWAs and RETA work requests: the ones with no PR yet, and the customer and authorized amount behind the PRs that have one, and
+- the **GSA-Wide Roster**, for who reports to whom (only its employee email, supervisor email and supervisor level columns are read; nothing else in it, such as pay, is read or kept).
 
 > **Setting it up?** Follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It takes about 15 minutes in the browser, with nothing to install.
 
@@ -30,7 +31,7 @@ Four tabs, all following the same filters.
 
 **Needs attention**: checks over the data, grouped as *Money* (RWA funds closing within 120 days with no award; committed more than 25% over the plan; awarded over a year ago with nothing paid), *Taking long* (awarded with no new payment in 90+ days; past the plan's own commitment month (BA61 portal) or PR routing month (BA54 tracker) with no PR; approved 60+ days ago with no PR; 60+ days as a draft PR or 30+ days in review or waiting for a contract specialist) and *Fix in the source* (cancelled or denied in the portal but has a PR; nobody assigned; a person named with no email found; a BA54 row with no PCN; a PR with no building in EASi). Each says why it matters, lists the most pressing first, and opens all of them in Projects.
 
-**Who sees Needs attention**: each leader sees it for what they are over, wherever the page is: a Field Office Manager for their office(s) and a Service Center Director for their service center (both from the OFM Building Assignments sheet), and zone heads, enterprise heads and project management supervisors for what `LEADERS` lists for them (a place, their project managers, or a team's org code). Their own projects are always included. Admins see it for whatever the filters show. Everyone else gets a smaller **Your projects that need attention** card, and the tab, only when something on a project they are named on is flagged, in any office.
+**Who sees Needs attention**: each leader sees it for what they are over, wherever the page is: a Field Office Manager for their office(s) and a Service Center Director for their service center (both from the OFM Building Assignments sheet), and every supervisor for the projects of everyone under them in the GSA-Wide Roster, at any depth (so a project management supervisor sees their project managers', and a zone or enterprise head everyone's below them). `LEADERS` adds anything the sheets don't say (a place for a zone or enterprise head, extra people, a team's org code). Their own projects are always included. The page never receives the roster: the server works out each viewer's team when they open it. Admins see it for whatever the filters show. Everyone else gets a smaller **Your projects that need attention** card, and the tab, only when something on a project they are named on is flagged, in any office.
 
 ![Needs attention for one field office (demo data)](docs/img/attention.png)
 
@@ -109,7 +110,8 @@ The server reads the sheets, keeps OFM's buildings (or one enterprise's, when `E
 | `ZONE` | blank = every zone; `5` = only Zone 5 |
 | `BUILDING_MANAGER_EMAILS` / `PROJECT_MANAGER_EMAILS` | blank; comma-separated emails that correct the building manager / project manager split for individual people |
 | `ADMIN_EMAILS` | blank (the deployer is always an admin) |
-| `LEADERS` | blank; who leads what beyond the sheet's office managers and directors, for Needs attention, as `email = place, place; email = …`. A place is `Zone 5`, an enterprise (`NEH`, `Capital`), a service center, a field office, `All`, a project manager's email (a supervisor's team), or an org code (`PMCGCA`, covering every code that starts with it). A leader of just one zone or enterprise also opens the page there. |
+| `ROSTER_ID` / `ROSTER_TAB` | `1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ` (GSA-Wide Roster) / `GSA-Wide Roster`; `OFF` leaves reporting lines out. The deploying account needs view access. |
+| `LEADERS` | blank; who leads what beyond the sheets (office managers, directors, the roster's supervisors), for Needs attention, as `email = place, place; email = …`. A place is `Zone 5`, an enterprise (`NEH`, `Capital`), a service center, a field office, `All`, a project manager's email (a supervisor's team), or an org code (`PMCGCA`, covering every code that starts with it). A leader of just one zone or enterprise also opens the page there. |
 | `CACHE_MINUTES` | `360` |
 
 ## Developing locally
@@ -124,7 +126,7 @@ npm run preview          # http://localhost:8080 with made-up data; add ?as=sam.
 To test with the real sheets, download them as .xlsx (File › Download › Microsoft Excel), then:
 
 ```bash
-python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json "NEH BA61 Portal - Data.xlsx" "BA54 National Tracker.xlsx" "All Open RWAs and WRs Dashboard.xlsx"
+python3 tools/export_sheets.py "WLT - BA61 Pipeline.xlsx" "OFM Building Assignments.xlsx" /tmp/sources.json "NEH BA61 Portal - Data.xlsx" "BA54 National Tracker.xlsx" "All Open RWAs and WRs Dashboard.xlsx" "GSA-Wide Roster.xlsx"
 SOURCES_JSON=/tmp/sources.json npm test
 node dev/server.js --sources /tmp/sources.json
 node dev/flow.js http://localhost:8080          # clicks through filters, sorting, grouping, drill-downs, export
