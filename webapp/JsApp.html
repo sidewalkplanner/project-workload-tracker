@@ -3,14 +3,14 @@
    App shell, filters and the three views: Overview, Projects, Workload.
    ========================================================================== */
 var VIEWS = [
-  { key: 'home', label: 'Buildings' },
+  { key: 'home', label: 'Home' },
   { key: 'projects', label: 'All projects' },
   { key: 'attention', label: 'Needs attention' },
   { key: 'workload', label: 'People' },
   { key: 'overview', label: 'Summary' }
 ];
 /** Pages reached from a building or a project, not from the tabs; each belongs to a tab. */
-var PAGES = { building: 'home', project: 'home' };
+var PAGES = { building: 'home', project: 'home', office: 'home', person: 'home' };
 /** Views without the filter bar: the building pages show everything about their building. */
 function isBuildingPage(view) { return view === 'home' || !!PAGES[view]; }
 function viewExists(key) { return !!PAGES[key] || VIEWS.some(function (v) { return v.key === key; }); }
@@ -80,7 +80,7 @@ function start() {
   try {
     google.script.history.setChangeHandler(function (e) {
       var params = (e && e.location && e.location.parameter) || {};
-      S.view = 'home'; S.building = ''; S.project = '';
+      S.view = 'home'; S.building = ''; S.project = ''; S.officePage = ''; S.personPage = '';
       applyRoute(params);
       if (S.data) { render(); window.scrollTo(0, 0); }
     });
@@ -169,7 +169,11 @@ function applyRoute(r) {
   if (r.view && viewExists(r.view)) S.view = r.view;
   if (r.building && /^[A-Za-z0-9]{4,12}$/.test(r.building)) S.building = r.building.toUpperCase();
   if (r.project) S.project = r.project;
+  if (r.fo) S.officePage = r.fo;
+  if (r.who) S.personPage = r.who.indexOf('@') !== -1 ? r.who.toLowerCase() : r.who;
   if (S.view === 'building' && !S.building) S.view = 'home';
+  if (S.view === 'office' && !S.officePage) S.view = 'home';
+  if (S.view === 'person' && !S.personPage) S.view = 'home';
   if (S.view === 'project' && !S.project) S.view = S.building ? 'building' : 'home';
   if (r.office) f.office = r.office;
   if (r.sc) f.sc = r.sc;
@@ -225,8 +229,10 @@ function routeParams() {
   var f = S.filters, p = {};
   if (S.view !== 'home') p.view = S.view;
   if (isBuildingPage(S.view)) {
-    if (S.view !== 'home' && S.building) p.building = S.building;
+    if (S.view === 'building' || S.view === 'project') { if (S.building) p.building = S.building; }
     if (S.view === 'project') p.project = S.project;
+    if (S.view === 'office') p.fo = S.officePage;
+    if (S.view === 'person') p.who = S.personPage;
     return p;
   }
     if (f.office) p.office = f.office;
@@ -252,7 +258,9 @@ function syncUrl() {
 
 /**
  * Moves to a page and adds it to the browser history, so Back returns here:
- * navigate('building', { building: 'CO1085ZZ' }), navigate('project', { project: 'EQ…', building: … }).
+ * navigate('building', { building: 'CO1085ZZ' }), navigate('project', { project: 'EQ…', building: … }),
+ * navigate('office', { office: 'Denver Federal Center Field Office' }), navigate('person', { person: email }).
+ * A project page remembers the building it was opened from (S.building) for its Back button.
  */
 function navigate(view, opts) {
   opts = opts || {};
@@ -260,6 +268,8 @@ function navigate(view, opts) {
   S.view = view;
   S.building = opts.building !== undefined ? opts.building : (view === 'home' ? '' : S.building);
   S.project = view === 'project' ? opts.project : '';
+  if (opts.office !== undefined) S.officePage = opts.office;
+  if (opts.person !== undefined) S.personPage = opts.person;
   // Push first: render() then replaces the new entry, not the page being left.
   try { if (S.history) google.script.history.push(null, routeParams()); } catch (e) { /* outside Apps Script */ }
   render();
@@ -283,6 +293,8 @@ function render() {
   var main = h('main', { id: 'main', tabindex: '-1' });
   if (isBuildingPage(S.view)) {
     if (S.view === 'building') main.appendChild(buildingView(S.building));
+    else if (S.view === 'office') main.appendChild(officeView(S.officePage));
+    else if (S.view === 'person') main.appendChild(personView(S.personPage));
     else if (S.view === 'project') main.appendChild(projectPage(S.project));
     else main.appendChild(homeView());
     main.appendChild(footnote());
@@ -861,7 +873,7 @@ function projectRow(p, cols) {
     },
     title: function () {
       return h('td', { class: 'title-cell' }, h('div', { class: 't', title: p.title }, p.title),
-        h('div', { class: 'sub', title: p.buildingNames.join('\n') || null }, more(p.buildings, 2) || 'No building listed',
+        h('div', { class: 'sub' }, p.buildings.length ? buildingLinks(p, 2) : 'No building listed',
           p.subprojects && p.subprojects.length ? h('span', { class: 'tag', title: p.subprojects.map(function (s) { return s.id + ' ' + s.title; }).join('\n') }, p.subprojects.length + ' projects') : null,
           p.service ? h('span', { class: 'tag', title: p.service }, 'Service contract') : null),
         S.filters.check ? h('div', { class: 'attention-note' }, attentionDetail(S.filters.check, p)) : null);
@@ -899,9 +911,25 @@ function projectRow(p, cols) {
       return h('td', { class: 'award-cell' }, h('div', { class: 't1', title: p.vendor || null }, p.vendor || 'Vendor not listed'), p.executed ? h('div', { class: 'sub' }, fmtDate(p.executed)) : null);
     }
   };
-  var tr = h('tr', { class: 'clickable' }, (cols || projectColumns()).map(function (c) { return cells[c.key](); }));
+  // data-label: on a phone each row stacks into a card, labelled cell by cell.
+  var tr = h('tr', { class: 'clickable' }, (cols || projectColumns()).map(function (c) { var td = cells[c.key](); td.setAttribute('data-label', c.label); return td; }));
   activateRow(tr, function () { openDrawer(p); });
   return tr;
+}
+
+/** A project's building numbers as links to their building pages ("CO1085ZZ, CO1081ZZ +1"). */
+function buildingLinks(p, n) {
+  var shown = p.buildings.slice(0, n);
+  return [shown.map(function (b, i) {
+    return [i ? ', ' : '', h('button', { class: 'bldg-link', type: 'button', title: (p.buildingNames[i] || b) + '. Open the building’s page.',
+      onClick: function (ev) { ev.stopPropagation(); navigate('building', { building: b }); } }, b)];
+  }), p.buildings.length > n ? ' +' + (p.buildings.length - n) : ''];
+}
+
+/** Closes an open project panel without moving focus (the page is about to change). */
+function closeDrawers() {
+  document.querySelectorAll('.drawer-backdrop').forEach(function (b) { b.remove(); });
+  document.getElementById('app').inert = false;
 }
 
 function exportProjects(list) {
@@ -1055,7 +1083,9 @@ function projectDetail(p, close) {
     h('dl', { class: 'dl' },
       item('Field office', p.offices.join(', ') || '(service center level)'),
       item('Service center', p.serviceCenters.join(', ')),
-      item('Buildings', p.buildings.length ? p.buildings.map(function (b, i) { return b + ' · ' + (p.buildingNames[i] || ''); }).join('\n') : ''),
+      item('Buildings', p.buildings.length ? p.buildings.map(function (b, i) {
+        return [i ? h('br') : null, h('button', { class: 'link-btn', type: 'button', onClick: function () { closeDrawers(); navigate('building', { building: b }); } }, b + ' · ' + (p.buildingNames[i] || ''))];
+      }) : ''),
       p.placeNote ? item('Matched by', { title: 'Building number in the PR title (no building in EASi)', org: 'OFM org code (no building in EASi)', 'plan-office': 'Field office in ' + plannedName(p) + ' (no building number in the directory)' }[p.placeNote]) : null),
     h('div', { class: 'section-title' }, 'People'),
     h('dl', { class: 'dl' },

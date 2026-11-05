@@ -19,18 +19,22 @@ What was good, and stays: the plain-language EASi steps ("Out for bids", "Contra
 
 ## What it is now
 
-**Buildings** is the new first tab and the page everyone opens on.
+A project overview portal: one place for every project happening in our buildings, that anyone can look up by whatever they know — a building, a building manager, a project manager, a field office.
 
-- **Your buildings**: one card per building you're the ServiceNow contact for (or, for a Field Office Manager, every building in your office; otherwise the buildings where you have projects). Each card shows the building's name, number and city, how many projects are active, a strip showing where they are (planned, in contracting, under way), and a flag when something needs a look.
-- **Find a building**: one search box over every building in the enterprise, by name, number or city, including buildings with no projects.
-- **Needs a look**: only money at risk and stalled work, in your buildings, worded as what's wrong. The data clean-up checks stay on the Needs attention tab.
-- **Coming up**: planned projects in your buildings by the month they're due, with the year.
+**Home** is the new first tab and the page everyone opens on.
 
-**A building page** (its own link, and Back works): name, address, building managers with email buttons, then every project in the building in four plain groups: **Planned**, **In contracting**, **Under way**, **Finished**. Each project shows its title, its step in plain words and how long it's been there, its budget and spending, and who to email. Service contracts are listed separately at the bottom.
+- **One search box** over buildings (number, name, city), people (anyone named on a project), field offices and projects. Results are grouped by kind; pick one to go to its page.
+- **Shortcuts** for the person signed in, when they apply: your projects, your field office, the buildings you're the contact for.
+- **Field offices**, by zone, each with its buildings and open projects, for browsing.
 
-**A project page** (its own link): who to contact first, with email buttons, then everything the old project panel showed.
+Every building, person and field office has **its own page** (with its own link, and Back works), and all three show their projects the same way, in four plain groups: **Planned**, **In contracting**, **Under way**, **Finished**, with service contracts listed separately. Each project shows its title, its step in plain words and how long it's been there, its budget and spending, and who is assigned, with an email button.
 
-The old views stay, for the people who use them, under plainer names: **All projects** (the sortable table), **Needs attention**, **People** (workload) and **Summary** (the old Overview).
+- **A building page**: name, address, field office, building managers, then every project in the building.
+- **A person page**: name, email, role, and every project they're on, switchable by role (assigned, building manager, COR, contracting).
+- **A field office page**: the Field Office Manager, every building in the office, and every project.
+- **A project page**: who to contact first, then everything the old project panel showed. Names, buildings and the field office link to their pages.
+
+The old views stay, for the people who use them, under plainer names: **All projects** (the sortable table, now with building numbers that link to building pages), **Needs attention**, **People** (workload) and **Summary** (the old Overview). Office and person pages have an "Open in All projects" button for sorting and Excel.
 
 ## Plain words
 
