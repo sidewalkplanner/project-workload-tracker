@@ -1,13 +1,13 @@
 /**
  * Turns the EASi BA61 Pipeline report and the OFM Building Assignments sheet into the
- * dataset the page shows, for one enterprise (Northeast Heartland: Zones 2, 4 and 5) or
- * one zone of it. Pure functions: they take sheet values (2-D arrays) and return plain
+ * dataset the page shows: nationally (every enterprise: Capital, Northeast Heartland, Pacific
+ * Gulf), for one enterprise, or for one zone. Pure functions: they take sheet values (2-D arrays) and return plain
  * objects, so the tests run them in Node.
  *
  * A PR is in scope when one of its buildings is in scope in the OFM Building Assignments
  * sheet. Buildings come from FE_Building_Code_List; when that is blank, from building
  * numbers written in the PR title. A PR with no building but an in-scope OFM org code
- * (P00MCF00 = Heartland, P00MCA00 = New England, ...) is kept under its service center.
+ * (P00MCF00 = Heartland, P00MAB00 = Potomac, P00MBE00 = Pacific Northwest, ...) is kept under its service center.
  * A PR on buildings in several field offices is listed under each of them.
  *
  * Projects planned in the BA61 portal, the BA54 tracker or the RWA dashboard with no PR in
@@ -19,7 +19,7 @@
  * @param {Array[]} pipelineValues  The Pipeline tab, header row first.
  * @param {Array[]} buildingValues  The Buildings tab (the header row is found by "Building Number").
  * @param {Array[]} orgValues       The Org Relationships tab (optional).
- * @param {Object}  options         { enterprise: 'Northeast Heartland', short: 'NEH', zone: '' (all), generatedAt, orgCodes,
+ * @param {Object}  options         { enterprise: 'ALL' (or one, e.g. 'Northeast Heartland'), short: label override, zone: '' (all), generatedAt, orgCodes,
  *                                    portalValues (the BA61 portal's Projects tab), portalUrl,
  *                                    ba54Values (the BA54 tracker's Current Program tab), ba54Link,
  *                                    rwaValues (the RWA dashboard's Detailed Data tab), rwaLink,
@@ -27,7 +27,9 @@
  */
 function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
   options = options || {};
-  var scope = { enterprise: str_(options.enterprise), zone: zoneOf_(options.zone) };
+  // ENTERPRISE "ALL" (or "National") covers every enterprise in the building directory.
+  var enterprise = /^(all|national|nationwide)$/i.test(str_(options.enterprise)) ? '' : str_(options.enterprise);
+  var scope = { enterprise: enterprise, zone: zoneOf_(options.zone) };
   var directory = readDirectory_(buildingValues, orgValues, scope);
   var prs = [];
   var skipped = { otherZones: 0, noBuilding: 0 };
@@ -118,8 +120,10 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     enterprise: scope.enterprise,
     zone: scope.zone,
     zones: directory.zones,
-    // What the page calls the whole area: "NEH", or "Zone 5" when one zone is set.
-    scopeLabel: scope.zone ? 'Zone ' + scope.zone : (str_(options.short) || scope.enterprise || 'All zones'),
+    // Enterprises in scope, each with its zones (the page's Enterprise filter).
+    enterprises: directory.enterprises,
+    // What the page calls the whole area: "National", "NEH", or "Zone 5" when one zone is set.
+    scopeLabel: scope.zone ? 'Zone ' + scope.zone : (str_(options.short) || (scope.enterprise ? ENTERPRISE_SHORT_NAMES[scope.enterprise] || scope.enterprise : 'National')),
     generatedAt: str_(options.generatedAt),
     directoryUpdated: directory.updated,
     builtAt: new Date().toISOString(),
@@ -140,9 +144,9 @@ function buildDataset_(pipelineValues, buildingValues, orgValues, options) {
     sources: [
       { key: 'easi', name: 'EASi BA61 Pipeline report', gives: 'Every purchase request in EASi, from draft to paid in full', updated: str_(options.generatedAt), rows: Math.max(0, pipelineValues.length - 1), link: str_(options.pipelineLink) },
       { key: 'directory', name: 'OFM Building Assignments', gives: 'Which zone, service center and field office each building is in, and its building managers', updated: directory.updated, rows: Object.keys(directory.buildings).length, link: str_(options.directoryLink) },
-      { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved, before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: readOk('portal', options.portalValues), error: errors.portal || readErrors.portal || '', off: !!options.portalOff },
+      { key: 'portal', name: 'NEH BA61 Project Portal', gives: 'BA61 projects planned or approved in Northeast Heartland (the portal covers NEH only), before and after their PR', updated: portal.updated, rows: portal.counts.rows, link: str_(options.portalUrl), read: readOk('portal', options.portalValues), error: errors.portal || readErrors.portal || '', off: !!options.portalOff },
       { key: 'ba54', name: 'BA54 National Tracker', gives: 'The BA54 current program, before and after its PRs', updated: str_(options.ba54Updated), rows: ba54.counts.rows, link: str_(options.ba54Link), read: readOk('ba54', options.ba54Values), error: errors.ba54 || readErrors.ba54 || '', off: !!options.ba54Off },
-      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request on an NEH building: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff }
+      { key: 'rwa', name: 'All Open RWAs and WRs Dashboard', gives: 'Every open RWA and work request: customer, authorized amount, GSA PM', updated: rwa.updated, rows: rwa.counts.rows, link: str_(options.rwaLink), read: readOk('rwa', options.rwaValues), error: errors.rwa || readErrors.rwa || '', off: !!options.rwaOff }
     ],
     counts: { pipelineRows: Math.max(0, pipelineValues.length - 1), zonePrs: prs.length - planned.length, otherZones: skipped.otherZones, noBuilding: skipped.noBuilding }
   };
@@ -188,7 +192,8 @@ function readDirectory_(buildingValues, orgValues, scope) {
     if (scope.zone && zoneOf_(zone) !== scope.zone) return false;
     return !!str_(zone) || !!str_(enterprise);
   };
-  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {}, contacts: {}, zones: [] };
+  var out = { buildings: {}, offices: [], serviceCenters: [], updated: '', officeByName: {}, scByCode: {}, contacts: {}, zones: [], enterprises: [] };
+  var enterprises = {};
   buildingValues = buildingValues || [];
   var headerRow = -1;
   for (var r = 0; r < Math.min(buildingValues.length, 15); r++) {
@@ -218,6 +223,11 @@ function readDirectory_(buildingValues, orgValues, scope) {
     var foName = str_(row[idx.fo]);
     var scName = str_(row[idx.sc]);
     var dept = idx.dept === -1 ? '' : str_(row[idx.dept]).toUpperCase();
+    var ent = idx.enterprise === -1 ? '' : str_(row[idx.enterprise]);
+    if (ent) {
+      var e = enterprises[ent] = enterprises[ent] || { name: ent, short: ENTERPRISE_SHORT_NAMES[ent] || ent, zones: [] };
+      if (zone && e.zones.indexOf(zone) === -1) e.zones.push(zone);
+    }
     out.buildings[number] = {
       number: number,
       name: titleCase_(str_(row[idx.name])),
@@ -231,12 +241,12 @@ function readDirectory_(buildingValues, orgValues, scope) {
     // Everyone ServiceNow lists for a zone building, primary or secondary: the building managers.
     out.buildings[number].manager.concat(idx.secondary === -1 ? [] : parseEmailList_(row[idx.secondary]))
       .forEach(function (e) { out.contacts[e] = true; });
-    if (foName && !offices[foName]) offices[foName] = { name: foName, short: shortOfficeName_(foName), serviceCenter: scName, zone: zone, code: dept, manager: '', director: '', buildings: 0 };
+    if (foName && !offices[foName]) offices[foName] = { name: foName, short: shortOfficeName_(foName), serviceCenter: scName, zone: zone, enterprise: ent, code: dept, manager: '', director: '', buildings: 0 };
     if (foName) {
       offices[foName].buildings++;
       if (!offices[foName].code && dept) offices[foName].code = dept;
     }
-    if (scName && !serviceCenters[scName]) serviceCenters[scName] = { name: scName, short: scName.replace(/ Service Center$/, ''), zone: zone, code: dept.slice(0, 4), director: '' };
+    if (scName && !serviceCenters[scName]) serviceCenters[scName] = { name: scName, short: scName.replace(/ Service Center$/, ''), zone: zone, enterprise: ent, code: dept.slice(0, 4), director: '' };
     if (zone && out.zones.indexOf(zone) === -1) out.zones.push(zone);
   }
 
@@ -256,6 +266,8 @@ function readDirectory_(buildingValues, orgValues, scope) {
   out.serviceCenters = Object.keys(serviceCenters).map(function (k) { return serviceCenters[k]; })
     .sort(function (a, b) { return a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name); });
   out.zones.sort();
+  out.enterprises = Object.keys(enterprises).map(function (k) { enterprises[k].zones.sort(); return enterprises[k]; })
+    .sort(function (a, b) { return a.zones[0].localeCompare(b.zones[0]) || a.name.localeCompare(b.name); });
   out.offices.forEach(function (o) { out.officeByName[o.name] = o; });
   out.serviceCenters.forEach(function (s) { if (s.code) out.scByCode[s.code] = s; });
   return out;

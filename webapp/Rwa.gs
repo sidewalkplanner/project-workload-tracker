@@ -100,7 +100,7 @@ function rwaProjects_(values, inEasi, directory, people, rowLink) {
     var get = function (key) { return col[key] === -1 ? '' : row[col[key]]; };
     var number = rwaNumber_(get('number'));
     if (!number) continue;
-    // Only NEH buildings (or offices) count, matched or not.
+    // Only buildings (or offices) in scope count, matched or not.
     var place = plannedPlace_(get('building'), get('office'), directory);
     if (!place) { out.counts.otherZones++; continue; }
     out.counts.rows++;

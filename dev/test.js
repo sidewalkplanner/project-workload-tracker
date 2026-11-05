@@ -5,7 +5,13 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
-const { createRuntime, sheetsFrom } = require('./gas-mock');
+const mock = require('./gas-mock');
+const { sheetsFrom } = mock;
+// Most tests check behavior inside one enterprise (the demo data is NEH plus one Seattle building
+// outside it); national tests pass ENTERPRISE: 'ALL' themselves.
+function createRuntime(opts) {
+  return mock.createRuntime(Object.assign({}, opts, { properties: Object.assign({ ENTERPRISE: 'Northeast Heartland' }, (opts && opts.properties) || {}) }));
+}
 const { demoSources, demoDirectory } = require('./demo-data');
 
 const tests = [];
@@ -463,36 +469,74 @@ test('stage history: days in stage, changes between refreshes, plans before thei
   assert.strictEqual(Object.keys(gone.items).length, 0);
 });
 
-test('the snapshot travels compact and in two parts, and comes back whole', () => {
+test('the snapshot travels compact and in parts, and comes back whole', () => {
   const vm = require('vm');
   const rt = runtimeWith(demoSources());
   const full = JSON.parse(rt.ctx.refreshDataset_());
   const packed = rt.ctx.loadPacked_();
-  const first = JSON.parse(rt.ctx.gunzipText_(packed.gz));
+  const base = JSON.parse(rt.ctx.gunzipText_(packed.gzBase));
+  const parts = Object.keys(packed.gzParts).map((e) => JSON.parse(rt.ctx.gunzipText_(packed.gzParts[e])));
   const later = JSON.parse(rt.ctx.gunzipText_(packed.gzLater));
-  assert.strictEqual(first.prs.length + later.length, full.prs.length);
-  assert.strictEqual(first.laterCount, later.length);
-  assert.ok(first.prs.every((p) => !p.service && p.stage !== 'expended'), 'open projects come first');
+  const first = [].concat(...parts);
+  assert.strictEqual(first.length + later.length, full.prs.length);
+  assert.strictEqual(base.laterCount, later.length);
+  assert.ok(first.every((p) => !p.service && p.stage !== 'expended'), 'open projects come first');
   assert.ok(later.length && later.every((p) => p.service || p.stage === 'expended'));
   // Every field comes back as it was (except the two the page never shows).
+  // (Planned projects never carried the EASi fields they lack; the page always filled those in.)
   const strip = (p) => { const c = Object.assign({}, p); delete c.assigned; delete c.reserved; return c; };
   const byPr = {};
-  // (Planned projects never carried the EASi fields they lack; the page always filled those in.)
-  full.prs.forEach((p) => { byPr[(p.source || '') + p.pr] = rt.ctx.expandProject_(strip(p), first); });
+  full.prs.forEach((p) => { byPr[(p.source || '') + p.pr] = rt.ctx.expandProject_(strip(p), base); });
   const back = rt.ctx.unpackDataset_(packed);
+  assert.strictEqual(back.prs.length, full.prs.length);
   back.prs.forEach((p) => assert.deepStrictEqual(JSON.parse(JSON.stringify(p)), JSON.parse(JSON.stringify(byPr[(p.source || '') + p.pr])), p.pr));
   // The page's expandProject (JsCore) rebuilds exactly what the server's does.
   const core = fs.readFileSync(__dirname + '/../webapp/JsCore.html', 'utf8');
   const pick = (name) => core.slice(core.indexOf('function ' + name + '('), core.indexOf('\n}\n', core.indexOf('function ' + name + '(')) + 2);
   const page = vm.createContext({});
   vm.runInContext(pick('expandProject') + pick('buildingFacts'), page);
-  first.prs.concat(later).forEach((c) => {
-    const a = JSON.parse(JSON.stringify(page.expandProject(c, first))); delete a._x;
-    assert.deepStrictEqual(a, JSON.parse(JSON.stringify(rt.ctx.expandProject_(c, first))));
+  first.concat(later).forEach((c) => {
+    const a = JSON.parse(JSON.stringify(page.expandProject(c, base))); delete a._x;
+    assert.deepStrictEqual(a, JSON.parse(JSON.stringify(rt.ctx.expandProject_(c, base))));
   });
   // Smaller than sending it all.
   const whole = rt.ctx.gzipText_(JSON.stringify(full)).length;
-  assert.ok(packed.gz.length < whole * 0.75, packed.gz.length + ' vs ' + whole);
+  const firstSize = packed.gzBase.length + Object.keys(packed.gzParts).reduce((t, e) => t + packed.gzParts[e].length, 0);
+  assert.ok(firstSize < whole * 0.75, firstSize + ' vs ' + whole);
+});
+
+test('national: every enterprise, an Enterprise filter, and each viewer loads their own first', () => {
+  const src = demoSources();
+  // One PR on buildings in two enterprises (NEH and the Seattle building in Pacific Gulf).
+  const h = src.pipeline[0];
+  const two = src.pipeline[1].slice();
+  two[h.indexOf('PR_Number')] = 'EQTWO-27-0001';
+  two[h.indexOf('FE_Building_Code_List')] = two[h.indexOf('FE_Building_Code_List')] + ', WA0001ZZ';
+  two[h.indexOf('Acquisition_Status')] = 'PR Approved, Pending Assignment';
+  src.pipeline.push(two);
+  const rt = mock.createRuntime({ quiet: true, sheets: sheetsFrom(src), properties: { ENTERPRISE: 'ALL' } });
+  const d = JSON.parse(rt.ctx.apiLoad()).data;
+  assert.strictEqual(d.scopeLabel, 'National');
+  assert.deepStrictEqual(d.enterprises.map((e) => e.name), ['Northeast Heartland', 'Pacific Gulf']);
+  assert.deepStrictEqual(d.enterprises[0].zones.slice(), ['2', '4', '5']);
+  assert.ok(d.offices.some((o) => o.name === 'Seattle Field Office' && o.enterprise === 'Pacific Gulf'));
+  assert.ok(d.prs.some((p) => p.pr === 'EQ10P-26-0001'), 'the Seattle PR is in national scope');
+  assert.strictEqual(d.prs.filter((p) => p.pr === 'EQTWO-27-0001').length, 1, 'a two-enterprise PR is listed once');
+  // A Denver FC manager's page carries NEH only; the rest comes after.
+  const packed = rt.ctx.loadPacked_();
+  const someone = { manages: ['Denver Federal Center Field Office'], directs: [], orgOffice: '', orgSc: '' };
+  const first = rt.ctx.firstLoad_(packed, someone);
+  assert.deepStrictEqual(Object.keys(first.parts), ['Northeast Heartland']);
+  const rest = rt.ctx.restLoad_(packed, Object.keys(first.parts));
+  assert.deepStrictEqual(Object.keys(rest.parts), ['Pacific Gulf']);
+  assert.ok(rest.later.length > 0);
+  // Someone the tracker can't place gets every enterprise at once.
+  assert.deepStrictEqual(Object.keys(rt.ctx.firstLoad_(packed, { manages: [], directs: [] }).parts).sort(), ['Northeast Heartland', 'Pacific Gulf']);
+  // The two-enterprise PR is in both parts (so each enterprise's view has it at once).
+  const inPart = (e) => JSON.parse(rt.ctx.gunzipText_(packed.gzParts[e])).some((p) => p.pr === 'EQTWO-27-0001');
+  assert.ok(inPart('Northeast Heartland') && inPart('Pacific Gulf'));
+  // Org codes place PRs with no building under any service center (PMB… is Pacific Gulf).
+  assert.strictEqual(rt.ctx.OFM_ORG_RE.exec('P00MBE00')[1], 'BE');
 });
 
 test('helpers: dates, money, names, emails', () => {

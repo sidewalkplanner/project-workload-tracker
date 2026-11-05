@@ -110,7 +110,7 @@ var S = {
   data: null,
   user: null,
   view: 'overview',
-  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', planned: true, check: '' },
+  filters: { sc: '', office: '', programs: PROGRAM_LABELS.slice(), status: 'open', stage: '', fy: '', q: '', person: null, type: 'projects', team: 'all', zone: '', enterprise: '', planned: true, check: '' },
   projects: { sort: [{ key: 'stageOrder', dir: 1 }], group: '', collapsed: {}, limit: 400, groupLimit: {} },
   workload: { role: 'lead', sort: [{ key: 'count', dir: -1 }], byOffice: false },
   officesSort: [{ key: 'count', dir: -1 }],
@@ -231,6 +231,43 @@ function buildingFacts(buildings, index) {
   return { names: names, managers: managers };
 }
 
+/** The enterprise a zone belongs to ('' when unknown). */
+function enterpriseOfZone(zone) {
+  var e = (S.data.enterprises || []).filter(function (x) { return x.zones.indexOf(zone) !== -1; })[0];
+  return e ? e.name : '';
+}
+
+/** The enterprises a project is in, from its zones. */
+function enterprisesOf(p) {
+  if (!p._ents) p._ents = (p.zones || []).map(enterpriseOfZone).filter(function (e, i, a) { return e && a.indexOf(e) === i; });
+  return p._ents;
+}
+
+/** An enterprise's short name ("NEH"), or its full name. */
+function enterpriseShort(name) {
+  var e = (S.data.enterprises || []).filter(function (x) { return x.name === name; })[0];
+  return e ? e.short : name;
+}
+
+/**
+ * Sets where the page looks, keeping the levels consistent: an office sets its service center,
+ * zone and enterprise; a zone its enterprise; a wider choice clears the narrower ones.
+ */
+function setPlace(level, value) {
+  var f = S.filters, d = S.data;
+  if (level === 'office') {
+    var o = d.offices.filter(function (x) { return x.name === value; })[0];
+    f.office = o ? o.name : ''; if (o) { f.sc = o.serviceCenter; f.zone = o.zone; f.enterprise = o.enterprise || enterpriseOfZone(o.zone); }
+  } else if (level === 'sc') {
+    var sc = d.serviceCenters.filter(function (x) { return x.name === value; })[0];
+    f.office = ''; f.sc = sc ? sc.name : ''; if (sc) { f.zone = sc.zone; f.enterprise = sc.enterprise || enterpriseOfZone(sc.zone); }
+  } else if (level === 'zone') {
+    f.office = ''; f.sc = ''; f.zone = value; if (value) f.enterprise = enterpriseOfZone(value);
+  } else {
+    f.office = ''; f.sc = ''; f.zone = ''; f.enterprise = value;
+  }
+}
+
 /** Prepares the loaded dataset: every project whole again, stage order, searchable text, each person's home office. */
 function prepareData(data) {
   if (data.compact) data.prs = data.prs.map(function (c) { return expandProject(c, data); });
@@ -290,6 +327,7 @@ function filtered(skip) {
     if (!skip.place && f.office && p.offices.indexOf(f.office) === -1) return false;
     if (!skip.place && !f.office && f.sc && p.serviceCenters.indexOf(f.sc) === -1) return false;
     if (!skip.place && !f.office && !f.sc && f.zone && (p.zones || []).indexOf(f.zone) === -1) return false;
+    if (!skip.place && !f.office && !f.sc && !f.zone && f.enterprise && enterprisesOf(p).indexOf(f.enterprise) === -1) return false;
     if (progs.length < PROGRAM_LABELS.length && !programLabels(p).some(function (l) { return progs.indexOf(l) !== -1; })) return false;
     if (!skip.status) {
       if (f.stage) { if (p.stage !== f.stage) return false; }
@@ -309,6 +347,7 @@ function officesInScope() {
     if (f.office) return o.name === f.office;
     if (f.sc) return o.serviceCenter === f.sc;
     if (f.zone) return o.zone === f.zone;
+    if (f.enterprise) return o.enterprise === f.enterprise;
     return true;
   });
 }

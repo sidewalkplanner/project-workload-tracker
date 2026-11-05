@@ -2,18 +2,18 @@
  * Reading the source sheets and keeping a built snapshot in the script cache, so
  * page loads don't re-read 10,000 pipeline rows. The sheets are only ever read.
  *
- *   loadPacked_()        { meta, gz, gzLater }: the snapshot compacted and gzipped (base64) in two parts, plus the few fields the
+ *   loadPacked_()        { meta, gzBase, gzParts, gzLater }: the snapshot compacted and gzipped (base64) in parts, plus the few fields the
  *                        server needs itself; what the page downloads (built on a cache miss)
  *   loadDataset_()       the snapshot as JSON text, for setup and editor checks
  *   refreshDataset_()    rebuild now (daily trigger, and the Refresh button)
  *
- * The whole-NEH snapshot is about 5 MB of JSON; gzipped it is about a tenth of that, so it
- * fits the cache comfortably and the page loads quickly.
+ * The national snapshot is about 20 MB of JSON; compacted and gzipped it is under 3 MB, so it
+ * fits the cache, and the page carries only the viewer's own enterprise to begin with.
  */
 
 // Bump DATASET_VERSION whenever the snapshot's shape changes: the new code then rebuilds instead
 // of reading a snapshot the old code saved (the cache keeps one for up to 6 hours).
-var DATASET_VERSION = 11;
+var DATASET_VERSION = 12;
 var CACHE_PREFIX = 'wltds:v' + DATASET_VERSION + ':';
 // Cache values are capped at 100 KB (bytes); 45,000 characters stays under it even with accented names.
 var CACHE_CHUNK = 45000;
@@ -53,7 +53,7 @@ function snapshotSpreadsheet_(create) {
     try { return SpreadsheetApp.openById(id); } catch (e) { if (!create) return null; }
   }
   if (!create) return null;
-  var ss = SpreadsheetApp.create('NEH Projects - saved snapshot (do not edit)');
+  var ss = SpreadsheetApp.create(appName_() + ' - saved snapshot (do not edit)');
   props.setProperty(SNAPSHOT_SHEET_PROP, ss.getId());
   return ss;
 }
@@ -116,27 +116,82 @@ function loadDataset_() {
 
 /** What the cache holds: the gzipped snapshot and the parts the server reads (who is signed in). */
 function packDataset_(dataset) {
-  // Compacted (Compact.gs), and in two parts: the open projects the page shows first (gz), and
-  // the paid-in-full projects and service contracts it fetches right after (gzLater).
+  // Compacted (Compact.gs) and in parts, so the page can carry little and fetch the rest after:
+  // the shared part (gzBase: people, offices, stages...), each enterprise's open projects
+  // (gzParts; a project in two enterprises is in both parts), and the paid-in-full projects and
+  // service contracts the page hides at first (gzLater).
   var small = compactDataset_(dataset);
-  var first = [], later = [];
-  dataset.prs.forEach(function (p, i) { (shownFirst_(p) ? first : later).push(small.prs[i]); });
-  small.prs = first;
+  var zoneEnt = {};
+  (dataset.enterprises || []).forEach(function (e) { e.zones.forEach(function (z) { zoneEnt[z] = e.name; }); });
+  var parts = {}, later = [];
+  dataset.prs.forEach(function (p, i) {
+    var c = small.prs[i];
+    if (!shownFirst_(p)) { later.push(c); return; }
+    var ents = uniqueList_((p.zones || []).map(function (z) { return zoneEnt[z] || ''; }));
+    if (!ents.length) ents = [''];
+    ents.forEach(function (e) { (parts[e] = parts[e] || []).push(c); });
+  });
+  delete small.prs;
+  small.parts = Object.keys(parts);
   small.laterCount = later.length;
+  var gzParts = {};
+  Object.keys(parts).forEach(function (e) { gzParts[e] = gzipText_(JSON.stringify(parts[e])); });
   return {
     meta: { offices: dataset.offices, serviceCenters: dataset.serviceCenters, zones: dataset.zones, scopeLabel: dataset.scopeLabel, prs: dataset.prs.length },
-    gz: gzipText_(JSON.stringify(small)),
+    gzBase: gzipText_(JSON.stringify(small)),
+    gzParts: gzParts,
     gzLater: later.length ? gzipText_(JSON.stringify(later)) : ''
   };
 }
 
-/** The whole snapshot as one dataset again (both parts, every field), for the editor and older browsers. */
+/** A project's key across parts: the same project can be in two enterprises' parts. */
+function projectKey_(p) {
+  return (p.source || '') + ':' + p.pr;
+}
+
+/**
+ * What a page opens with: the shared part and the open projects of the viewer's enterprise
+ * (the one of the office or service center they manage, lead or belong to), or every
+ * enterprise's when the tracker can't tell. The page fetches the rest right after.
+ */
+function firstLoad_(packed, user) {
+  var all = Object.keys(packed.gzParts || {});
+  var home = homeEnterprise_(user, packed.meta);
+  var want = home && all.indexOf(home) !== -1 ? all.filter(function (e) { return e === home || e === ''; }) : all;
+  var parts = {};
+  want.forEach(function (e) { parts[e] = packed.gzParts[e]; });
+  return { user: user, gz: packed.gzBase, parts: parts };
+}
+
+/** The rest, after the first load: the enterprises' parts the page doesn't have yet, and the later part. */
+function restLoad_(packed, have) {
+  var parts = {};
+  Object.keys(packed.gzParts || {}).forEach(function (e) { if ((have || []).indexOf(e) === -1) parts[e] = packed.gzParts[e]; });
+  return { parts: parts, later: packed.gzLater || '' };
+}
+
+/** The enterprise a viewer belongs to ('' when the tracker can't tell). */
+function homeEnterprise_(user, meta) {
+  if (!user || !meta) return '';
+  var office = (user.manages && user.manages[0]) || user.orgOffice;
+  var sc = (user.directs && user.directs[0]) || user.orgSc;
+  var o = office && (meta.offices || []).filter(function (x) { return x.name === office; })[0];
+  if (o && o.enterprise) return o.enterprise;
+  var s = sc && (meta.serviceCenters || []).filter(function (x) { return x.name === sc; })[0];
+  return s && s.enterprise ? s.enterprise : '';
+}
+
+/** The whole snapshot as one dataset again (every part, every field), for the editor and older browsers. */
 function unpackDataset_(packed) {
-  var data = JSON.parse(gunzipText_(packed.gz));
-  var later = packed.gzLater ? JSON.parse(gunzipText_(packed.gzLater)) : [];
-  data.prs = data.prs.concat(later).map(function (c) { return expandProject_(c, data); });
+  var data = JSON.parse(gunzipText_(packed.gzBase));
+  var seen = {}, prs = [];
+  var add = function (list) { list.forEach(function (c) { var k = projectKey_(c); if (!seen[k]) { seen[k] = true; prs.push(c); } }); };
+  Object.keys(packed.gzParts || {}).forEach(function (e) { add(JSON.parse(gunzipText_(packed.gzParts[e]))); });
+  if (packed.gzLater) add(JSON.parse(gunzipText_(packed.gzLater)));
+  data.prs = prs.map(function (c) { return expandProject_(c, data); });
   data.prs.sort(function (a, b) { return a.pr < b.pr ? -1 : a.pr > b.pr ? 1 : 0; });
   delete data.laterCount;
+  delete data.parts;
   return data;
 }
 

@@ -1,14 +1,12 @@
 /**
- * NEH Projects (the NEH Project Workload Tracker) — configuration.
+ * OFM Projects (formerly the NEH Project Workload Tracker) — configuration.
  *
  * Every value here can be overridden without touching code: Apps Script ›
  * Project Settings › Script properties, using the key names in SETTINGS_DEFAULTS.
  */
 
-var APP = {
-  name: 'NEH Projects',
-  shortName: 'NEH Projects'
-};
+/** The site's name (Script property APP_NAME). */
+function appName_() { return setting_('APP_NAME'); }
 
 var SETTINGS_DEFAULTS = {
   // The APS Workload Tracker "BA61 Pipeline" report (a Google Sheet EASi refreshes every morning).
@@ -31,9 +29,13 @@ var SETTINGS_DEFAULTS = {
   RWA_TAB: 'Detailed Data',
   // Names in the BA61 portal or BA54 tracker the tracker can't match to an email on its own: "Name = email; Name = email".
   NAME_EMAILS: '',
-  // Which part of the OFM Building Assignments sheet to cover: an enterprise, optionally one zone of it.
-  ENTERPRISE: 'Northeast Heartland',
-  ENTERPRISE_SHORT: 'NEH',
+  // The site's name, in the header and the browser tab.
+  APP_NAME: 'OFM Projects',
+  // Which part of the OFM Building Assignments sheet to cover: ALL (every enterprise: the whole
+  // country), or one enterprise ("Northeast Heartland"), optionally one zone of it (ZONE).
+  ENTERPRISE: 'ALL',
+  // What the page calls the whole area it covers; blank = "National" (or the enterprise's short name).
+  ENTERPRISE_SHORT: '',
   ZONE: '',
   // Comma-separated emails to correct the building manager / project manager split for individual people.
   BUILDING_MANAGER_EMAILS: '',
@@ -168,7 +170,10 @@ var PORTAL_NUMBER_RE = /\b[A-Z]{2}\d{3,5}-\d{6}\b/g;
 /** "BA61", "BA 80", "PG54" written in a PR title (draft PRs often have no program code yet). */
 var PROGRAM_IN_TITLE_RE = /\b(?:BA|PG)[\s-]?(61|80|54)\b/gi;
 /** OFM org codes for a service center without a building (P00MCF00 = Heartland, P00MCG00 = Rocky Mountain). */
-var OFM_ORG_RE = /^P00M(C[A-Z])/;
+var OFM_ORG_RE = /^P00M([A-Z]{2})/;
+
+/** Short names the page uses for enterprises (others go by their full name). */
+var ENTERPRISE_SHORT_NAMES = { 'Northeast Heartland': 'NEH' };
 
 /** Reads a setting: script property first, then the default above. */
 function setting_(key) {
