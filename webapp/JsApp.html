@@ -129,7 +129,7 @@ function show(data, user, refreshed) {
   prepareData(S.data);
   if (first) applyDefaultsForUser();
   render();
-  if (restPending(data)) loadRest();
+  fetchForView();
   if (refreshed === 'done') toast('Read all the sources again. Everything is up to date.');
   else if (refreshed === 'recent') toast('The sources were read less than 10 minutes ago, so this is that copy.');
   else if (refreshed === 'busy') toast('Someone else is refreshing right now. This is the latest copy.');
@@ -140,13 +140,32 @@ function restPending(data) {
   return !!data && !!data.parts && (data.laterCount > 0 || data.parts.some(function (e) { return data.have.indexOf(e) === -1; }));
 }
 
+/** The enterprises the current filters reach that the page doesn't have yet. */
+function missingForView() {
+  var f = S.filters, d = S.data;
+  if (!d || !d.parts) return [];
+  var ent = f.enterprise || (f.zone ? enterpriseOfZone(f.zone) : '');
+  return d.parts.filter(function (e) { return d.have.indexOf(e) === -1 && (!ent || e === ent || e === ''); });
+}
+
 /**
- * The page opens with its viewer's enterprise's open projects; the other enterprises, the
- * paid-in-full projects and the service contracts come right after, so the first view arrives sooner.
+ * The page opens with its viewer's enterprise's open projects. The paid-in-full projects and
+ * service contracts come right after; other enterprises only when the filters reach them (the
+ * whole country, or another enterprise), so most people never download the rest of the country.
  */
-function loadRest() {
+function loadRest(want, later) {
   var data = S.data;
-  var failed = function () { toast('Some projects could not be loaded. Reload the page to try again.'); };
+  data.fetching = data.fetching || {};
+  want = want.filter(function (e) { return !data.fetching[e]; });
+  later = later && !data.fetching.__later;
+  if (!want.length && !later) return;
+  want.forEach(function (e) { data.fetching[e] = true; });
+  if (later) data.fetching.__later = true;
+  var failed = function () {
+    want.forEach(function (e) { delete data.fetching[e]; });
+    if (later) delete data.fetching.__later;
+    toast('Some projects could not be loaded. Reload the page to try again.');
+  };
   google.script.run
     .withSuccessHandler(function (json) {
       var res = JSON.parse(json);
@@ -156,24 +175,30 @@ function loadRest() {
         if (S.data !== data) return;
         lists.forEach(function (list) { addProjects(data, list); });
         data.have = data.have.concat(names);
-        data.laterCount = 0;
+        want.forEach(function (e) { delete data.fetching[e]; });
+        if (later) { data.laterCount = 0; delete data.fetching.__later; }
         prepareData(data);
         rerender();
       }).catch(failed);
     })
     .withFailureHandler(failed)
-    .apiLoad({ packed: true, part: 'rest', have: data.have });
+    .apiLoad({ packed: true, part: 'rest', have: data.have, want: want, later: later });
+}
+
+/** Fetches what the current view needs and the page doesn't have yet. */
+function fetchForView() {
+  var d = S.data;
+  if (!d || !d.parts) return;
+  var missing = missingForView();
+  if (missing.length || d.laterCount) loadRest(missing, d.laterCount > 0);
 }
 
 /** True while the rest is on its way and the filters would show some of it. */
 function waitingForRest() {
   var f = S.filters, d = S.data;
   if (!restPending(d)) return false;
-  var hidden = f.type !== 'projects' || f.status === 'expended' || f.status === 'all' || f.stage === 'expended';
-  // A place in an enterprise the page doesn't have yet (or the whole country) needs the rest too.
-  var ent = f.enterprise || (f.zone ? enterpriseOfZone(f.zone) : '');
-  var missing = d.parts.filter(function (e) { return d.have.indexOf(e) === -1; });
-  return hidden || (ent ? missing.indexOf(ent) !== -1 : missing.length > 0);
+  var hidden = d.laterCount > 0 && (f.type !== 'projects' || f.status === 'expended' || f.status === 'all' || f.stage === 'expended');
+  return hidden || missingForView().length > 0;
 }
 
 /** base64 gzip -> parsed JSON, with the browser's own decompressor. */
@@ -207,7 +232,8 @@ function applyRoute(r) {
   if (r.person) f.person = { role: r.role || 'lead', email: r.person.toLowerCase() };
   if (r.group) S.projects.group = r.group;
   if (r.check && ATTENTION_INDEX[r.check]) f.check = r.check;
-  S.routeHadScope = !!(r.office || r.sc);
+  // A link that names any place (down to an enterprise) opens there, not on the viewer's own office.
+  S.routeHadScope = !!(r.office || r.sc || r.zone || r.enterprise);
 }
 
 /** Field Office Managers open on their office, Service Center Directors on their service center. */
@@ -282,25 +308,43 @@ function render() {
   else main.appendChild(workloadView());
   main.appendChild(footnote());
   app.appendChild(main);
+  // A view that reaches another enterprise (or the whole country) fetches its projects.
+  if (S.data && S.data.parts && missingForView().length) fetchForView();
   syncUrl();
 }
 
 function rerender() {
   var y = window.scrollY;
   // Keep keyboard focus on the same control across the redraw (a filter button, a row, a tab).
+  var app = document.getElementById('app');
   var el = document.activeElement;
-  var key = el && el !== document.body && document.getElementById('app').contains(el) ? focusKey(el) : '';
+  var key = el && el !== document.body && app.contains(el) ? focusKey(el) : '';
+  // Two controls can share a key (the "All" button of Program and of Status are told apart by
+  // their group, but rows can repeat): remember which of them it was.
+  var nth = key ? sameKey(app, el.tagName, key).indexOf(el) : -1;
   render();
   window.scrollTo(0, y);
   if (key) {
-    var match = [].slice.call(document.getElementById('app').querySelectorAll(el.tagName)).filter(function (x) { return focusKey(x) === key; })[0];
+    var matches = sameKey(document.getElementById('app'), el.tagName, key);
+    var match = matches[nth] || matches[0];
     if (match) match.focus({ preventScroll: true });
   }
 }
 
-/** What identifies a control across redraws: its tag, its name or label, and its text. */
+/**
+ * What identifies a control across redraws: its tag, the group or field it is in, and its own
+ * label. A select or a text box is known by its label alone (its options and value change); a
+ * button or row also by its text.
+ */
 function focusKey(el) {
-  return el.tagName + '|' + (el.getAttribute('aria-label') || '') + '|' + (el.textContent || '').trim().slice(0, 80);
+  var group = el.closest('[role="group"], label, nav, tr');
+  var groupName = group ? (group.getAttribute('aria-label') || (group.tagName === 'LABEL' ? (group.querySelector('span') || {}).textContent : '') || group.tagName) : '';
+  if (/^(SELECT|INPUT|TEXTAREA)$/.test(el.tagName)) return el.tagName + '|' + groupName + '|' + (el.getAttribute('aria-label') || '');
+  return el.tagName + '|' + groupName + '|' + (el.getAttribute('aria-label') || '') + '|' + (el.textContent || '').trim().slice(0, 80);
+}
+
+function sameKey(root, tag, key) {
+  return [].slice.call(root.querySelectorAll(tag)).filter(function (x) { return focusKey(x) === key; });
 }
 
 function go(view) {
@@ -319,8 +363,9 @@ function topBar() {
   }));
   return h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
     h('div', { class: 'brand' },
-      h('h1', { class: 'brand-title' }, d.scopeLabel + ' Projects'),
-      h('span', { class: 'brand-sub' }, (d.zones.length > 1 ? 'Zones ' + d.zones.slice(0, -1).join(', ') + ' and ' + d.zones[d.zones.length - 1] : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
+      h('h1', { class: 'brand-title' }, (BOOT.app && BOOT.app.name) || d.scopeLabel + ' Projects'),
+      h('span', { class: 'brand-sub' }, ((d.enterprises || []).length > 1 ? andList(d.enterprises.map(function (e) { return e.short; }))
+        : d.zones.length > 1 ? 'Zones ' + andList(d.zones) : d.serviceCenters.map(function (s) { return s.short; }).join(' and ')) + ' · ' + andList(['EASi'].concat(plannedSources())))),
     h('div', { class: 'freshness' },
       h('span', null, 'EASi updated ' + (d.generatedAt ? fmtDateTime(d.generatedAt) : '(date unknown)')),
       refreshBtn),
@@ -666,8 +711,10 @@ function officeCard() {
   var offices = comparing ? S.data.offices.filter(function (o) { return !mine || o.zone === mine.zone; }) : officesInScope();
   var showSc = !f.sc || comparing;
   var manyZones = !comparing && !f.zone && !f.sc && S.data.zones.length > 1;
+  var byOfficeName = {};
+  list.forEach(function (p) { p.offices.forEach(function (n) { (byOfficeName[n] = byOfficeName[n] || []).push(p); }); });
   var rows = offices.map(function (o) {
-    var subset = list.filter(function (p) { return p.offices.indexOf(o.name) !== -1; });
+    var subset = byOfficeName[o.name] || [];
     var t = totalsOf(subset);
     var people = workloadRows(subset, 'lead', false).filter(function (r) { return r.email; });
     people.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
@@ -685,7 +732,9 @@ function officeCard() {
   });
   var sorted = sortRows(rows, S.officesSort, { manager: function (r) { return r.managerName; } });
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
-  var zone = totalsOf(list.filter(function (p) { return offices.some(function (o) { return p.offices.indexOf(o.name) !== -1; }); }));
+  var inList = {};
+  offices.forEach(function (o) { inList[o.name] = true; });
+  var zone = totalsOf(list.filter(function (p) { return p.offices.some(function (n) { return inList[n]; }); }));
   var zonePeople = workloadRows(list.filter(function (p) { return p.offices.length; }), 'lead', false).filter(function (r) { return r.email; });
   var zoneLeads = zonePeople.length;
   var zoneAvg = zoneLeads ? zonePeople.reduce(function (s, r) { return s + r.count; }, 0) / zoneLeads : 0;
@@ -698,7 +747,10 @@ function officeCard() {
     { key: 'leads', label: 'People', num: true }, { key: 'perLead', label: 'Projects each', num: true }, { key: 'topCount', label: 'Busiest', num: true }
   ].filter(Boolean);
   var onSort = function (key, multi, dir) { if (key === 'mix') key = 'count'; S.officesSort = toggleSort(S.officesSort, key, multi, dir); rerender(); };
-  var tbody = h('tbody', null, sorted.map(function (r) {
+  // Nationally there are dozens of offices: the first OFFICE_ROWS by the current sort, then a button.
+  var cut = !comparing && !S.officesAll && sorted.length > OFFICE_ROWS + 5;
+  var drawn = cut ? sorted.slice(0, OFFICE_ROWS) : sorted;
+  var tbody = h('tbody', null, drawn.map(function (r) {
     var current = r.office.name === f.office;
     var tr = h('tr', { class: 'clickable' + (current ? ' current' : ''), title: current ? null : 'Show ' + r.name, 'aria-current': current ? 'true' : null },
       h('td', { class: 'nowrap' }, h('strong', null, r.name), S.user && r.office.manager === S.user.email ? h('span', { class: 'you' }, 'You') : null,
@@ -729,8 +781,15 @@ function officeCard() {
       h('h2', null, comparing ? 'How ' + officeShort(f.office) + ' compares' : 'Field offices'),
       h('p', null, (comparing ? 'Your office next to the other Zone ' + (mine ? mine.zone : '') + ' offices. ' : '') + 'Click an office to see its projects.')),
       groupLegend()),
-    h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody, foot)));
+    h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, S.officesSort, onSort); }))), tbody, foot)),
+    cut || S.officesAll && !comparing && sorted.length > OFFICE_ROWS + 5 ? h('div', { class: 'table-foot' },
+      h('span', null, cut ? 'Showing the first ' + OFFICE_ROWS + ' of ' + sorted.length + ' offices, by the column you sorted on' : 'Showing all ' + sorted.length + ' offices'),
+      h('button', { class: 'btn', type: 'button', 'aria-expanded': String(!cut), onClick: function () { S.officesAll = !S.officesAll; rerender(); } },
+        cut ? 'Show all ' + sorted.length + ' offices' : 'Show the first ' + OFFICE_ROWS)) : null);
 }
+
+/** Offices the office table shows before its "Show all" button. */
+var OFFICE_ROWS = 25;
 
 /** "No projects match" with the way out. */
 function emptyState() {
@@ -916,9 +975,9 @@ function workloadView() {
   rows = rows.filter(function (r) { return r.email; }).concat(rows.filter(function (r) { return !r.email; }));
   var role = d.roles.filter(function (r) { return r.key === w.role; })[0];
   var roleSel = h('select', { 'aria-label': 'Count projects by' }, d.roles.filter(function (r) { return r.menu !== false; }).map(function (r) { return h('option', { value: r.key, selected: r.key === w.role }, r.label); }));
-  roleSel.addEventListener('change', function () { w.role = roleSel.value; S.filters.person = null; rerender(); });
+  roleSel.addEventListener('change', function () { w.role = roleSel.value; w.limit = 300; S.filters.person = null; rerender(); });
   var byOffice = h('input', { type: 'checkbox', checked: w.byOffice });
-  byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; rerender(); });
+  byOffice.addEventListener('change', function () { w.byOffice = byOffice.checked; w.limit = 300; rerender(); });
   var people = rows.filter(function (r) { return r.email; });
   var max = Math.max.apply(null, rows.map(function (r) { return r.count; }).concat([1]));
   var total = countOf(list);
@@ -938,10 +997,13 @@ function workloadView() {
   var onSort = function (key, multi, dir) {
     if (key === 'rank' || key === 'bar') key = 'count';
     w.sort = toggleSort(w.sort, key, multi, dir);
+    w.limit = 300;
     rerender();
   };
   var thead = h('thead', null, h('tr', null, cols.map(function (c) { return sortHeader(c, w.sort, onSort); })));
-  var tbody = h('tbody', null, rows.map(function (r, i) {
+  // A national list runs to thousands of people: draw the first rows, with a button for more.
+  var drawn = rows.slice(0, w.limit);
+  var tbody = h('tbody', null, drawn.map(function (r, i) {
     var mine = S.user && r.email && r.email === S.user.email;
     var tr = h('tr', { class: 'clickable' + (mine ? ' current' : ''), title: r.email ? (r.email.indexOf('@') !== -1 ? r.email + '. ' : 'Named in a plan, with no email found. ') + 'Show their projects.' : 'Projects with no ' + role.short + ' in EASi' },
       h('td', { class: 'rank-cell num' }, r.email ? String(i + 1) : ''),
@@ -982,7 +1044,9 @@ function workloadView() {
       h('label', { class: 'field' }, h('span', null, 'Count projects by'), roleSel),
       h('label', { class: 'check' }, byOffice, h('span', null, 'Show each office separately')),
       h('div', { class: 'spacer' }), exportBtn),
-    rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState());
+    rows.length ? h('div', { class: 'table-wrap' }, h('table', null, thead, tbody)) : emptyState(),
+    rows.length > drawn.length ? h('div', { class: 'table-foot' }, h('span', null, 'Showing ' + fmtInt(drawn.length) + ' of ' + fmtInt(rows.length) + ' rows'),
+      h('button', { class: 'btn', type: 'button', onClick: function () { w.limit += 300; rerender(); } }, 'Show more')) : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,9 +1124,11 @@ function openDrawer(p) {
       item('Program codes', p.programs.join(', ') + (p.programFromTitle ? ' (from the PR title; EASi has no program code yet)' : '')),
       item('RWA', p.rwas.join(', ')),
       item('Project codes', p.projectCodes.join(', ')),
-      item('BA61 portal number', p.portalNumbers.length && S.data.portal && S.data.portal.url ? p.portalNumbers.map(function (n, i) {
-        return [i ? ', ' : '', h('a', { href: S.data.portal.url + '?view=project&id=' + encodeURIComponent(n), target: '_blank', rel: 'noopener' }, n)];
-      }) : p.portalNumbers.join(', ')),
+      // Only numbers the NEH BA61 portal has are links; other regions write numbers that look alike.
+      item('BA61 portal number', p.portalNumbers.length ? p.portalNumbers.map(function (n, i) {
+        var inPortal = S.data.portal && S.data.portal.url && (p.plans || []).some(function (x) { return x.source === 'portal' && x.id === n; });
+        return [i ? ', ' : '', inPortal ? h('a', { href: S.data.portal.url + '?view=project&id=' + encodeURIComponent(n), target: '_blank', rel: 'noopener' }, n) : n];
+      }) : ''),
       item('Contracting office', p.officeCode),
       p.comments ? item('Comments', p.comments) : null));
   drawer.querySelectorAll('dd').forEach(function (dd) { dd.style.whiteSpace = 'pre-line'; });
@@ -1179,7 +1245,9 @@ function footnote() {
   };
   var sources = (d.sources || []).filter(function (s) { return !s.off; });
   var rules = [
-    'A project is here when it is on an ' + d.scopeLabel + ' building (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.',
+    (d.enterprise || d.zone
+      ? 'A project is here when one of its buildings is in ' + d.scopeLabel + ' (' + (d.zones.length > 1 ? 'Zones ' + andList(d.zones) : 'Zone ' + d.zones.join('')) + ') in the OFM Building Assignments sheet.'
+      : 'A project is here when one of its buildings is in the OFM Building Assignments sheet (every enterprise: ' + andList((d.enterprises || []).map(function (e) { return e.name; })) + ').'),
     '“Not in EASi yet” projects are planned or approved in ' + andList(plannedSources()) + ', with no PR yet. One moves to its EASi status the morning a PR carries it: a BA61 portal number in the PR title or as its EQ number, a BA54 PCN or ASID in its project codes, an RWA number on the PR or in its title (RWAs are BA80).',
     'Their amounts are estimates (budget, total cost or RWA authorized) and are never added to what EASi has committed or obligated.',
     'RWAs and work requests count only while nothing is committed or obligated on them; one with money but no PR is funded another way, such as a lease or a purchase card.',

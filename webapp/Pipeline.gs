@@ -267,7 +267,7 @@ function readDirectory_(buildingValues, orgValues, scope) {
     .sort(function (a, b) { return a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name); });
   out.zones.sort();
   out.enterprises = Object.keys(enterprises).map(function (k) { enterprises[k].zones.sort(); return enterprises[k]; })
-    .sort(function (a, b) { return a.zones[0].localeCompare(b.zones[0]) || a.name.localeCompare(b.name); });
+    .sort(function (a, b) { return (a.zones[0] || '~').localeCompare(b.zones[0] || '~') || a.name.localeCompare(b.name); });
   out.offices.forEach(function (o) { out.officeByName[o.name] = o; });
   out.serviceCenters.forEach(function (s) { if (s.code) out.scByCode[s.code] = s; });
   return out;

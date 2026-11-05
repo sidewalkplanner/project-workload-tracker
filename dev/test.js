@@ -527,9 +527,14 @@ test('national: every enterprise, an Enterprise filter, and each viewer loads th
   const someone = { manages: ['Denver Federal Center Field Office'], directs: [], orgOffice: '', orgSc: '' };
   const first = rt.ctx.firstLoad_(packed, someone);
   assert.deepStrictEqual(Object.keys(first.parts), ['Northeast Heartland']);
-  const rest = rt.ctx.restLoad_(packed, Object.keys(first.parts));
+  const rest = rt.ctx.restLoad_(packed, Object.keys(first.parts), 'all', true);
   assert.deepStrictEqual(Object.keys(rest.parts), ['Pacific Gulf']);
   assert.ok(rest.later.length > 0);
+  // The page asks for other enterprises only when its view reaches them: later alone carries none.
+  const laterOnly = rt.ctx.restLoad_(packed, Object.keys(first.parts), [], true);
+  assert.deepStrictEqual(Object.keys(laterOnly.parts), []);
+  assert.ok(laterOnly.later.length > 0);
+  assert.deepStrictEqual(Object.keys(rt.ctx.restLoad_(packed, [], ['Pacific Gulf'], false).parts), ['Pacific Gulf']);
   // Someone the tracker can't place gets every enterprise at once.
   assert.deepStrictEqual(Object.keys(rt.ctx.firstLoad_(packed, { manages: [], directs: [] }).parts).sort(), ['Northeast Heartland', 'Pacific Gulf']);
   // The two-enterprise PR is in both parts (so each enterprise's view has it at once).
@@ -537,6 +542,27 @@ test('national: every enterprise, an Enterprise filter, and each viewer loads th
   assert.ok(inPart('Northeast Heartland') && inPart('Pacific Gulf'));
   // Org codes place PRs with no building under any service center (PMB… is Pacific Gulf).
   assert.strictEqual(rt.ctx.OFM_ORG_RE.exec('P00MBE00')[1], 'BE');
+});
+
+test('widening to national: newly covered enterprises start "by today", not as known changes', () => {
+  const rt = mock.createRuntime({ quiet: true, sheets: sheetsFrom(demoSources()), properties: { ENTERPRISE: 'ALL' } });
+  const d = JSON.parse(rt.ctx.refreshDataset_());
+  const seattle = d.prs.filter((p) => p.zones.indexOf('7') !== -1);
+  const neh = d.prs.filter((p) => p.zones.indexOf('5') !== -1 && !p.source && p.stage === 'review');
+  assert.ok(seattle.length && neh.length);
+  // An old (NEH-only) history from before: it knows the NEH projects, not Seattle's.
+  const old = { v: 1, started: '2099-01-01', items: {} };
+  neh.forEach((p) => { old.items[p.pr] = { s: '2099-01-01', h: [[p.stage, '2099-01-01', 0]] }; });
+  const copy = JSON.parse(JSON.stringify(d));
+  const hist = rt.ctx.updateHistory_(copy, old, '2099-02-01');
+  assert.strictEqual(hist.enterprises['Northeast Heartland'], '2099-01-01');
+  assert.strictEqual(hist.enterprises['Pacific Gulf'], '2099-02-01');
+  const s = copy.prs.filter((p) => p.zones.indexOf('7') !== -1);
+  assert.ok(s.every((p) => !p.sinceKnown || (p.since !== '2099-02-01')), 'Seattle projects are not dated the switch day as known');
+  // A project new in NEH after tracking began did reach its stage that day.
+  copy.prs.push({ pr: 'EQNEW-99-0002', stage: 'draft', zones: ['5'], plans: [] });
+  rt.ctx.updateHistory_(copy, hist, '2099-02-02');
+  assert.strictEqual(copy.prs[copy.prs.length - 1].sinceKnown, true);
 });
 
 test('helpers: dates, money, names, emails', () => {

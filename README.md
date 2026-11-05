@@ -1,10 +1,10 @@
-# NEH Projects
+# OFM Projects
 
-NEH Projects (formerly the NEH Project Workload Tracker) is a Google Apps Script web app for seeing everything about the projects in the OFM **Northeast & Heartland (NEH) enterprise** in one place: Zones 2, 4 and 5, seven service centers, 36 field offices. It puts what is planned (the BA61 portal, the BA54 tracker, RWAs and work requests) next to what EASi shows, from draft PR to paid in full, and who is carrying each project, so workload stays one of its main views. It covers the same area as the NEH BA61 Project Portal, the "Northeast Heartland" enterprise in the OFM Building Assignments sheet. It reads five Google Sheets and never changes them:
+OFM Projects (formerly NEH Projects and the NEH Project Workload Tracker) is a Google Apps Script web app for seeing everything about OFM's projects across the country in one place: all three enterprises (Capital, Northeast & Heartland, Pacific Gulf), seven zones, 19 service centers and 84 field offices. It puts what is planned (the BA61 portal, the BA54 tracker, RWAs and work requests) next to what EASi shows, from draft PR to paid in full, and who is carrying each project, so workload stays one of its main views. Each person still opens on their own office, service center or enterprise. One setting (`ENTERPRISE`) narrows the whole app back to a single enterprise. It reads five Google Sheets and never changes them:
 
 - the APS Workload Tracker **BA61 Pipeline** report (every purchase request in EASi, refreshed each morning),
 - the **OFM Building Assignments** sheet (which zone, service center and field office each building belongs to, and its Field Office Manager),
-- the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet, and
+- the **NEH BA61 Project Portal**'s data sheet, for BA61 projects that are planned or approved there but have no PR in EASi yet (the portal covers NEH only, so other enterprises have no portal projects), and
 - the **BA54 National Tracker** (its Current Program tab), for BA54 projects in the current program that have no PR in EASi yet, and
 - the **All Open RWAs and WRs Dashboard** (its Detailed Data tab), for RWAs and RETA work requests: the ones with no PR yet, and the customer and authorized amount behind the PRs that have one.
 
@@ -34,9 +34,9 @@ Four tabs, all following the same filters.
 
 **Words used on the page**: *Not in EASi yet* (planned or approved, no PR yet), *Not awarded yet* (draft PR through contract being written), *Awarded* (money still to be spent), *Paid in full* (all obligated money spent), *Left to spend* (obligated minus spent in Pegasys), *Assigned to* (the COR, or the submitter until there is one; for a plan, its COR, project manager or GSA PM).
 
-**Filters** (shared by every tab, and kept in the page link so you can share a view): zone, field office, program (BA61 / BA80 / BA54 / Other), status (open, not in EASi yet, not awarded yet, awarded, paid in full, all) and a search box that matches PR, RWA, PCN and portal numbers, titles, buildings, people, vendors and customers. Under More filters: service center, fiscal year, service contracts, and planned projects not in EASi yet.
+**Filters** (shared by every tab, and kept in the page link so you can share a view): enterprise, zone, field office, program (BA61 / BA80 / BA54 / Other), status (open, not in EASi yet, not awarded yet, awarded, paid in full, all) and a search box that matches PR, RWA, PCN and portal numbers, titles, buildings, people, vendors and customers. Under More filters: service center, fiscal year, service contracts, and planned projects not in EASi yet.
 
-**Who sees what**: anyone at GSA with the link can see all of NEH, but each person opens on their own part of it, as in the NEH BA61 Project Portal: a Field Office Manager on the office they manage and a Service Center Director on their service center (both from the OFM Building Assignments sheet); everyone else on the office in their GSA profile's org code ("Robert Sells - **PMCGC**" → Denver Federal Center; a service-center code like PMCG → Rocky Mountain), or, without one, the office where they lead the most projects. A banner says why, and one click shows all of NEH. A **Zone** filter narrows to Zone 2, 4 or 5; when you look at one office, the comparison table lists the other offices in its zone. Anyone listed on PRs gets a **My projects** link.
+**Who sees what**: anyone at GSA with the link can see the whole country, but each person opens on their own part of it, as in the NEH BA61 Project Portal: a Field Office Manager on the office they manage and a Service Center Director on their service center (both from the OFM Building Assignments sheet); everyone else on the office in their GSA profile's org code ("Robert Sells - **PMCGC**" → Denver Federal Center; a service-center code like PMCG → Rocky Mountain), or, without one, the office where they lead the most projects. A banner says why, and one click shows all of their enterprise or the whole country. Someone with no office of their own opens on the whole country. An **Enterprise** filter picks Capital, NEH or Pacific Gulf, and a **Zone** filter narrows to one zone; when you look at one office, the comparison table lists the other offices in its zone. Anyone listed on PRs gets a **My projects** link.
 
 ## How the numbers work
 
@@ -49,10 +49,10 @@ Four tabs, all following the same filters.
 | Needs attention | Each check uses only the data on the page and follows the filters (not the status buttons: each check picks the stages it is about). The thresholds are in `webapp/JsAttention.html`. |
 | Names | People are shown as the GSA directory names them ("Robert J. Green"), from the same weekly directory sweep that finds org codes; until a sweep has run, the name comes from the email. |
 | Where this comes from | The bottom of every view lists each source sheet with a link, what it adds, and how fresh it is: when EASi generated its report, the directory's "Last Updated" date, the portal's latest project change, the BA54 tracker's "Obligation Data As of" date, and the RWA dashboard's "Data as of" date. |
-| NEH PR | A PR with at least one NEH building in `FE_Building_Code_List`. When EASi lists no building, building numbers in the PR title are used. A PR with only an NEH OFM org code (P00MCA00 … P00MCG00) is shown at service-center level. PRs with no building at all (national contracts, broker leases) are left out. |
+| Which PRs | A PR with at least one building in the OFM Building Assignments sheet, in `FE_Building_Code_List`. When EASi lists no building, building numbers in the PR title are used. A PR with only an OFM org code (P00M + its service center's letters, such as P00MCA00) is shown at service-center level. PRs with no building at all (national contracts, broker leases) are left out. |
 | Service contracts | Hidden by default (the **Type** filter brings them back), because they aren't projects. A PR is a service contract when its EASi procurement category is a 5- or 10-year service IDV/BPA, utilities, ESPC or a lease order, or, for Services/Other PRs, when its title reads like a recurring service: custodial or janitorial services, snow removal, groundskeeping, full maintenance, O&M or FE services, CFM, elevator maintenance, option years. A title that names building work (replace, repair, install, renovate, construction, CM) stays a project, so "Janitor closet … leaking" and "Multi-Project O&M R&A" count. The project's detail panel says why a PR was classed as a service contract. The rules are in `webapp/Rules.gs`. |
 | Multi-project PRs | One award that funds several projects is one PR in EASi. PRs listed in `SUB_PROJECTS` in `webapp/Rules.gs` count as their number of projects everywhere (totals, pipeline, programs, offices, each person's workload); the table shows "8 projects" and the detail panel lists them. EQPMBA-26-0272 (Building 56 and 67 Multi-Project O&M R&A) is listed with its 8 DWP26104 projects. |
-| Field office | From the building. A PR on buildings in two offices appears under both. |
+| Field office | From the building. A PR on buildings in two offices (or two enterprises) appears under both. |
 | Program | `FE_Program_Code_List`: PG61 = BA61, PG80 = BA80, PG54 = BA54, anything else = Other. A draft PR often has no code yet; then "BA61", "BA 80", "PG54" in the title, or a BA61 portal number (RM0028-092426), sets it. A PR funded from two programs counts in both. |
 | EASi status | From Acquisition Status, Award Status and PR Status. **Awarded · open** has money obligated and not all of it expended in Pegasys; **Fully expended** has it all expended (or nothing obligated). **Open** = everything except fully expended. |
 | Person assigned | The COR on the PR, or the submitter (EASi's requestor) until a COR is named; pre-award PRs rarely have a COR yet, and on 82% of PRs with both they are the same person. This is the default for "who has the most projects". |
@@ -61,7 +61,7 @@ Four tabs, all following the same filters.
 | Division | The People tab's **Role** column shows each person's org code; click it to sort people by team and division. Projects can be grouped by **Building or project manager** or **Org code**. |
 | Building manager | The ServiceNow primary POC for the PR's buildings, from the OFM Building Assignments sheet. |
 
-On the October 29, 2026 report, 3,609 of the 10,294 PRs nationwide are on NEH buildings: 1,480 in Zone 2, 1,286 in Zone 4, 874 in Zone 5 (a PR can touch two zones). 480 are service contracts. Of the projects, 2,373 are open: 925 in Zone 2, 879 in Zone 4, 589 in Zone 5.
+On the October 29, 2026 report, the tracker shows 14,385 PRs and planned projects across the country, 9,629 of them open projects: 4,525 in NEH, 3,127 in Pacific Gulf and 2,012 in Capital (a PR can touch two enterprises). The office table lists the first 25 offices by the column you sort on, with a button for all 84; the People tab draws 300 people at a time.
 
 ## Accessibility and design
 
@@ -69,19 +69,19 @@ Built to WCAG 2.2 AA: every text color passes contrast in light and dark, chart 
 
 ## How it works
 
-The server reads the sheets, keeps only NEH, and stores the result compacted and gzipped (about 1.3 MB instead of 9 MB: fields the browser can rebuild, such as EASi links, building names and default values, are left out and put back by the page) in the script cache and in a saved copy (a small Google Sheet the tracker creates in the owner's Drive, "NEH Project Workload Tracker - saved snapshot"), so that if Google empties the cache early the next page load reads the copy in a second or two instead of rebuilding. The open projects are sent inside the page itself, so opening the tracker is a single request; paid-in-full projects and service contracts, which the page hides at first, follow a moment later (about a quarter of the data). So a page load doesn't re-read 10,000 rows. It rebuilds every 4 hours and at 7:30 Central each morning (after EASi regenerates the report), and anyone can press **Refresh** (once every 10 minutes; admins any time). The web app runs as the person who deployed it, so viewers don't need access to the source sheets, and only people signed in with a GSA account can open it.
+The server reads the sheets, keeps OFM's buildings (or one enterprise's, when `ENTERPRISE` is set), and stores the result compacted and gzipped (about 2.9 MB for the country instead of 23 MB: fields the browser can rebuild, such as EASi links, building names and default values, are left out and put back by the page) in the script cache and in a saved copy (a small Google Sheet the tracker creates in the owner's Drive, "OFM Projects - saved snapshot (do not edit)"; a set-up from before the rename keeps its older sheet), so that if Google empties the cache early the next page load reads the copy in a second or two instead of rebuilding. The snapshot is split by enterprise. The page arrives with the open projects of the viewer's own enterprise inside it (about 1.2 MB for an NEH office manager, drawn in about 1.5 seconds on a 10 Mbps connection), and the paid-in-full projects and service contracts follow a moment later. The other enterprises are fetched only when the filters reach them ("Show all of National" takes about 2 seconds). Someone with no office of their own gets every enterprise up front (about 2.3 MB). So a page load doesn't re-read the sheets. It rebuilds every 4 hours and at 7:30 Central each morning (after EASi regenerates the report), and anyone can press **Refresh** (once every 10 minutes; admins any time). The web app runs as the person who deployed it, so viewers don't need access to the source sheets, and only people signed in with a GSA account can open it.
 
 | File | What it does |
 |---|---|
-| `webapp/Config.gs` | Sheet IDs, enterprise, zone, admins and cache time. Any setting can be overridden in Script properties. |
+| `webapp/Config.gs` | App name, sheet IDs, enterprise, zone, admins and cache time. Any setting can be overridden in Script properties. |
 | `webapp/Rules.gs` | The rules shared with Cornerstone: EASi columns, programs, stages, roles, service contracts, multi-project PRs, building and portal numbers, org codes. Keep it free of app settings. |
-| `webapp/Pipeline.gs` | Turns the sheets into the NEH dataset (pure functions, tested in Node). |
-| `webapp/Compact.gs` | Makes the snapshot small for the browser and splits it into what the page shows first and the rest; the page's `expandProject` puts it back (a test checks both agree). |
+| `webapp/Pipeline.gs` | Turns the sheets into the dataset (pure functions, tested in Node). |
+| `webapp/Compact.gs` | Makes the snapshot small for the browser; the page's `expandProject` puts it back (a test checks both agree). |
 | `webapp/History.gs` | The stage history: when each project reached its stage, kept across refreshes (pure functions, tested in Node). |
 | `webapp/Planned.gs`, `Portal.gs`, `Ba54.gs`, `Rwa.gs` | Add the BA61 portal, BA54 tracker and RWA dashboard projects that have no PR in EASi yet, and match the names in them to emails (pure functions, tested in Node). |
-| `webapp/Data.gs` | Reads the sheets, caches the snapshot, works out who is signed in. |
+| `webapp/Data.gs` | Reads the sheets, caches the snapshot, splits it by enterprise (`firstLoad_`, `restLoad_`), works out who is signed in. |
 | `webapp/Directory.gs` | Reads the signed-in person's org code from the GSA directory (People API) to pick their starting office; `checkDirectoryLookup()` tests it. |
-| `webapp/Api.gs` | The two functions the page calls: `apiLoad`, `apiRefresh`. |
+| `webapp/Api.gs` | The two functions the page calls: `apiLoad` (also fetches the rest of the snapshot), `apiRefresh`. |
 | `webapp/Setup.gs` | `setup()` (run once) and the scheduled refresh. |
 | `webapp/Web.gs` | `doGet`, link parameters. |
 | `webapp/Index.html`, `Styles.html`, `JsCore.html`, `JsApp.html`, `JsAttention.html` | The page: a dependency-free single-page app. All data is inserted as text, never as HTML. |
@@ -101,8 +101,9 @@ The server reads the sheets, keeps only NEH, and stores the result compacted and
 | `BA54_ID` / `BA54_TAB` | `1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8` (BA54 National Tracker) / `Current Program`; `OFF` leaves BA54 tracker projects out |
 | `RWA_ID` / `RWA_TAB` | `1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0` (All Open RWAs and WRs Dashboard) / `Detailed Data`; `OFF` leaves RWAs out |
 | `NAME_EMAILS` | blank; names in the BA61 portal or BA54 tracker the tracker can't match on its own, as `Name = email; Name = email` (for example someone whose name changed but whose email didn't) |
-| `ENTERPRISE` / `ENTERPRISE_SHORT` | `Northeast Heartland` / `NEH` (any enterprise in the sheet works) |
-| `ZONE` | blank = the whole enterprise; `5` = only Zone 5 |
+| `APP_NAME` | `OFM Projects` (the page title and heading) |
+| `ENTERPRISE` / `ENTERPRISE_SHORT` | `ALL` = every enterprise / blank. `Northeast Heartland` / `NEH` (or any enterprise in the sheet) narrows the app to that enterprise; set `APP_NAME` to `NEH Projects` to match |
+| `ZONE` | blank = every zone; `5` = only Zone 5 |
 | `BUILDING_MANAGER_EMAILS` / `PROJECT_MANAGER_EMAILS` | blank; comma-separated emails that correct the building manager / project manager split for individual people |
 | `ADMIN_EMAILS` | blank (the deployer is always an admin) |
 | `CACHE_MINUTES` | `360` |

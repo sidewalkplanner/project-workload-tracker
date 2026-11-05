@@ -21,9 +21,12 @@ var CACHE_CHUNK = 45000;
 function loadPacked_() {
   var packed = cachedOrSavedPacked_();
   if (packed) return packed;
-  var json = refreshDataset_();
-  return packDataset_(JSON.parse(json));
+  refreshDataset_();
+  return lastPacked_;
 }
+
+/** The packed snapshot the last refresh in this run built (so a cache miss doesn't pack it twice). */
+var lastPacked_ = null;
 
 /**
  * The snapshot without rebuilding it: from the cache, or from the saved copy (a small sheet
@@ -163,11 +166,17 @@ function firstLoad_(packed, user) {
   return { user: user, gz: packed.gzBase, parts: parts };
 }
 
-/** The rest, after the first load: the enterprises' parts the page doesn't have yet, and the later part. */
-function restLoad_(packed, have) {
+/**
+ * More of the snapshot after the first load: the enterprises' parts asked for (want: names, or
+ * 'all' for every one the page doesn't have yet) and, with later, the paid-in-full projects and
+ * service contracts.
+ */
+function restLoad_(packed, have, want, later) {
   var parts = {};
-  Object.keys(packed.gzParts || {}).forEach(function (e) { if ((have || []).indexOf(e) === -1) parts[e] = packed.gzParts[e]; });
-  return { parts: parts, later: packed.gzLater || '' };
+  Object.keys(packed.gzParts || {}).forEach(function (e) {
+    if ((have || []).indexOf(e) === -1 && (want === 'all' || (want || []).indexOf(e) !== -1)) parts[e] = packed.gzParts[e];
+  });
+  return { parts: parts, later: later ? packed.gzLater || '' : '' };
 }
 
 /** The enterprise a viewer belongs to ('' when the tracker can't tell). */
@@ -254,7 +263,8 @@ function refreshDataset_() {
   }
   dataset.buildSeconds = Math.round((Date.now() - started) / 100) / 10;
   var json = JSON.stringify(dataset);
-  var packedJson = JSON.stringify(packDataset_(dataset));
+  lastPacked_ = packDataset_(dataset);
+  var packedJson = JSON.stringify(lastPacked_);
   writeCachedJson_(packedJson);
   try { writeSavedSnapshot_(packedJson); } catch (e) { console.warn('Could not save the snapshot copy: ' + e); }
   try {
