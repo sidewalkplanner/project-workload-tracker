@@ -1,6 +1,6 @@
 /**
  * BA61 projects that are planned or approved in the NEH BA61 Project Portal but have no PR
- * in EASi yet. The portal's Projects tab (its data sheet, Script property PORTAL_ID) is only
+ * in EASi. The portal's Projects tab (its data sheet, Script property PORTAL_ID) is only
  * read; the records it makes are described in Planned.gs.
  *
  * A portal project is in EASi when a PR's number is its EQ number, or a PR's title or

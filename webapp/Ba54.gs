@@ -1,6 +1,6 @@
 /**
  * BA54 projects in the BA54 National Tracker's current program (its Current Program tab,
- * Script property BA54_ID) on in-scope buildings that have no PR in EASi yet. The tracker
+ * Script property BA54_ID) on in-scope buildings that have no PR in EASi. The tracker
  * is only read; the records it makes are described in Planned.gs.
  *
  * A BA54 project is in EASi when a PR lists its PCN or ASID among its project codes

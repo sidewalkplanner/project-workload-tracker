@@ -1,6 +1,6 @@
 /**
  * What the BA61 portal (Portal.gs), the BA54 tracker (Ba54.gs) and the RWA dashboard (Rwa.gs)
- * have in common: projects planned or approved there with no PR in EASi yet, added to the
+ * have in common: projects planned or approved there with no PR in EASi, added to the
  * dataset as records with a source ('portal', 'ba54' or 'rwa') and one of the "planned" stages. Their money is the plan's
  * budget or cost (an estimate), kept apart from what EASi has committed. Those sheets give
  * people as names; plannedPeople_ turns a name into the person's email when only one person
