@@ -106,7 +106,7 @@ var ATTENTION_CHECKS = [
   },
   {
     key: 'noPcn', group: 'data', title: 'BA54 project with no PCN',
-    why: 'Without a PCN or ASID the tracker can’t tell when this project gets a PR, so it will keep showing as not in EASi.',
+    why: 'Without a PCN or ASID the tracker can’t tell when this project gets a PR, so it will keep showing as in planning.',
     test: function (p) { return p.source === 'ba54' && /^Row \d+/.test(p.pr) ? 'No PCN or ASID in the BA54 tracker' : ''; },
     sortKey: function (p) { return -(p.estimate || 0); }
   },

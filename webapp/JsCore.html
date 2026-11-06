@@ -13,8 +13,8 @@ var TYPE_OPTIONS = [
   { key: 'service', label: 'Service contracts' }
 ];
 var STATUS_OPTIONS = [
-  { key: 'open', label: 'Open', help: 'Everything not yet paid in full, including planned projects not in EASi yet' },
-  { key: 'planned', label: 'Not in EASi yet', help: 'Projects planned or approved in the BA61 portal, the BA54 tracker or the RWA dashboard that have no PR in EASi yet', planned: true },
+  { key: 'open', label: 'Open', help: 'Everything not yet paid in full, including projects in planning' },
+  { key: 'planned', label: 'In planning', help: 'Projects planned or approved in the BA61 portal, the BA54 tracker or the RWA dashboard that have no PR in EASi yet', planned: true },
   { key: 'preaward', label: 'Not awarded yet', help: 'From draft PR through contract being written' },
   { key: 'awarded', label: 'Awarded', help: 'Awarded, with money still to be spent' },
   { key: 'expended', label: 'Paid in full', help: 'Awarded and all obligated money spent (Pegasys)' },
@@ -25,7 +25,7 @@ var TEAM_OPTIONS = [
   { key: 'bm', label: 'Building managers', short: 'Building mgr', help: 'People ServiceNow lists as a contact for a building' },
   { key: 'pm', label: 'Project managers', short: 'Project mgr', help: 'Everyone else assigned to projects' }
 ];
-var GROUP_LABELS = { planned: 'Not in EASi yet', preaward: 'Not awarded yet', awarded: 'Awarded', closed: 'Paid in full' };
+var GROUP_LABELS = { planned: 'In planning', preaward: 'Not awarded yet', awarded: 'Awarded', closed: 'Paid in full' };
 
 /** The planning sheets the snapshot read (BA61 portal, BA54 tracker): their projects with no PR in EASi yet are included. */
 function plannedSources() {
