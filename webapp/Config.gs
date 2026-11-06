@@ -18,12 +18,12 @@ var SETTINGS_DEFAULTS = {
   DIRECTORY_ID: '1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw',
   DIRECTORY_TAB: 'Buildings',
   ORG_TAB: 'Org Relationships',
-  // The NEH BA61 Project Portal's data sheet: BA61 projects planned or approved there but not in EASi yet.
+  // The NEH BA61 Project Portal's data sheet: BA61 projects planned or approved there with no PR in EASi.
   // PORTAL_ID set to OFF leaves them out. PORTAL_URL is the portal's web app, for links to each project.
   PORTAL_ID: '1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y',
   PORTAL_TAB: 'Projects',
   PORTAL_URL: 'https://script.google.com/a/macros/gsa.gov/s/AKfycby4r1bIis1ceoCNXZYVbJt8HEhJPVcHoUKel04omZKgytSaG5K7sPCRjUWBZ1a0bVCu/exec',
-  // The BA54 National Tracker: BA54 projects in the current program but not in EASi yet. OFF leaves them out.
+  // The BA54 National Tracker: BA54 projects in the current program with no PR in EASi. OFF leaves them out.
   BA54_ID: '1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8',
   BA54_TAB: 'Current Program',
   // The All Open RWAs and WRs Dashboard: RWAs and work requests, before and after their PRs. OFF leaves them out.

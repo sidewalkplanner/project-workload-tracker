@@ -6,7 +6,7 @@
  * RWAs are BA80 (reimbursable work). An RWA is in EASi when a PR lists its number in
  * FE_RWA_List, or writes it in its title or comments ("RWA #N3858013"); that PR then shows the RWA
  * (customer, authorized amount, GSA PM) as its plan. One that no PR lists is added as "Not
- * in EASi yet" when nothing has been committed or obligated on it: work requests being
+ * in EASi" when nothing has been committed or obligated on it: work requests being
  * estimated (Planning/Estimate, Unassigned) are planning, ones waiting for the customer's
  * signature are waiting for approval, and accepted RWAs are approved with no PR yet. An RWA
  * with money committed or obligated but no PR in the report is funded some other way (a
@@ -36,7 +36,7 @@ var RWA_STAGES = {
 };
 
 /** RETA's RWA types, in words. */
-var RWA_TYPES = { W: 'Work request (not yet an RWA)', N: 'Nonrecurring', R: 'Recurring', F: 'Fixed price', A: 'Above-standard services', B: 'Building services', C: 'Credit', D: 'Delegation' };
+var RWA_TYPES = { W: 'Work request (not an RWA)', N: 'Nonrecurring', R: 'Recurring', F: 'Fixed price', A: 'Above-standard services', B: 'Building services', C: 'Credit', D: 'Delegation' };
 
 /** Where the header row is ("RWA No" is in it) and each column, or null when the tab isn't the dashboard. */
 function rwaColumns_(values) {

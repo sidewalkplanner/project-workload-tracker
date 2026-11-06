@@ -31,13 +31,13 @@ var PROGRAMS = [
 
 /**
  * Where a project is, in order. "group" drives the status filters. The "planned" stages are
- * BA61 portal, BA54 tracker and RWA dashboard projects with no PR in EASi yet (Planned.gs).
+ * BA61 portal, BA54 tracker and RWA dashboard projects with no PR in EASi (Planned.gs).
  * Fully expended = awarded and Pegasys shows the whole obligation spent (or nothing was obligated).
  */
 var STAGES = [
-  { key: 'planning', label: 'Planned, no PR in EASi yet', short: 'Planning', group: 'planned' },
-  { key: 'pending', label: 'Waiting for approval, no PR in EASi yet', short: 'Waiting for approval', group: 'planned' },
-  { key: 'noPr', label: 'Approved, no PR in EASi yet', short: 'Approved, no PR yet', group: 'planned' },
+  { key: 'planning', label: 'Planned, no PR in EASi', short: 'Planning', group: 'planned' },
+  { key: 'pending', label: 'Waiting for approval, no PR in EASi', short: 'Waiting for approval', group: 'planned' },
+  { key: 'noPr', label: 'Approved, no PR in EASi', short: 'Approved, no PR', group: 'planned' },
   { key: 'draft', label: 'PR being written (draft in EASi)', short: 'Draft PR', group: 'preaward' },
   { key: 'review', label: 'PR in review', short: 'PR in review', group: 'preaward' },
   { key: 'approved', label: 'PR approved, waiting for a contract specialist', short: 'Waiting for contracting', group: 'preaward' },

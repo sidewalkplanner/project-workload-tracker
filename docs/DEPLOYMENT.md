@@ -5,9 +5,9 @@ About 15 minutes, all in the browser. Do this signed in with the GSA account tha
 - **WLT - BA61 Pipeline**: https://docs.google.com/spreadsheets/d/1Z0CNVnAft_h4dwJeket99PDwobLMC7YS2zUN55zNlAU
 - **OFM Building Assignments**: https://docs.google.com/spreadsheets/d/1jH7ffxNrT2rFl2P0p-SFFH9z_yYcsH4W2qnBMB_xuAw
 - **GSA-Wide Roster** (who reports to whom, for supervisors' Needs attention; only the employee email and supervisor email columns are read): https://docs.google.com/spreadsheets/d/1OYB7EEZA-lbZnEtUPGYv6YJPrW6BTaWhdPM7A-jqJvQ
-- **NEH BA61 Portal – Data** (the BA61 Project Portal's own sheet, for projects not in EASi yet): https://docs.google.com/spreadsheets/d/1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y
+- **NEH BA61 Portal – Data** (the BA61 Project Portal's own sheet, for projects in planning: no PR in EASi): https://docs.google.com/spreadsheets/d/1Vi0986jvcQ-45VQFY0JnGHSgimrQCc8DtpFIegUqG9Y
 
-- **BA54 National Tracker** (for BA54 projects not in EASi yet): https://docs.google.com/spreadsheets/d/1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8
+- **BA54 National Tracker** (for BA54 projects in planning): https://docs.google.com/spreadsheets/d/1yymDTl2sHxfFvh6oYIiiO6-J1e0w1z9aO4nxsaprHj8
 - **All Open RWAs and WRs Dashboard** (for RWAs and work requests): https://docs.google.com/spreadsheets/d/1x-_djqh6dugexhMHUHUEqnl5KnuwtH1r---AGgY4eu0
 
 Open all five links first. If any says you need access, request it before going on. Without the portal sheet, the BA54 tracker or the RWA dashboard the tracker still works; it just leaves out what that sheet adds.
@@ -106,7 +106,7 @@ All optional, in **Project Settings** › **Script properties**:
 | "You do not have permission to access the requested document" | The deploying account lost access to the pipeline report or the building directory. Ask the sheet owner to share it again (viewer is enough). |
 | "The pipeline report has no "Pipeline" tab" | The report's layout changed. Set `PIPELINE_TAB` to the new tab name. |
 | Numbers look a day old | Press **Refresh**. If they are still old, open the pipeline sheet and check its *Report Info* › *Generated At*. The tracker can only be as fresh as the report. |
-| No "Not in EASi yet" status, or no BA54 projects or RWAs in it | The deploying account can't open the BA61 portal's data sheet, the BA54 tracker or the RWA dashboard (the execution log says "… not read"). Share it with that account, then press **Refresh**. |
-| A BA54 project still shows "Not in EASi yet" after its PR was written | The PR needs the project's PCN or ASID among its project codes in EASi, or the tracker's PCN column needs the code the PR uses. |
-| A portal project still shows "Not in EASi yet" after its PR was written | The PR's title needs the portal number (for example RM0024-092426), or the project's EQ number in the portal needs to be the PR number. The portal asks requesters to do the first. |
+| No "In planning" status, or no BA54 projects or RWAs in it | The deploying account can't open the BA61 portal's data sheet, the BA54 tracker or the RWA dashboard (the execution log says "… not read"). Share it with that account, then press **Refresh**. |
+| A BA54 project still shows "In planning" after its PR was written | The PR needs the project's PCN or ASID among its project codes in EASi, or the tracker's PCN column needs the code the PR uses. |
+| A portal project still shows "In planning" after its PR was written | The PR's title needs the portal number (for example RM0024-092426), or the project's EQ number in the portal needs to be the PR number. The portal asks requesters to do the first. |
 | An office or person is missing | Offices come from the OFM Building Assignments sheet, so a PR only shows up once its building is assigned to an office there. PRs with no building in EASi are matched only if a building number is in the title. |

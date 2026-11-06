@@ -13,9 +13,9 @@ var TYPE_OPTIONS = [
   { key: 'service', label: 'Service contracts' }
 ];
 var STATUS_OPTIONS = [
-  { key: 'open', label: 'Open', help: 'Everything not yet paid in full, including planned projects not in EASi yet' },
-  { key: 'planned', label: 'Not in EASi yet', help: 'Projects planned or approved in the BA61 portal, the BA54 tracker or the RWA dashboard that have no PR in EASi yet', planned: true },
-  { key: 'preaward', label: 'Not awarded yet', help: 'From draft PR through contract being written' },
+  { key: 'open', label: 'Open', help: 'Everything not paid in full, including projects in planning' },
+  { key: 'planned', label: 'In planning', help: 'Projects planned or approved in the BA61 portal, the BA54 tracker or the RWA dashboard that have no PR in EASi', planned: true },
+  { key: 'preaward', label: 'Not awarded', help: 'From draft PR through contract being written' },
   { key: 'awarded', label: 'Awarded', help: 'Awarded, with money still to be spent' },
   { key: 'expended', label: 'Paid in full', help: 'Awarded and all obligated money spent (Pegasys)' },
   { key: 'all', label: 'All' }
@@ -25,9 +25,9 @@ var TEAM_OPTIONS = [
   { key: 'bm', label: 'Building managers', short: 'Building mgr', help: 'People ServiceNow lists as a contact for a building' },
   { key: 'pm', label: 'Project managers', short: 'Project mgr', help: 'Everyone else assigned to projects' }
 ];
-var GROUP_LABELS = { planned: 'Not in EASi yet', preaward: 'Not awarded yet', awarded: 'Awarded', closed: 'Paid in full' };
+var GROUP_LABELS = { planned: 'In planning', preaward: 'Not awarded', awarded: 'Awarded', closed: 'Paid in full' };
 
-/** The planning sheets the snapshot read (BA61 portal, BA54 tracker): their projects with no PR in EASi yet are included. */
+/** The planning sheets the snapshot read (BA61 portal, BA54 tracker): their projects with no PR in EASi are included. */
 function plannedSources() {
   var d = S.data || {};
   // The BA61 portal covers Northeast Heartland only, which a page covering more needs to say.
@@ -39,22 +39,22 @@ function plannedSources() {
 /** How the page talks about each planning sheet. */
 var PLAN_SOURCES = {
   portal: { name: 'the BA61 portal', short: 'portal', program: 'PG61', person: 'COR', amount: 'Budgeted in the portal', amountShort: 'budgeted in the BA61 portal',
-    number: 'The project’s BA61 portal number', match: function () { return 'No PR in EASi has this project’s number in its title or as its EQ number yet.'; } },
+    number: 'The project’s BA61 portal number', match: function () { return 'No PR in EASi has this project’s number in its title or as its EQ number.'; } },
   ba54: { name: 'the BA54 tracker', short: 'tracker', program: 'PG54', person: 'Project manager (COR)', amount: 'Total cost (BA54 tracker)', amountShort: 'total cost in the BA54 tracker',
     number: 'The project’s PCN in the BA54 tracker',
-    match: function (p) { return 'No PR in EASi' + (p.fy ? ' from FY' + String(p.fy - 1).slice(2) + ' on' : '') + ' lists this project’s PCN or ASID among its project codes yet.'; } },
+    match: function (p) { return 'No PR in EASi' + (p.fy ? ' from FY' + String(p.fy - 1).slice(2) + ' on' : '') + ' lists this project’s PCN or ASID among its project codes.'; } },
   rwa: { name: 'the RWA dashboard', short: 'RWA dashboard', program: 'PG80', person: 'GSA PM (COR)', amount: 'Authorized (RWA)', amountShort: 'authorized on the RWA',
-    number: 'The RWA or work request number in RETA', match: function () { return 'No PR in EASi lists this RWA number yet, and nothing is committed or obligated on it.'; } }
+    number: 'The RWA or work request number in RETA', match: function () { return 'No PR in EASi lists this RWA number, and nothing is committed or obligated on it.'; } }
 };
 function planSource(p) { return PLAN_SOURCES[p.source] || PLAN_SOURCES.portal; }
 function hasPlanned() { return plannedSources().length > 0; }
 function statusOptions() { return STATUS_OPTIONS.filter(function (s) { return !s.planned || hasPlanned(); }); }
-/** A project from the BA61 portal or BA54 tracker that has no PR in EASi yet. */
+/** A project from the BA61 portal or BA54 tracker that has no PR in EASi. */
 function isPlanned(p) { return !!p.source; }
 
 /**
  * Plan vs. EASi for a PR that carries planned projects: { planned, committed, ratio, key, label }.
- * key: 'over' / 'under' (more than 25% off the plan), 'near', 'none' (nothing committed yet), 'mixed' (the PR
+ * key: 'over' / 'under' (more than 25% off the plan), 'near', 'none' (nothing committed), 'mixed' (the PR
  * is also funded from other programs, so its committed amount isn't comparable), 'noamount' (the plan has no
  * amount), 'shared' (a plan spread over several PRs), or '' with no plan.
  */
@@ -67,7 +67,7 @@ function planCheck(p) {
   var others = p.programs.filter(function (c) { return planPrograms.indexOf(c) === -1; });
   if (plans.length && planned <= 0) { out.key = 'noamount'; out.label = 'No amount in the plan'; }
   else if (plans.length) {
-    if (p.committed <= 0) { out.key = 'none'; out.label = 'Nothing committed in EASi yet'; }
+    if (p.committed <= 0) { out.key = 'none'; out.label = 'Nothing committed in EASi'; }
     else if (plans.some(function (x) { return x.prCount > 1; })) {
       out.key = 'shared';
       out.label = 'The plan is spread over several PRs, so this one isn’t comparable to it';

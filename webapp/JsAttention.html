@@ -21,8 +21,8 @@ function isOpen(p) { return p.stage !== 'expended'; }
  */
 var ATTENTION_CHECKS = [
   {
-    key: 'funds', group: 'money', title: 'RWA money expires soon, not awarded yet',
-    why: 'The customer’s funds close within 120 days (or already have) and there is no award yet. Funds that close before award are lost to the project.',
+    key: 'funds', group: 'money', title: 'RWA money expires soon, not awarded',
+    why: 'The customer’s funds close within 120 days (or already have) and there is no award. Funds that close before award are lost to the project.',
     test: function (p) {
       if (!(isPlanned(p) || stageOf(p).group === 'preaward')) return '';
       var close = p.source === 'rwa' ? p.fundsClose : (p.plans || []).filter(function (x) { return x.fundsClose; }).map(function (x) { return x.fundsClose; }).sort()[0];
@@ -39,7 +39,7 @@ var ATTENTION_CHECKS = [
     sortKey: function (p) { return -(planCheck(p).ratio || 0); }
   },
   {
-    key: 'staleAward', group: 'money', title: 'Awarded over a year ago, nothing paid yet',
+    key: 'staleAward', group: 'money', title: 'Awarded over a year ago, nothing paid',
     why: 'Money obligated a year or more ago with nothing spent may be an unliquidated obligation to review or deobligate.',
     test: function (p) {
       if (p.stage !== 'awarded' || !p.executed || p.expended > 0 || p.obligated <= 0) return '';
@@ -55,7 +55,7 @@ var ATTENTION_CHECKS = [
       if (p.stage !== 'awarded') return '';
       var a = paymentAge(p);
       if (!a || a.days < 90) return '';
-      if (p.expended <= 0) return a.days >= 365 ? '' : 'Awarded ' + fmtDate(a.since) + ', nothing paid yet (' + plural(a.days, 'day') + ')';
+      if (p.expended <= 0) return a.days >= 365 ? '' : 'Awarded ' + fmtDate(a.since) + ', nothing paid (' + plural(a.days, 'day') + ')';
       return (a.known ? 'No new payment since ' + fmtDate(a.since) + ' (' + plural(a.days, 'day') + ')' : 'No new payment for ' + a.days + '+ days') + ', ' + spentPct(p) + '% spent';
     },
     sortKey: function (p) { return p.spentSince; }
@@ -68,7 +68,7 @@ var ATTENTION_CHECKS = [
   },
   {
     key: 'approvedNoPr', group: 'time', title: 'Approved 60+ days ago, still no PR',
-    why: 'Approved or accepted (with money behind it, for an RWA) but no PR has been written yet.',
+    why: 'Approved or accepted (with money behind it, for an RWA) but no PR has been written.',
     test: function (p) { var a = stageAge(p); return p.stage === 'noPr' && a && a.known && a.days >= 60 ? 'Approved ' + fmtDate(a.since) + ' (' + plural(a.days, 'day') + ')' : ''; },
     sortKey: function (p) { return p.since; }
   },
@@ -85,7 +85,7 @@ var ATTENTION_CHECKS = [
   },
   {
     key: 'cancelledWithPr', group: 'data', title: 'Cancelled or denied in the plan, but has a PR',
-    why: 'The BA61 portal says this project was cancelled or denied, yet a PR carries it. One of the two is out of date.',
+    why: 'The BA61 portal says this project was cancelled or denied, but a PR carries it. One of the two is out of date.',
     test: function (p) {
       var x = (p.plans || []).filter(function (q) { return /^(cancelled|denied)$/i.test(q.status); })[0];
       return !isPlanned(p) && x ? x.status + ' in the ' + x.sourceLabel + ' (' + x.id + ')' : '';
@@ -106,7 +106,7 @@ var ATTENTION_CHECKS = [
   },
   {
     key: 'noPcn', group: 'data', title: 'BA54 project with no PCN',
-    why: 'Without a PCN or ASID the tracker can’t tell when this project gets a PR, so it will keep showing as not in EASi.',
+    why: 'Without a PCN or ASID the tracker can’t tell when this project gets a PR, so it will keep showing as in planning.',
     test: function (p) { return p.source === 'ba54' && /^Row \d+/.test(p.pr) ? 'No PCN or ASID in the BA54 tracker' : ''; },
     sortKey: function (p) { return -(p.estimate || 0); }
   },
